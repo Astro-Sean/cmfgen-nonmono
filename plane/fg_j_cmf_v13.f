@@ -265,6 +265,7 @@
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_MOD_V13
 	USE MOD_RAY_MOM_STORE
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR
 	IMPLICIT NONE
 !
 ! Altered 19-Aug-2015: Added check that SIGMA> -1.0D0; Some code improvements (cur_hmi, 28-Jun-2015).
@@ -1963,9 +1964,10 @@ C
 	1         LAMSTAR_DIAG(I) .GT. 1.0_LDP)N_OUT_LAMSTAR=N_OUT_LAMSTAR+1
 	    END DO
 	    IF(N_OUT_LAMSTAR .GT. 0)THEN
-	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,I8)')
-	1     '  LAMSTAR_DIAG: min=',LAMSTAR_MIN,' max=',LAMSTAR_MAX,
-	1     ' outside (0,1]:',N_OUT_LAMSTAR
+	      CALL ILF_KVB(LUER,'  LAMSTAR_DIAG:',3,
+	1        (/'min','max','outside (0,1]'/),
+	2        (/ILF_VR(LAMSTAR_MIN,4),ILF_VR(LAMSTAR_MAX,4),
+	3         ILF_VI(N_OUT_LAMSTAR)/))
 	    END IF
 	  END IF
 	END IF
