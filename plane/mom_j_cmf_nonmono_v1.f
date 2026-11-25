@@ -1146,6 +1146,7 @@
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1
 	USE MOD_RAY_MOM_STORE
+	USE ITER_LOG_FMT_MOD
 	IMPLICIT NONE
 !
 	INTEGER NC,NP,ND_SM
@@ -1228,6 +1229,7 @@
 	EXTERNAL DGTSV
 	INTEGER ICNT
 	INTEGER N_QBND
+	CHARACTER(LEN=160) XM_MSG
 	INTEGER, SAVE :: N_QPRT=0
 	INTEGER, SAVE :: N_XPRT=0
 	REAL(KIND=LDP), ALLOCATABLE :: R_QR_CL(:)
@@ -3780,9 +3782,9 @@
 	END DO
 	IF(N_QBND .GT. 0 .AND. N_XPRT .LT. 15)THEN
 	  N_XPRT=N_XPRT+1
-	  WRITE(6,'(A,ES14.6,A,I5,A)')' MOM_J_CMF_NONMONO_V1: '//
-	1     'non-finite/runaway XM_NM rejected at',FREQ,' :',
-	2     N_QBND,' depths'
+	  WRITE(XM_MSG,'(A,ES14.6,A,I5,A)')'non-finite/runaway XM_NM'//
+	1     ' rejected at',FREQ,' :',N_QBND,' depths'
+	  CALL ILF_REPEAT_WRITE(LUER,'WARN','MOM',TRIM(XM_MSG))
 ! Localize the first failure: a single non-finite tridiagonal row or
 ! RHS entry propagates through the tridiagonal solve, so the first bad index
 ! (not the count) identifies the source. Also scan the matrix/RHS so
@@ -4403,6 +4405,7 @@
 	USE MOD_MOM_J_NONMONO_V1
 	USE KNOP_STATUS_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
+	USE ITER_LOG_FMT_MOD
 	USE IFPORT
 	IMPLICIT NONE
 	INTEGER NITSF,ND,LU
@@ -4421,6 +4424,7 @@
 ! coupling (Knop et al. 2009 Paper II pathway) to OUTGEN.
 !
 	LUER=ERROR_LU()
+	CALL ILF_REPEAT_FLUSH(LUER)
 !
 ! edited 05-Nov-2026: report the sweep drift, not the refresh
 ! residual. MOM_KNOP_REFRESH_V1 snapshots the pre-refresh metric into
@@ -4485,7 +4489,8 @@
 	IF(MOM_N_DGTSV .GT. 0 .OR. MOM_N_NONF .GT. 0 .OR.
 	1   MOM_TB_NONPOS .GT. 0)SV_ST='[BAD]  '
 !
-	WRITE(LUER,'(/,A)')' ----------------------- MOM_J_CMF_NONMONO_V1: GS sweep ------------------------'
+	IF(CONV_DIAG_LVL .GE. 2)THEN
+	CALL ILF_SUBSECTION(LUER,'MOM_J_CMF_NONMONO_V1 GS SWEEP')
 !
 ! edited 21-Oct-2026: the sweep table is written as
 ! labelled sentences; the short-key legend is gone because every
@@ -4593,12 +4598,10 @@
 	2    TRIM(RF_DIR_W),'); compressing share ',MOM_SW_FCMP,'; ',
 	3    MOM_SW_NSUPP,' rows suppressed (owned by the other'//
 	4    ' direction)'
-	IF(MOM_RF_RAN)THEN
-	  WRITE(LUER,'(4X,A10,2X,A)')
-	1    'refresh',TRIM(MOM_REFRESH_SENTENCE(MOM_RF_CONV,
-	2    MOM_RF_DCHG,MOM_RF_N5,MOM_RF_N50,'delta',0,0.0_LDP))
+	IF(MOM_RF_RAN)
+	1  WRITE(LUER,'(4X,A10,2X,A)')'refresh',
+	2    'stored-field change reported in the moment-refresh summary'
 	END IF
-	WRITE(LUER,'(A)')' -------------------------------------------------------------------------------'
 !
 ! Format version 2 (16-Sep-2026): J_NEXT_FRQ lives on the EXPANDED
 ! depth grid R_NM/R_PNT_NM, whose construction depends on the internal
@@ -4654,6 +4657,8 @@
 	USE SET_KIND_MODULE
 	USE MOD_MOM_J_NONMONO_V1
 	USE KNOP_STATUS_MOD
+	USE ITER_LOG_FMT_MOD
+	USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
 	IMPLICIT NONE
 	INTEGER ND
 	REAL(KIND=LDP) R(ND),V(ND)
@@ -4672,7 +4677,8 @@
 	MOM_GS_CHG_FILE=-1.0_LDP
 	MOM_GS_CAP_FILE=-1
 !
-	WRITE(LUER,'(A)')'GS RESTART STATE (MOM_J_CMF_NONMONO_V1):'
+	IF(CONV_DIAG_LVL .GE. 2)
+	1  CALL ILF_SUBSECTION(LUER,'GS RESTART STATE (MOM_J_CMF_NONMONO_V1)')
 !
 ! Hard invariant: NEWMOD (or any state where SCR_READ_V2 did not
 ! return a positive NITSF) never restores GS state -- exit before the
@@ -4682,7 +4688,7 @@
 	IF(MOM_GS_TAG_EXP .LE. 0)THEN
 	  WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.FALSE.,
 	1    .FALSE.,'',0,0))
-	  WRITE(LUER,'(A)')'  FALLING BACK TO LAMBDA REBUILD (J_NEXT=0)'
+	  CALL ILF_TAG(LUER,'WARN','MOM','FALLING BACK TO LAMBDA REBUILD (J_NEXT=0)')
 	  RETURN
 	END IF
 !
@@ -4690,7 +4696,7 @@
 	IF(.NOT. FILE_THERE)THEN
 	  WRITE(LUER,'(2A)')'  ',TRIM(MOM_RESTART_SENTENCE(.FALSE.,
 	1    .FALSE.,'',0,0))
-	  WRITE(LUER,'(A)')'  FALLING BACK TO LAMBDA REBUILD (J_NEXT=0)'
+	  CALL ILF_TAG(LUER,'WARN','MOM','FALLING BACK TO LAMBDA REBUILD (J_NEXT=0)')
 	  RETURN
 	END IF
 	WRITE(LUER,'(A)')'  J_NEXT checkpoint: file present;'//
@@ -4822,7 +4828,7 @@
 	IF(ALLOCATED(J_NEXT_FRQ))J_NEXT_FRQ=0.0_LDP
 	IF(ALLOCATED(H_NEXT_FRQ))H_NEXT_FRQ=0.0_LDP
 	IF(ALLOCATED(MOM_QUAR_AGE))MOM_QUAR_AGE=0_2
-	WRITE(LUER,'(A)')'  FALLING BACK TO LAMBDA REBUILD (J_NEXT=0)'
+	CALL ILF_TAG(LUER,'WARN','MOM','FALLING BACK TO LAMBDA REBUILD (J_NEXT=0)')
 	RETURN
 	END
 !
@@ -5455,6 +5461,8 @@
 	USE MOD_RAY_MOM_STORE
 	USE KNOP_STATUS_MOD
 	USE ITER_LEDGER_MOD
+	USE ITER_LOG_FMT_MOD
+	USE CONTROL_VARIABLE_MOD, ONLY: CONV_DIAG_LVL
 	IMPLICIT NONE
 !
 	INTEGER LUER,ERROR_LU
@@ -5505,7 +5513,24 @@
 	INTEGER IKONJ_SZ
 	LOGICAL BESTV_D(2),SKIP_D(2)
 	CHARACTER(LEN=7) RF_ST
+	CHARACTER(LEN=6) RF_OUT_ST
 	CHARACTER(LEN=21) DIR_W
+! Output-only copies for the refresh table; never fed back to the solver.
+	CHARACTER(LEN=4) DIR_C
+	CHARACTER(LEN=5) GM_W
+	CHARACTER(LEN=10) AA_W
+	CHARACTER(LEN=11) RES_W,CHG_W
+	CHARACTER(LEN=180) RF_MSG
+	INTEGER NACT_ROW,DMP_TOT,AA_A0,AA_S0,AA_G0,AA_R0,BEST_OUT
+	INTEGER RF_EXIT_PASS
+	INTEGER(KIND=8) RF_EXIT_N50
+	REAL(KIND=LDP) RF_EXIT_CHG,RF_EXIT_REF
+	CHARACTER(LEN=16) RF_EXIT_W
+	LOGICAL DID_BLK,DID_NUS
+	CHARACTER(LEN=12) TBLC(10)
+	INTEGER TBLW(10)
+	LOGICAL TBLR(10)
+	CHARACTER(LEN=12) I5_W,I50_W,IDMP_W,IACT_W,IPW
 !
 ! Latest RSQHNU per frequency. Double precision is required: the
 ! runaway guard limits XM_NM to ~1E3 times the previous valid field,
@@ -5763,6 +5788,12 @@
 	MIN_RES=HUGE(1.0_LDP)
 	BEST_N5=HUGE(0_8);  BEST_N50=HUGE(0_8)
 	RESID0=-1.0_LDP
+	BEST_OUT=0
+	RF_EXIT_PASS=0
+	RF_EXIT_N50=0_8
+	RF_EXIT_CHG=0.0_LDP
+	RF_EXIT_REF=0.0_LDP
+	RF_EXIT_W='not-converged'
 	BEST_VALID=.FALSE.
 	CONVERGED=.FALSE.
 	RES_PREV=0.0_LDP
@@ -5855,8 +5886,8 @@
 ! region and measures whether DO_NONMONO_FREQ_MATCH actually selects
 ! non-adjacent upwind bins. The stock path never calls this routine.
 !
-	WRITE(LUER,'(/,A)')' ------------------------------ MOM_KNOP_REFRESH -------------------------------'
-	WRITE(LUER,'(A)')'  lagged-field re-solve, direction-ordered'//
+	IF(CONV_DIAG_LVL .GE. 1)CALL ILF_SECTION(LUER,'MOMENT REFRESH')
+	IF(CONV_DIAG_LVL .GE. 2)WRITE(LUER,'(A)')'  lagged-field re-solve, direction-ordered'//
 	1    ' frequency passes'
 !
 ! Report the resolved pass order. On a dominant grid the minority
@@ -5865,9 +5896,16 @@
 ! physically-guided ordering of Knop Paper II Sect. 3.2.
 !
 	FCMP=MOM_SW_FCMP
-	WRITE(LUER,'(2A)')'   ',
+	IF(CONV_DIAG_LVL .GE. 2)THEN
+	  WRITE(LUER,'(2A)')'  ',
 	1    TRIM(MOM_DIRECTION_SENTENCE(MOM_DOM_CMP,MOM_DOM_EXP))
-	WRITE(LUER,'(A,F6.3)')'   compressing-row share ',FCMP
+	  WRITE(LUER,'(A,F6.3)')'  compressing-row share ',FCMP
+	END IF
+	IF(CONV_DIAG_LVL .GE. 1)THEN
+	  TBLC=(/ 'pass    ','dir     ','gmres   ','resid   ','max change','cells>5%','cells>50%','damped  ','AA/aitken','active nu' /)
+	  TBLW=(/ 4,3,5,11,11,9,9,8,9,9 /)
+	  CALL ILF_TABLE_HEADER(LUER,TBLC,TBLW,INDENT=2)
+	END IF
 	DO IPASS=1,KN_M_MAXPASS
 	  PASS_CHG=0.0_LDP
 	  PASS_CAP=0
@@ -5879,6 +5917,9 @@
 	  PASS_NU=0.0_LDP;  PASS_R=0.0_LDP;  PASS_V=0.0_LDP
 	  PASS_SIGT=0.0_LDP;  PASS_GAM=0.0_LDP;  PASS_Q=0.0_LDP
 	  NDMP=0_8;  NACC=0_8
+	  DID_BLK=.FALSE.;  DID_NUS=.FALSE.
+	  AA_A0=MOM_AA_APP;  AA_S0=MOM_AA_SKIP
+	  AA_G0=MOM_AA_SNG;  AA_R0=MOM_AA_RST
 !
 ! Per-pass reset of the physics accumulators -- the in-routine
 ! FREQ_INDX=1 reset is suppressed during refresh, so without this a
@@ -6110,6 +6151,7 @@
 	    PASS_NQ=PASS_NQ+MOM_GS_NQUAR
 	    PASS_NHUGE=PASS_NHUGE+MOM_GS_NHUGE
 	  END DO
+	CALL ILF_REPEAT_FLUSH(LUER)
 !
 ! [MOM_NUSOLV] Implicit frequency-chain pass: solve this pass's
 ! captured equations exactly along each depth's upwind graph
@@ -6120,8 +6162,9 @@
 ! could not reach.
 !
 	  IF(MOM_BLKGMRES .AND. NU_CACHE_RDY)THEN
+	    DID_BLK=.TRUE.
 	    CALL MOM_BLK_SOLVE(KN_M_NCF,NU_CHG,NU_N5,NU_N50)
-	    WRITE(LUER,'(4X,A10,2X,A,I6,A,I3,A,ES10.3,A,ES10.3,A,I10,A,I10,A,3(I10,A))')
+	    IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(4X,A10,2X,A,I6,A,I3,A,ES10.3,A,ES10.3,A,I10,A,I10,A,3(I10,A))')
 	1    'blk-gmres','iter ',MOM_BLK_NITER,' restarts ',
 	2    MOM_BLK_NREST,' resid ',MOM_BLK_RESID,'; largest change ',
 	3    NU_CHG,'; ',NU_N5,' cells above 5%, ',NU_N50,' above 50%; ',
@@ -6130,19 +6173,20 @@
 	    IF(NUC_NROW .GT. 0_8)THEN
 	      ! Keep every census field on continuation lines. A single long fixed-
 	      ! source record is truncated before the H/X0 descriptors.
-	            WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)')
+	            IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)')
 	1    'nu-census','amax ',NUC_AMAX,'; a>0.9 ',NUC_NA9,
 	2    ' a>0.99 ',NUC_NA99,'; rmax ',NUC_RMAX,' at depth ',
 	3    NUC_RMAX_I,' freq ',NUC_RMAX_K,'; H/X0 ',
 	4    NUC_HSUM/MAX(NUC_XSUM,1.0E-30_LDP),' xs<=0 ',NUC_XSNEG
-	      WRITE(LUER,'(4X,A11,2X,A,I10,A,I10,A,I10)') 'nu-census','rows ',NUC_NROW,'; r>10 ',NUC_NR10,' r>100 ',NUC_NR100
+	      IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(4X,A11,2X,A,I10,A,I10,A,I10)') 'nu-census','rows ',NUC_NROW,'; r>10 ',NUC_NR10,' r>100 ',NUC_NR100
 	    END IF
 	    PASS_CHG=MAX(PASS_CHG,NU_CHG)
 	    PASS_N5=PASS_N5+NU_N5
 	    PASS_N50=PASS_N50+NU_N50
 	  ELSE IF(MOM_NUSOLV .AND. NU_CACHE_RDY)THEN
+	    DID_NUS=.TRUE.
 	    CALL MOM_NU_CHAIN_SOLVE(KN_M_NCF,NU_CHG,NU_N5,NU_N50)
-	    WRITE(LUER,'(4X,A11,2X,A,ES10.3,A,I10,A,I10,A,6(I10,A))')
+	    IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(4X,A11,2X,A,ES10.3,A,I10,A,I10,A,6(I10,A))')
 	1    'nu-solve','largest change ',NU_CHG,'; ',
 	2    NU_N5,' cells above 5%, ',NU_N50,' above 50%; ',
 	3    MOM_NU_NRING,' rings (',MOM_NU_NSING,' singular, ',
@@ -6151,12 +6195,12 @@
 	    IF(NUC_NROW .GT. 0_8)THEN
 	      ! Keep every census field on continuation lines. A single long fixed-
 	      ! source record is truncated before the H/X0 descriptors.
-	            WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)')
+	            IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(4X,A11,2X,A,ES10.3,2(A,I10),A,ES10.3,A,I5,A,I6,A,ES10.3,A,I10)')
 	1    'nu-census','amax ',NUC_AMAX,'; a>0.9 ',NUC_NA9,
 	2    ' a>0.99 ',NUC_NA99,'; rmax ',NUC_RMAX,' at depth ',
 	3    NUC_RMAX_I,' freq ',NUC_RMAX_K,'; H/X0 ',
 	4    NUC_HSUM/MAX(NUC_XSUM,1.0E-30_LDP),' xs<=0 ',NUC_XSNEG
-	      WRITE(LUER,'(4X,A11,2X,A,I10,A,I10,A,I10)') 'nu-census','rows ',NUC_NROW,'; r>10 ',NUC_NR10,' r>100 ',NUC_NR100
+	      IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(4X,A11,2X,A,I10,A,I10,A,I10)') 'nu-census','rows ',NUC_NROW,'; r>10 ',NUC_NR10,' r>100 ',NUC_NR100
 	    END IF
 	    PASS_CHG=MAX(PASS_CHG,NU_CHG)
 	    PASS_N5=PASS_N5+NU_N5
@@ -6190,7 +6234,7 @@
 	    ACT_NEW(1)=.TRUE.
 	    ACT_CUR(1:KN_M_NCF)=ACT_NEW(1:KN_M_NCF)
 	    NACT=COUNT(ACT_CUR(1:KN_M_NCF))
-	    IF(NACT .LT. KN_M_NCF)WRITE(LUER,'(A,I8,A,I8)')
+	    IF(NACT .LT. KN_M_NCF .AND. CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I8,A,I8)')
 	1      '    active frequencies ',NACT,' of',KN_M_NCF
 	  END IF
 !
@@ -6254,10 +6298,11 @@
 	    END IF
 	    BEST_CHG_D(IDIR)=PASS_CHG
 	    BEST_N5_D(IDIR)=PASS_N5;  BEST_N50_D(IDIR)=PASS_N50
+	    BEST_OUT=IPASS
 	    BESTV_D(IDIR)=.TRUE.
 	    DIR_W='expanding direction'
 	    IF(IDIR .EQ. 2)DIR_W='compressing direction'
-	    WRITE(LUER,'(A,I4,A,A,A,I12,A,I12,A,ES12.4)')
+	    IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I4,A,A,A,I12,A,I12,A,ES12.4)')
 	1      '    best pass updated: pass',IPASS,' (',
 	2      TRIM(DIR_W),'); ',BEST_N50_D(IDIR),
 	3      ' cells above 50%, ',BEST_N5_D(IDIR),' above 5%;'//
@@ -6348,7 +6393,7 @@
 	          END IF
 	        END DO
 	      END DO
-	      IF(NDMP .GT. 0_8)WRITE(LUER,'(A,I12)')
+	      IF(NDMP .GT. 0_8 .AND. CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I12)')
 	1        '    cells newly damped this pass ',NDMP
 	    END IF
 !
@@ -6376,7 +6421,7 @@
 	1        DBLE(ND_NM)*DBLE(KN_M_NCF))THEN
 	        NHIST_AA=0
 	        MOM_AA_RST=MOM_AA_RST+1
-	        WRITE(LUER,'(A,I12,A)')
+	        IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I12,A)')
 	1          '    AA history restarted (',NDMP,
 	2          ' cells re-damped this pass)'
 	      END IF
@@ -6470,7 +6515,7 @@
 	1           MAX(100_8,ND_NM*INT(KN_M_NCF,8)/1000))THEN
 	          INFO_AA=-999
 	          MOM_AA_SKIP=MOM_AA_SKIP+1
-	          WRITE(LUER,'(A,I12)')
+	          IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I12)')
 	1            '    AA skipped - affine subset empty, '//
 	2            'cells excluded ',NAA_SKIP
 	        ELSE
@@ -6510,7 +6555,7 @@
 !
 	          IF(DNRM .GT. FNRM)THEN
 	            MOM_AA_SKIP=MOM_AA_SKIP+1
-	            WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
+	            IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1            '    AA m=',MP_AA,'  ||f||=',FNRM,
 	2            '  ||corr||=',DNRM,
 	3            '  skipped (correction exceeds ||f||),'//
@@ -6561,14 +6606,14 @@
 	            END DO
 	          END DO
 	          MOM_AA_APP=MOM_AA_APP+1
-	          WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
+	          IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1            '    AA m=',MP_AA,'  ||f||=',FNRM,
 	2            '  ||corr||=',DNRM*SC,'  cells excluded ',
 	3            NAA_SKIP
 	          END IF
 	        ELSE
 	          MOM_AA_SNG=MOM_AA_SNG+1
-	          WRITE(LUER,'(A,I3,A,I2)')
+	          IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I3,A,I2)')
 	1            '    AA solve failed (DGESV info=',INFO_AA,
 	2            ') - raw map output kept'
 	        END IF
@@ -6587,9 +6632,48 @@
 	1  RATIO_M=PASS_CHG/RES_PREV(IDIR)
 	  DIR_W='expanding direction'
 	  IF(LDI .LT. 0)DIR_W='compressing direction'
-	  WRITE(LUER,'(/,A,I3,A,A,A)')
-	1    ' ------------- Moment refresh pass ',IPASS,' - ',
-	2    TRIM(DIR_W),' ----------------------------------'
+	  IF(CONV_DIAG_LVL .GE. 1)THEN
+	    DIR_C='exp'
+	    IF(LDI .LT. 0)DIR_C='cmp'
+	    GM_W='-'
+	    RES_W='-'
+	    IF(DID_BLK)THEN
+	      WRITE(GM_W,'(I5)')MOM_BLK_NITER
+	      RES_W=ILF_ES(MOM_BLK_RESID)
+	    ELSE IF(DID_NUS)THEN
+	      GM_W='nu'
+	      RES_W=ILF_ES(NU_CHG)
+	    END IF
+	    CHG_W=ILF_ES(PASS_CHG)
+	    AA_W='-'
+	    IF(MOM_AA_APP .GT. AA_A0)AA_W='AA app'
+	    IF(MOM_AA_SKIP .GT. AA_S0)AA_W='AA skip'
+	    IF(MOM_AA_SNG .GT. AA_G0)AA_W='AA sng'
+	    IF(MOM_AA_RST .GT. AA_R0)AA_W='AA rst'
+	    IF(NACC .GT. 0_8)AA_W='Aitken'
+	    NACT_ROW=KN_M_NCF
+	    IF(DO_ACT)NACT_ROW=NACT
+	    DMP_TOT=0
+	    IF(ALLOCATED(MOM_DAMP_NM))DMP_TOT=COUNT(
+	1      MOM_DAMP_NM(1:ND_NM,1:KN_M_NCF) .LT.
+	2      0.99_LDP*JNEXT_RELAX)
+	    WRITE(IPW,'(I0)')IPASS
+	    WRITE(I5_W,'(I0)')PASS_N5
+	    WRITE(I50_W,'(I0)')PASS_N50
+	    WRITE(IDMP_W,'(I0)')DMP_TOT
+	    WRITE(IACT_W,'(I0)')NACT_ROW
+	    TBLC(1)=IPW;  TBLC(2)=DIR_C;  TBLC(3)=GM_W
+	    TBLC(4)=RES_W;  TBLC(5)=CHG_W;  TBLC(6)=I5_W
+	    TBLC(7)=I50_W;  TBLC(8)=IDMP_W;  TBLC(9)=AA_W
+	    TBLC(10)=IACT_W
+	    TBLR=(/ .TRUE.,.FALSE.,.TRUE.,.TRUE.,.TRUE.,.TRUE.,
+	1    .TRUE.,.TRUE.,.FALSE.,.TRUE. /)
+	    CALL ILF_TABLE_ROW(LUER,TBLC,TBLW,RIGHT=TBLR,INDENT=2)
+	  END IF
+	  IF(CONV_DIAG_LVL .GE. 3)THEN
+	  WRITE(RF_MSG,'(A,I3,A,A)')'Moment refresh pass ',IPASS,
+	1    ' - ',TRIM(DIR_W)
+	  CALL ILF_SUBSECTION(LUER,TRIM(RF_MSG))
 	  WRITE(LUER,'(4X,A11,2X,A,ES10.3,A,ES10.3,A,I10,A,I10,A)')
 	1    'drift','largest change ',PASS_CHG,
 	2    '; same-direction contraction ratio ',RATIO_M,'; ',
@@ -6626,10 +6710,12 @@
 	4      MINVAL(MOM_DAMP_NM(1:ND_NM,1:KN_M_NCF)),
 	5      '); acceleration applied to ',NACC,' cells'
 	  END IF
-	  WRITE(LUER,'(A)')' -------------------------------------------------------------------------------'
+	  END IF
 	  IF(PASS_CHG .LT. KN_M_TOL)THEN
 	    CONVERGED=.TRUE.
-	    WRITE(LUER,'(2A)')' [OK]  ',TRIM(MOM_REFRESH_SENTENCE(
+	    RF_EXIT_W='converged';  RF_EXIT_PASS=IPASS
+	    RF_EXIT_N50=0_8;  RF_EXIT_CHG=PASS_CHG;  RF_EXIT_REF=0.0_LDP
+	    IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(2A)')' [OK]  ',TRIM(MOM_REFRESH_SENTENCE(
 	1      .TRUE.,PASS_CHG,0_8,0_8,'converged',IPASS,0.0_LDP))
 	    EXIT
 	  END IF
@@ -6658,7 +6744,10 @@
 	5     PASS_NHUGE .LE. MAX(50_8,MOM_SW_NTOT/10000) .AND.
 	6     PASS_NQ .LE. MOM_SW_NTOT/10)THEN
 	    CONVERGED=.TRUE.
-	    WRITE(LUER,'(2A)')' [OK]  ',TRIM(MOM_REFRESH_SENTENCE(
+	    RF_EXIT_W='bulk-converged';  RF_EXIT_PASS=IPASS
+	    RF_EXIT_N50=LAST_N50(1)+LAST_N50(2);  RF_EXIT_CHG=PASS_CHG
+	    RF_EXIT_REF=0.0_LDP
+	    IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(2A)')' [OK]  ',TRIM(MOM_REFRESH_SENTENCE(
 	1      .TRUE.,PASS_CHG,0_8,LAST_N50(1)+LAST_N50(2),'bulk',
 	2      IPASS,0.0_LDP))
 	    EXIT
@@ -6686,12 +6775,15 @@
 	3      MOM_RF_NCONSEC .LT. 3)THEN
 	      MOM_RF_NDIVSKP=MOM_RF_NDIVSKP+1
 	      MOM_RF_NCONSEC=MOM_RF_NCONSEC+1
-	      WRITE(LUER,'(A,I4,A,ES12.4,A,I10,A,I3,A)')
-	1      ' [WARN] pass',IPASS,' max-norm excursion',PASS_CHG,
+	      WRITE(RF_MSG,'(A,I4,A,ES12.4,A,I10,A,I3,A)')
+	1      'pass',IPASS,' max-norm excursion',PASS_CHG,
 	2      ' tolerated:',PASS_N50,' cells above 50% still at or'//
 	3      ' below the direction best; streak ',MOM_RF_NCONSEC,'/3'
+	      CALL ILF_TAG(LUER,'WARN','MOM',TRIM(RF_MSG))
 	    ELSE
-	      WRITE(LUER,'(2A)')' [BAD]  ',TRIM(MOM_REFRESH_SENTENCE(
+	      RF_EXIT_W='diverged';  RF_EXIT_PASS=IPASS
+	      RF_EXIT_N50=0_8;  RF_EXIT_CHG=PASS_CHG;  RF_EXIT_REF=MIN_RES
+	      IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(2A)')' [BAD]  ',TRIM(MOM_REFRESH_SENTENCE(
 	1        .FALSE.,PASS_CHG,0_8,0_8,'diverge',IPASS,MIN_RES))
 	      EXIT
 	    END IF
@@ -6748,23 +6840,27 @@
 !
 	      IF(IDIR .EQ. 2)THEN
 	        IF(MOM_DOM_CMP)THEN
-	          WRITE(LUER,'(A,I4,A)')' [WARN] Compressing direction'//
+	          WRITE(RF_MSG,'(A,I4,A)')'Compressing direction'//
 	1          ' stalled - dropping it after pass',IPASS,
 	2          '; no other direction is scheduled.'
+	          CALL ILF_TAG(LUER,'WARN','MOM',TRIM(RF_MSG))
 	        ELSE
-	          WRITE(LUER,'(A,I4,A)')' [WARN] Compressing direction'//
+	          WRITE(RF_MSG,'(A,I4,A)')'Compressing direction'//
 	1          ' stalled - dropping it after pass',IPASS,
 	2          '; the expanding direction continues.'
+	          CALL ILF_TAG(LUER,'WARN','MOM',TRIM(RF_MSG))
 	        END IF
 	      ELSE
 	        IF(MOM_DOM_EXP)THEN
-	          WRITE(LUER,'(A,I4,A)')' [WARN] Expanding direction'//
+	          WRITE(RF_MSG,'(A,I4,A)')'Expanding direction'//
 	1          ' stalled - dropping it after pass',IPASS,
 	2          '; no other direction is scheduled.'
+	          CALL ILF_TAG(LUER,'WARN','MOM',TRIM(RF_MSG))
 	        ELSE
-	          WRITE(LUER,'(A,I4,A)')' [WARN] Expanding direction'//
+	          WRITE(RF_MSG,'(A,I4,A)')'Expanding direction'//
 	1          ' stalled - dropping it after pass',IPASS,
 	2          '; the compressing direction continues.'
+	          CALL ILF_TAG(LUER,'WARN','MOM',TRIM(RF_MSG))
 	        END IF
 	      END IF
 	    END IF
@@ -6772,25 +6868,35 @@
 	  END IF
 	  IF(MOM_DOM_CMP)THEN
 	    IF(SKIP_D(2))THEN
-	      WRITE(LUER,'(2A)')' [WARN] ',
+	      RF_EXIT_W='stalled';  RF_EXIT_PASS=IPASS
+	      RF_EXIT_N50=0_8;  RF_EXIT_CHG=PASS_CHG;  RF_EXIT_REF=0.0_LDP
+	      IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(2A)')' [WARN] ',
 	1        TRIM(MOM_REFRESH_SENTENCE(.FALSE.,PASS_CHG,0_8,0_8,
 	2        'stall',IPASS,0.0_LDP))
 	      EXIT
 	    END IF
 	  ELSE IF(MOM_DOM_EXP)THEN
 	    IF(SKIP_D(1))THEN
-	      WRITE(LUER,'(2A)')' [WARN] ',
+	      RF_EXIT_W='stalled';  RF_EXIT_PASS=IPASS
+	      RF_EXIT_N50=0_8;  RF_EXIT_CHG=PASS_CHG;  RF_EXIT_REF=0.0_LDP
+	      IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(2A)')' [WARN] ',
 	1        TRIM(MOM_REFRESH_SENTENCE(.FALSE.,PASS_CHG,0_8,0_8,
 	2        'stall',IPASS,0.0_LDP))
 	      EXIT
 	    END IF
 	  ELSE IF(SKIP_D(1) .AND. SKIP_D(2))THEN
-	    WRITE(LUER,'(A,I4,A,ES12.4,A)')
+	    RF_EXIT_W='stalled';  RF_EXIT_PASS=IPASS
+	    RF_EXIT_N50=0_8;  RF_EXIT_CHG=PASS_CHG;  RF_EXIT_REF=0.0_LDP
+	    IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I4,A,ES12.4,A)')
 	1      ' [WARN] Both directions stalled - stopping the'//
 	2      ' refresh at pass',IPASS,' (residual ',PASS_CHG,').'
 	    EXIT
 	  END IF
 	END DO
+	IF(RF_EXIT_PASS .EQ. 0)THEN
+	  RF_EXIT_PASS=MIN(IPASS,KN_M_MAXPASS)
+	  RF_EXIT_CHG=BEST_CHG
+	END IF
 !
 	MOM_KN_REFRESHING=.FALSE.
 	KN_M_DESC=.FALSE.
@@ -7082,7 +7188,7 @@
 	        IF(ND_NM*INT(KN_M_NCF,8)-NAA_SKIP .LT.
 	1           MAX(100_8,ND_NM*INT(KN_M_NCF,8)/1000))THEN
 	          INFO_AA=-999
-	          WRITE(LUER,'(A,I12)')
+	          IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I12)')
 	1            '    outer-AA skipped - affine subset empty,'//
 	2            ' cells excluded ',NAA_SKIP
 	        ELSE
@@ -7127,7 +7233,7 @@
 	          FNRM=SQRT(FNRM);  DNRM=SQRT(DNRM)
 	          IF(DNRM .LE. FNRM)EXIT
 	          IF(MTRY .EQ. MP_AA)THEN
-	            WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
+	            IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1              '    outer-AA m=',MTRY,'  ||f||=',FNRM,
 	2              '  ||corr||=',DNRM,'  retry at m-1,'//
 	3              ' cells excluded ',NAA_SKIP
@@ -7164,7 +7270,7 @@
 	            END DO
 	          END DO
 	          MOM_AA_OUT_APP=MOM_AA_OUT_APP+1
-	          WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
+	          IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I2,A,ES12.4,A,ES12.4,A,I12)')
 	1              '    outer-AA m=',MTRY,'  ||f||=',FNRM,
 	2              '  ||corr||=',DNRM,'  cells excluded ',NAA_SKIP
 	        ELSE IF(INFO_AA .EQ. 0)THEN
@@ -7240,9 +7346,19 @@
 	RF_ST='[WARN] '
 	IF(MOM_RF_DCHG .LT. 0.5_LDP .AND.
 	1   MOM_RF_N50 .LE. MAX(50_8,MOM_SW_NTOT/1000))RF_ST='[OK]   '
-	WRITE(LUER,'(2A)')' '//RF_ST,
-	1  TRIM(MOM_REFRESH_SENTENCE(MOM_RF_CONV,MOM_RF_DCHG,
-	2  MOM_RF_N5,MOM_RF_N50,'delta',0,0.0_LDP))
+	IF(BEST_OUT .EQ. 0)BEST_OUT=RF_EXIT_PASS
+	RF_OUT_ST='[WARN]'
+	IF(MOM_RF_CONV)RF_OUT_ST='[OK]'
+	IF(RF_EXIT_W .EQ. 'diverged')RF_OUT_ST='[BAD]'
+	IF(CONV_DIAG_LVL .GE. 1)THEN
+	  WRITE(RF_MSG,'(A,I0,A,F0.2,A,I0,7A,I0,2A)')
+	1    'Moment refresh: ',MIN(IPASS,KN_M_MAXPASS),
+	2    ' passes, ',OMP_GET_WTIME()-T0,' s, best pass ',BEST_OUT,
+	3    ', ',TRIM(RF_EXIT_W),' ',TRIM(RF_OUT_ST),
+	4    '; stored-field change ',TRIM(ILF_ES_TRIM(MOM_RF_DCHG)),
+	5    ', ',MOM_RF_N5,' cells >5% ',TRIM(RF_ST)
+	  WRITE(LUER,'(2X,A)')TRIM(RF_MSG)
+	END IF
 !
 ! Restore the post-sweep module state (frequency NCF) so the next
 ! great iteration starts from the same external view as a normal
@@ -7276,19 +7392,38 @@
 	HNU_AT_IB=KN_MHIB(L)
 	MOM_NU_NEXT=KN_MNUNXT(L)
 !
-	WRITE(LUER,'(/,2A)')' ------------- ',
+	IF(CONV_DIAG_LVL .GE. 2)THEN
+	  WRITE(RF_MSG,'(A,I5,A,I7,A,ES10.3)')'depth ',PASS_ARGI,
+	1    ', frequency ',PASS_ARGL,', ratio ',RATIO_M
+	  CALL ILF_KV(LUER,'refresh worst cell',TRIM(RF_MSG))
+	  WRITE(RF_MSG,'(A,I10,A,I10,A,I10,A,I10)')'negJ ',PASS_NEG,
+	1    ', quar ',PASS_NQ,', capped ',PASS_CAP,', offgrid ',PASS_NOFF
+	  CALL ILF_KV(LUER,'refresh repairs',TRIM(RF_MSG))
+	  WRITE(RF_MSG,'(A,I10,A,I10,A,I10)')'eps ',MOM_EPS_CAP,
+	1    ', owned ',MOM_RF_NSUPP,', gamfloor ',PASS_NRES
+	  CALL ILF_KV(LUER,'refresh limits',TRIM(RF_MSG))
+	  IF(NUC_NROW .GT. 0)THEN
+	    WRITE(RF_MSG,'(A,I10,A,I10,A,I10)')'rows ',NUC_NROW,
+	1      ', active99 ',NUC_NA99,', xs-neg ',NUC_XSNEG
+	    CALL ILF_KV(LUER,'refresh nu census',TRIM(RF_MSG))
+	    WRITE(RF_MSG,'(A,ES10.3,A,ES10.3)')'rmax ',NUC_RMAX,
+	1      ', H/X0 ',NUC_HSUM/MAX(NUC_XSUM,1.0E-30_LDP)
+	    CALL ILF_KV(LUER,'refresh nu source',TRIM(RF_MSG))
+	  END IF
+	END IF
+	IF(CONV_DIAG_LVL .GE. 3)CALL ILF_SUBSECTION(LUER,
 	1  TRIM(MOM_REFRESH_SENTENCE(.FALSE.,0.0_LDP,0_8,0_8,'done',
-	2  MIN(IPASS,KN_M_MAXPASS),OMP_GET_WTIME()-T0))
+	2  MIN(IPASS,KN_M_MAXPASS),OMP_GET_WTIME()-T0)))
 ! T-06 ledger: passes this refresh fed to the ITER_LEDGER np_rf
 ! column (audit F-22/F-24). Same MIN() the 'done' line reports.
 	IF(LEDG_ACTIVE)LEDG_NP_RF=LEDG_NP_RF+
 	1  MIN(IPASS,KN_M_MAXPASS)
-	WRITE(LUER,'(4(A,I4))')
+	IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(4(A,I4))')
 	1  '    inner Aitken acceleration: applied ',MOM_AA_APP,
 	2  ', skipped ',MOM_AA_SKIP,', solve failures ',MOM_AA_SNG,
 	3  ', history restarts ',MOM_AA_RST
 	IF(MOM_AA_OUT)THEN
-	  WRITE(LUER,'(3(A,I4),A,A3)')
+	  IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(3(A,I4),A,A3)')
 	1    '    outer Aitken acceleration: applied ',MOM_AA_OUT_APP,
 	2    ', rejected ',MOM_AA_OUT_REJ,', solve failures ',
 	3    MOM_AA_OUT_SNG,', allocation failures ',
