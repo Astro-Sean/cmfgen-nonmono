@@ -18,6 +18,7 @@
 ! j=nt -> T (matches JFNK_NT ordering and the surrogate se layout).
 
 module jfnk_op_probe_mod
+   use iter_log_fmt_mod, only: ilf_kvb, ilf_vi, ilf_vr, ilf_vs
    implicit none
    abstract interface
       subroutine op_resid(n, x, f)
@@ -224,8 +225,9 @@ contains
       n_clip = 0
       if (luer <= 0) return
 
-      write(luer, '(a,a,a,i8,a,i4,a,i4)') ' OPPROBE BEGIN mode=', &
-         trim(mode), ' n=', n, ' nt=', nt, ' nd=', nd
+      call ilf_kvb(luer, ' OPPROBE BEGIN:', 4, &
+         (/'mode','n   ','nt  ','nd  '/), &
+         (/ilf_vs(trim(mode)), ilf_vi(n), ilf_vi(nt), ilf_vi(nd)/))
 
       !--- Repeatability at the baseline point ---------------------
       fref = f0
@@ -344,8 +346,9 @@ contains
       dn = max(1d-300, op_wnorm(n, fdu, dotp) + &
                op_wnorm(n, fdv, dotp) + op_wnorm(n, fduv, dotp))
       d_op = op_wnorm(n, fduv - fdu - fdv, dotp)/dn
-      write(luer, '(a,2(a,es12.4),a,es12.4)') ' OPPROBE ADD', &
-         ' d_pol=', d_pol, ' d_op=', d_op, ' h=', h_fd
+      call ilf_kvb(luer, ' OPPROBE ADD:', 3, &
+         (/'d_pol','d_op ','h    '/), &
+         (/ilf_vr(d_pol,4), ilf_vr(d_op,4), ilf_vr(h_fd,4)/))
 
       !--- Homogeneity ---------------------------------------------
       w = 2d0*u
@@ -360,12 +363,14 @@ contains
       dn = max(1d-300, op_wnorm(n, fduv, dotp) + &
                2d0*op_wnorm(n, fdu, dotp))
       d2_op = op_wnorm(n, fduv - 2d0*fdu, dotp)/dn
-      write(luer, '(a,2(a,es12.4))') ' OPPROBE HOM a=2', &
-         ' d_pol=', d2_pol, ' d_op=', d2_op
+      call ilf_kvb(luer, ' OPPROBE HOM:', 3, &
+         (/'a    ','d_pol','d_op '/), &
+         (/ilf_vi(2), ilf_vr(d2_pol,4), ilf_vr(d2_op,4)/))
 
-      write(luer, '(a,6(a,i6))') ' OPPROBE END', ' evals=', n_ev, &
-         ' jvps=', n_jvp, ' fail=', n_fail, ' caps=', n_cap, &
-         ' retr=', n_retr, ' clip=', n_clip
+      call ilf_kvb(luer, ' OPPROBE END:', 6, &
+         (/'evals','jvps ','fail ','caps ','retr ','clip '/), &
+         (/ilf_vi(n_ev), ilf_vi(n_jvp), ilf_vi(n_fail), ilf_vi(n_cap), &
+           ilf_vi(n_retr), ilf_vi(n_clip)/))
       flush(luer)
    end subroutine jfnk_op_probe_v1
 
