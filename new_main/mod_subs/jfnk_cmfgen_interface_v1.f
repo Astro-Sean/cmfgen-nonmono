@@ -160,6 +160,7 @@
 	    IF(ALLOCATED(JFNK_ROW_SF))DEALLOCATE(JFNK_ROW_SF)
 	    IF(ALLOCATED(JFNK_COL_SF))DEALLOCATE(JFNK_COL_SF)
 	    IF(ALLOCATED(JFNK_LU_OK))DEALLOCATE(JFNK_LU_OK)
+	    IF(ALLOCATED(JFNK_DEPTH_LSQ))DEALLOCATE(JFNK_DEPTH_LSQ)
 	    IF(ALLOCATED(JFNK_ROW_REG))DEALLOCATE(JFNK_ROW_REG)
 	    IF(ALLOCATED(JFNK_DEPTH_RIDGE))DEALLOCATE(JFNK_DEPTH_RIDGE)
 	    IF(ALLOCATED(JFNK_LU_PIVRAT))DEALLOCATE(JFNK_LU_PIVRAT,
@@ -1728,8 +1729,10 @@
 ! inactive at jfnk_x but active at the perturbed point X. The residual
 ! is nonsmooth at the population floor and the T-exp cap, so a FD JVP
 ! that crosses such a boundary no longer approximates the smooth
-! Jacobian. JFNK_N_NEW_CLIP is read by JFNK_JVP_V1, which retries the
-! finite difference with a smaller step.
+! Jacobian. JFNK_N_NEW_CLIP is read by JFNK_JVP_V1: the deterministic
+! a-priori caps there prevent every crossing counted here, so a nonzero
+! count flags an unmodelled boundary (kept FD, counted in
+! JFNK_N_JVP_HRETRY -- audit issue B, 25-Nov-2026).
 !
 	INTEGER N_NEW_CLIP_LOC
 	REAL(KIND=LDP) T_BASE_UNCL, X_TRY, X_BASE
@@ -2726,7 +2729,7 @@
 	3                           jfnk_n_reg_proj
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
 	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN,
-	2                           JFNK_CLIP_RETRY, JFNK_JVP_NDIR, JFNK_BA_JVP,
+	2                           JFNK_JVP_NDIR, JFNK_BA_JVP,
 	3                           JFNK_LINTEST, JFNK_HSCAN, JFNK_HADAPT,
 	4                           JFNK_SEC_R
 	USE MOD_CMFGEN, ONLY: ATM, ION_ID
@@ -2750,7 +2753,7 @@
 	LOGICAL CLIP_SAV
 	INTEGER NZMAX_SAV, NPROJ_SAV, JR_L
 	INTEGER, SAVE :: JVP_DIR_CT = 0
-	INTEGER I, KK, JJ, II, NRETRY
+	INTEGER I, KK, JJ, II
 	INTEGER IB, L_BND
 	DOUBLE PRECISION BND_MX
 	INTEGER K_J
@@ -2996,20 +2999,55 @@
 	DO I = 1, N
 	  IF(ABS(JFNK_W_V_USE(I)) .GT. 0.0D0)THEN
 	    IDX_J = MOD(I-1, JFNK_NT) + 1
-	    IF(jfnk_log_unknown)THEN
-	      X_CLIP_B = 40.0D0
-	      IF(IDX_J .EQ. JFNK_NT)X_CLIP_B = 50.0D0
+! Deterministic step (audit issue B, 25-Nov-2026): every nonsmooth
+! boundary the residual counts in JFNK_N_NEW_CLIP is capped here, a
+! priori from (jfnk_x, v, POPS_BASE) alone -- the deleted NRETRY loop
+! shrank h on the eval result, which made the effective FD operator
+! direction- and state-dependent and broke Arnoldi linearity. The
+! +/-40 bound applies to pops/ED only under [JFNK_LOGX]; the residual
+! clamps |x_T| at 50 in BOTH unknown modes because the T update
+! always uses the exp map.
 ! The clip bound is symmetric in |x|, so only an outward-moving
 ! component can cross it; a saturated unknown moving back into range
 ! must not strangle the global step (it is already degenerate there).
-	      IF(ABS(jfnk_x(I)) .LT. X_CLIP_B .AND.
-	1        JFNK_W_V_USE(I)*jfnk_x(I) .GT. 0.0D0)THEN
-	        X_MARGIN = 0.5D0*(X_CLIP_B-ABS(jfnk_x(I)))/
+	    X_CLIP_B = 0.0D0
+	    IF(jfnk_log_unknown .AND. IDX_J .NE. JFNK_NT)THEN
+	      X_CLIP_B = 40.0D0
+	    ELSE IF(IDX_J .EQ. JFNK_NT)THEN
+	      X_CLIP_B = 50.0D0
+	    END IF
+	    IF(X_CLIP_B .GT. 0.0D0 .AND.
+	1        ABS(jfnk_x(I)) .LT. X_CLIP_B .AND.
+	2        JFNK_W_V_USE(I)*jfnk_x(I) .GT. 0.0D0)THEN
+	      X_MARGIN = 0.5D0*(X_CLIP_B-ABS(jfnk_x(I)))/
 	1          ABS(JFNK_W_V_USE(I))
-	        IF(X_MARGIN .LT. H_CAP)THEN
-	          H_CAP = X_MARGIN
-	          I_CAP = I
-	          CAP_MARGIN = X_CLIP_B-ABS(jfnk_x(I))
+	      IF(X_MARGIN .LT. H_CAP)THEN
+	        H_CAP = X_MARGIN
+	        I_CAP = I
+	        CAP_MARGIN = X_CLIP_B-ABS(jfnk_x(I))
+	      END IF
+	    END IF
+! Non-log pops/ED floor (J=1..NT-1): the residual floors at 1e-100
+! when POPS_BASE*(1+x) drops below it and counts the crossing only
+! when the base state sits above the floor. Cap an inward-moving
+! component at half the remaining distance, same policy as the
+! bounds above, so the trial state stays on the smooth side.
+	    IF(.NOT. jfnk_log_unknown .AND.
+	1       IDX_J .LE. JFNK_NT-1 .AND.
+	2       JFNK_W_V_USE(I) .LT. 0.0D0)THEN
+	      K_J = (I-1)/JFNK_NT + 1
+	      IF(POPS_BASE(IDX_J,K_J) .GT. 0.0_LDP .AND.
+	1         DBLE(POPS_BASE(IDX_J,K_J))*(1.0D0+jfnk_x(I)) .GE.
+	2         1.0D-100)THEN
+	        X_FLOOR = 1.0D-100/DBLE(POPS_BASE(IDX_J,K_J)) - 1.0D0
+	        X_MARGIN = jfnk_x(I) - X_FLOOR
+	        IF(X_MARGIN .GT. 0.0D0)THEN
+	          X_MARGIN = 0.5D0*X_MARGIN/ABS(JFNK_W_V_USE(I))
+	          IF(X_MARGIN .LT. H_CAP)THEN
+	            H_CAP = X_MARGIN
+	            I_CAP = -I
+	            CAP_MARGIN = jfnk_x(I) - X_FLOOR
+	          END IF
 	        END IF
 	      END IF
 	    END IF
@@ -3068,87 +3106,55 @@
 	  RETURN
 	END IF
 !
-! Audit 17-Sep-2026 (issue 4): the residual is nonsmooth at the
-! population floor and the T-exp cap. If the perturbation h*v crossed
-! a constraint that was inactive at jfnk_x (counted by the residual in
-! JFNK_N_NEW_CLIP), the FD difference contains a clipped, artificial
-! derivative. Retry with h reduced by 10x -- up to two retries; if a
-! crossing persists the derivative is still usable at the smaller
-! step, so the last attempt is kept (GMRES tolerates inexactness).
+! Audit issue B fix (25-Nov-2026): the FD step is a deterministic
+! function of (jfnk_x, v, POPS_BASE) -- the caps above pre-bound every
+! nonsmooth crossing the residual counts in JFNK_N_NEW_CLIP, so the
+! trial state is evaluated once. The deleted NRETRY loop shrank h on
+! the eval RESULT, making the effective FD operator state- and
+! direction-dependent: the same linear operator then looks different
+! to each Arnoldi vector and the Hessenberg residual diverges from the
+! true one (measured 150-450x at restart on the run). An unprevented
+! crossing can now only come from a boundary the caps do not model;
+! the FD is kept as-is (GMRES tolerates the inexactness and the
+! true-residual gate rejects a bad step) and the event is counted in
+! JFNK_N_JVP_HRETRY so the counter still means "calls that hit a
+! crossing". JFNK_CLIP_RETRY is retained as a parsed key for deck
+! compatibility; it no longer controls the step.
 !
-	DO NRETRY = 0, JFNK_CLIP_RETRY
-	  DO I = 1, N
-	    JFNK_W_X_PERT(I) = jfnk_x(I) + H_STEP * JFNK_W_V_USE(I)
-	  END DO
-	  CALL JFNK_RESIDUAL_V1(N, JFNK_W_X_PERT, JFNK_W_F_PERT)
+	DO I = 1, N
+	  JFNK_W_X_PERT(I) = jfnk_x(I) + H_STEP * JFNK_W_V_USE(I)
+	END DO
+	CALL JFNK_RESIDUAL_V1(N, JFNK_W_X_PERT, JFNK_W_F_PERT)
 ! A repaired sentinel is finite and can look plausible after division,
 ! so fail closed before forming the directional derivative.
 ! [USE_JFNK_SOLVER] defaults to F.
 !
-	  IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
-	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A,L1)')
-	1       'JFNK_JVP_V1: perturbed residual repaired bad entries=',
-	2       jfnk_resid_nbad, ' eval_broken=', JFNK_EVAL_BROKEN
-	    JV = 0.0D0
-	    jfnk_jvp_failed = .TRUE.
-	    JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
-	    RETURN
-	  END IF
-	  IF((JFNK_MAX_EVALS .GT. 0 .AND.
-	1       JFNK_N_RESIDUAL_EVALS .GT. JFNK_MAX_EVALS) .OR.
-	2       (JFNK_MAX_SEC .GT. 0.0_LDP .AND.
-	3       OMP_GET_WTIME()-JFNK_T_START .GT. JFNK_MAX_SEC))THEN
+	IF(jfnk_resid_nbad .GT. 0 .OR. JFNK_EVAL_BROKEN)THEN
+	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A,L1)')
+	1     'JFNK_JVP_V1: perturbed residual repaired bad entries=',
+	2     jfnk_resid_nbad, ' eval_broken=', JFNK_EVAL_BROKEN
+	  JV = 0.0D0
+	  jfnk_jvp_failed = .TRUE.
+	  JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
+	  RETURN
+	END IF
+	IF((JFNK_MAX_EVALS .GT. 0 .AND.
+	1     JFNK_N_RESIDUAL_EVALS .GT. JFNK_MAX_EVALS) .OR.
+	2     (JFNK_MAX_SEC .GT. 0.0_LDP .AND.
+	3     OMP_GET_WTIME()-JFNK_T_START .GT. JFNK_MAX_SEC))THEN
 ! Budget sentinel eval returned -- flag JVP failure so GMRES aborts
 ! immediately rather than building a Krylov vector on the sentinel.
-	    JV = 0.0D0
-	    jfnk_jvp_failed = .TRUE.
-	    JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
-	    RETURN
-	  END IF
-	  IF(JFNK_N_NEW_CLIP .EQ. 0)EXIT
+	  JV = 0.0D0
+	  jfnk_jvp_failed = .TRUE.
+	  JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
+	  RETURN
+	END IF
+	IF(JFNK_N_NEW_CLIP .GT. 0)THEN
 	  JFNK_N_JVP_HRETRY = JFNK_N_JVP_HRETRY + 1
-!
-! edited 05-Oct-2026: do not shrink the perturbation
-! norm h*||v|| below EPS0*max(1,||x||) in coupled mode. The
-! noise-aware JFNK_EPS_JVP_LOC sets that scale from the residual
-! evaluation noise (Pernice & Walker; see the EPS0 block above).
-! Comparing h alone is wrong because h is inversely proportional to
-! ||v||. Frozen residuals keep deterministic arithmetic and may
-! continue shrinking on a clip retry.
-!
-	  IF(JFNK_COUPLED_LOC .AND.
-	1       H_STEP*0.1D0*VNORM .LT.
-	2       EPS0*MAX(XNORM,1.0D0))THEN
-!
-! Oct-2026 fix: do not silently keep a clipped derivative. If the
-! clip-margin cap above could not prevent a crossing at the EPS0
-! floor (non-log unknowns, or a trial state already at the bound),
-! the FD difference is contaminated by the nonsmooth clip and the
-! direction is unusable -- flag JVP failure so GMRES aborts and the
-! driver falls back instead of building a Krylov space on it.
-!
-	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A)')
-	1      'JFNK_JVP_V1: ', JFNK_N_NEW_CLIP,
-	2      ' crossings; perturbation at EPS0 floor, flagging JVP fail'
-	    JV = 0.0D0
-	    jfnk_jvp_failed = .TRUE.
-	    JFNK_N_JVP_FAILURES = JFNK_N_JVP_FAILURES + 1
-	    RETURN
-	  END IF
-	  IF(NRETRY .EQ. JFNK_CLIP_RETRY)THEN
-! Keep the last attempt at the h actually evaluated: shrinking here
-! without a fresh eval would divide (F(x+hv)-F(x)) by a step 10x too
-! small and inflate JV 10x on exactly the directions GMRES needed.
-	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A)')
-     1      'JFNK_JVP_V1: ', JFNK_N_NEW_CLIP,
-     2      ' clip crossings persist at final h -- keeping FD as-is'
-	    EXIT
-	  END IF
-	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A,ES10.3)')
+	  IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,I8,A)')
 	1    'JFNK_JVP_V1: ', JFNK_N_NEW_CLIP,
-	2    ' new constraint crossings; reducing h to', H_STEP*0.1D0
-	  H_STEP = H_STEP * 0.1D0
-	END DO
+	2    ' unprevented constraint crossings -- keeping FD as-is'
+	END IF
 !
 ! Export the step actually differentiated with (cap, HSCALE and any
 ! clip-retry reductions applied) so deferred-admission probes can log
@@ -4136,6 +4142,14 @@
 	    ALLOCATE(JFNK_LU_OK(JFNK_ND), STAT=IOS)
 	    IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc LU_OK failed'
 	  END IF
+	  IF(ALLOCATED(JFNK_DEPTH_LSQ))THEN
+	    IF(SIZE(JFNK_DEPTH_LSQ) .NE. JFNK_ND) DEALLOCATE(JFNK_DEPTH_LSQ)
+	  END IF
+	  IF(.NOT. ALLOCATED(JFNK_DEPTH_LSQ))THEN
+	    ALLOCATE(JFNK_DEPTH_LSQ(JFNK_ND), STAT=IOS)
+	    IF(IOS.NE.0) STOP 'JFNK_FACTOR_PRECOND: alloc DEPTH_LSQ failed'
+	  END IF
+	  JFNK_DEPTH_LSQ = .FALSE.
 	  IF(ALLOCATED(JFNK_ROW_REG))THEN
 	    IF(SIZE(JFNK_ROW_REG,1).NE.JFNK_NT .OR.
 	1       SIZE(JFNK_ROW_REG,2).NE.JFNK_ND) DEALLOCATE(JFNK_ROW_REG)
@@ -4525,7 +4539,7 @@
 	4       JFNK_LU_FAC(1,1,K), JFNK_IPIV(1,K), JFNK_ROW_SF(1,K),
 	5       JFNK_COL_SF(1,K), REG_L, REG_TINY_L, RIDGE_ROWS_L,
 	6       JFNK_LU_RCOND(K), JFNK_LU_PIVRAT(K), JFNK_LU_ITRY(K),
-	7       JFNK_DEPTH_RIDGE(K), JFNK_LU_OK(K))
+	7       JFNK_DEPTH_RIDGE(K), JFNK_LU_OK(K), JFNK_DEPTH_LSQ(K))
 !
 	    N_REG_ROWS = N_REG_ROWS + COUNT(REG_L)
 	    N_POP_FRZ = N_POP_FRZ +
@@ -5702,7 +5716,7 @@
 ! tests run the identical production code; these carry the caller-side
 ! masks (unallocated JFNK_ROW_REG maps to an all-false REG_L2).
 	LOGICAL LU_OK_L
-	LOGICAL REG_L2(JFNK_NT), FIXED_L(JFNK_NT)
+	LOGICAL REG_L2(JFNK_NT), FIXED_L(JFNK_NT), LSQ_MODE_L
 !
 ! STEQ_MAT and V_SAVE are now persistent module workspace
 ! (JFNK_W_STEQ_MAT, JFNK_W_V_SAVE) to avoid stack allocation.
@@ -5944,10 +5958,15 @@
 ! (verified against the direct solve in unit_tests lsqchk).
 !
 !
-!$OMP PARALLEL DO PRIVATE(J, LU_OK_L, REG_L2, FIXED_L) REDUCTION(+:NJAC, NZERO, NZMAX_LOC, NZCLIP, NPROJ)
+!$OMP PARALLEL DO PRIVATE(J, LU_OK_L, REG_L2, FIXED_L, LSQ_MODE_L) REDUCTION(+:NJAC, NZERO, NZMAX_LOC, NZCLIP, NPROJ)
 	  DO K = 1, JFNK_ND
 	    LU_OK_L = .FALSE.
 	    IF(ALLOCATED(JFNK_LU_OK)) LU_OK_L = JFNK_LU_OK(K)
+! Per-depth LSQ dispatch: depths the LU ladder could not certify
+! carry an LSQ normal-equation factor instead ([JFNK_PC_LSQFB]).
+	    LSQ_MODE_L = JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ'
+	    IF(ALLOCATED(JFNK_DEPTH_LSQ))
+	1    LSQ_MODE_L = LSQ_MODE_L .OR. JFNK_DEPTH_LSQ(K)
 	    IF(ALLOCATED(JFNK_ROW_REG))THEN
 	      REG_L2(1:JFNK_NT) = JFNK_ROW_REG(1:JFNK_NT, K)
 	    ELSE
@@ -5974,7 +5993,7 @@
 	3       JFNK_ROW_SF(1,K), JFNK_COL_SF(1,K), JFNK_BA_A(1,1,K),
 	4       JFNK_BA_RIDGE_ADD(1,K), JFNK_BA_DIAG(1,K),
 	5       REG_L2, FIXED_L,
-	6       JFNK_PRECOND_TYPE(1:3) .EQ. 'LSQ',
+	6       LSQ_MODE_L,
 	7       DBLE(JFNK_PRECOND_ZMAX),
 	8       NPROJ, NZERO, NZCLIP, NZMAX_LOC, NJAC)
 	  END DO
