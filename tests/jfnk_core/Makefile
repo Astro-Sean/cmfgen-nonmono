@@ -42,57 +42,64 @@ checkfc:
 	@if [ "$(FC_BASE)" != ifort ] && [ "$(FC_BASE)" != gfortran ]; then \
 	  echo "unsupported FC '$(FC)' - use ifort or gfortran"; exit 1; fi
 
-test: test_newton_core test_guards test_precond_blocks test_ptc_sign test_trace_state test_nm_window test_pc_quality test_schur test_gmres_edge
+test: test_newton_core test_guards test_precond_blocks test_ptc_sign test_ptc_coords test_trace_state test_nm_window test_pc_quality test_schur test_gmres_edge
 	./test_newton_core
 	./test_guards
 	./test_precond_blocks
 	./test_ptc_sign
+	./test_ptc_coords
 	./test_trace_state
 	./test_nm_window
 	./test_pc_quality
 	./test_schur
 	./test_gmres_edge
 
-test_newton_core: jfnk_int_stub.o jfnk_solver_v1.o test_newton_core.o
+test_ptc_coords: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_ptc_coords.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
-test_guards: jfnk_int_stub.o jfnk_solver_v1.o test_guards.o
+test_ptc_coords.o: test_ptc_coords.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
+	$(FC) $(FFLAGS) -I$(PMOD) -c $<
+
+test_newton_core: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_newton_core.o
+	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
+
+test_guards: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_guards.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
 test_guards.o: test_guards.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
 	$(FC) $(FFLAGS) -I$(PMOD) -c $<
 
-test_precond_blocks: jfnk_int_stub.o jfnk_solver_v1.o test_precond_blocks.o
+test_precond_blocks: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_precond_blocks.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
 test_precond_blocks.o: test_precond_blocks.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
 	$(FC) $(FFLAGS) -I$(PMOD) -c $<
 
-test_ptc_sign: jfnk_int_stub.o jfnk_solver_v1.o test_ptc_sign.o
+test_ptc_sign: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_ptc_sign.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
 test_ptc_sign.o: test_ptc_sign.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
 	$(FC) $(FFLAGS) -I$(PMOD) -c $<
 
-test_nm_window: jfnk_int_stub.o jfnk_solver_v1.o test_nm_window.o
+test_nm_window: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_nm_window.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
 test_nm_window.o: test_nm_window.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
 	$(FC) $(FFLAGS) -I$(PMOD) -c $<
 
-test_pc_quality: jfnk_int_stub.o jfnk_solver_v1.o test_pc_quality.o
+test_pc_quality: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_pc_quality.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
 test_pc_quality.o: test_pc_quality.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
 	$(FC) $(FFLAGS) -I$(PMOD) -c $<
 
-test_schur: jfnk_int_stub.o jfnk_solver_v1.o test_schur.o
+test_schur: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_schur.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
 test_schur.o: test_schur.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
 	$(FC) $(FFLAGS) -I$(PMOD) -c $<
 
-test_gmres_edge: jfnk_int_stub.o jfnk_solver_v1.o test_gmres_edge.o
+test_gmres_edge: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_gmres_edge.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
 test_gmres_edge.o: test_gmres_edge.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
@@ -110,7 +117,7 @@ $(PMOD)/set_kind_module.mod: ../../mod/set_kind_module.mod
 control_variable_mod.o: $(LIBMOD) | fresh
 	ar x $(LIBMOD) control_variable_mod.o
 
-test_trace_state: control_variable_mod.o test_trace_state.o
+test_trace_state: control_variable_mod.o iter_log_fmt_mod.o test_trace_state.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
 test_trace_state.o: test_trace_state.f90 checkfc control_variable_mod.o $(PMOD)/control_variable_mod.mod $(PMOD)/set_kind_module.mod
@@ -122,6 +129,12 @@ jfnk_int_stub.o: jfnk_int_stub.f90 checkfc
 # Production object, verbatim from the archive the exe links.
 jfnk_solver_v1.o: $(LIBMOD) | fresh
 	ar x $(LIBMOD) jfnk_solver_v1.o
+
+# ilf_* kv-logging calls entered the solver object with the logging
+# refactor; prod .o links resolve members, not archives, so the
+# module object is extracted alongside it.
+iter_log_fmt_mod.o: $(LIBMOD) | fresh
+	ar x $(LIBMOD) iter_log_fmt_mod.o
 
 $(PMOD)/jfnk_solver_v1_mod.mod: ../../mod/jfnk_solver_v1_mod.mod
 	mkdir -p $(PMOD) && cp $< $@
