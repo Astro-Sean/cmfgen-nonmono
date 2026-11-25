@@ -183,7 +183,7 @@ jvp = section(INTERFACE, "SUBROUTINE JFNK_JVP_V1", "END SUBROUTINE JFNK_JVP_V1")
 bad_residual = section(
     jvp,
     "CALL JFNK_RESIDUAL_V1(N, JFNK_W_X_PERT, JFNK_W_F_PERT)",
-    "IF(JFNK_N_NEW_CLIP .EQ. 0)EXIT",
+    "JV(I) = (JFNK_W_F_PERT(I) - jfnk_fx(I)) / H_STEP",
 )
 check(
     "JVP rejects repaired perturbed residuals before differencing",
@@ -445,10 +445,16 @@ check(
     and "RD_STORE_INT(JFNK_CLIP_RETRY,'JFNK_CLIP_RETRY'" in RD_CONTROL,
 )
 check(
-    "clip retry keeps last attempt at its own h",
-    "DO NRETRY = 0, JFNK_CLIP_RETRY" in INTERFACE
-    and "NRETRY .EQ. JFNK_CLIP_RETRY" in INTERFACE
-    and "keeping FD as-is" in INTERFACE,
+    "JVP step is a deterministic function of (x, v-hat)",
+    "DO NRETRY" not in jvp
+    and "IF(JFNK_N_NEW_CLIP .GT. 0)THEN" in jvp
+    and "unprevented constraint crossings -- keeping FD as-is" in jvp,
+)
+check(
+    "JVP caps every counted crossing before the eval",
+    "ELSE IF(IDX_J .EQ. JFNK_NT)THEN" in jvp
+    and "IDX_J .LE. JFNK_NT-1" in jvp
+    and "1.0D-100/DBLE(POPS_BASE(IDX_J,K_J))" in jvp,
 )
 check(
     "PC audit splits |Mz-v| by reg-substituted vs non-reg rows",
@@ -601,4 +607,57 @@ check(
 check(
     "ptc-coords regression test wired into jfnk_core",
     "test_ptc_coords" in (ROOT / "tests/jfnk_core/Makefile").read_text(),
+)
+
+# Phase 5: per-depth backward-error certificate + LSQ fallback. The
+# certificate solves M_s z = M_s v on a fixed probe and rejects when the
+# componentwise relative residual exceeds the tol -- it is the only
+# acceptance test on the LSQ fallback attempt. JFNK_DEPTH_LSQ records
+# which depths took the normal-equation factor so the apply dispatches
+# DPOTRS there instead of DGETRS.
+check(
+    "Phase 5: cert/lsqfb flags declared as VADAT keys",
+    "JFNK_PC_CERT" in CVARMOD
+    and "JFNK_PC_CERT_TOL" in CVARMOD
+    and "JFNK_PC_LSQFB" in CVARMOD,
+)
+check(
+    "Phase 5: VADAT parses and routes the new keys",
+    "RD_STORE_LOG(JFNK_PC_CERT" in RD_CONTROL
+    and "RD_STORE_DBLE(JFNK_PC_CERT_TOL" in RD_CONTROL
+    and "RD_STORE_LOG(JFNK_PC_LSQFB" in RD_CONTROL
+    and "JFNK_PC_CERT, JFNK_PC_CERT_TOL, JFNK_PC_LSQFB" in RD_CONTROL,
+)
+check(
+    "Phase 5: solver module carries the flags",
+    "jfnk_pc_cert" in SOLVER
+    and "jfnk_pc_cert_tol" in SOLVER
+    and "jfnk_pc_lsqfb" in SOLVER,
+)
+check(
+    "Phase 5: certificate runs on demand and on the fallback attempt",
+    "jfnk_pc_cert .or. itry .gt. itry_max" in SOLVER,
+)
+check(
+    "Phase 5: LSQ fallback is the extra ladder slot",
+    "lsq_try = lsq_mode .or. (itry .gt. itry_max)" in SOLVER
+    and "if(lsq_fb_l) itry_top = itry_max + 1" in SOLVER,
+)
+check(
+    "Phase 5: cert measures the factored block, not A",
+    "s_tmp + mtst(i,j) * x_tst(j)" in SOLVER,
+)
+check(
+    "Phase 5: per-depth LSQ dispatch stored in int module",
+    "JFNK_DEPTH_LSQ(:)" in INTMOD,
+)
+check(
+    "Phase 5: apply dispatches DPOTRS on LSQ-fallback depths",
+    "JFNK_DEPTH_LSQ(K)" in INTERFACE
+    and "LSQ_MODE_L = LSQ_MODE_L .OR. JFNK_DEPTH_LSQ(K)" in INTERFACE,
+)
+check(
+    "Phase 5: tests exercise cert and fallback",
+    "Q8: lsqfb" in (ROOT / "tests/jfnk_core/test_pc_quality.f90").read_text()
+    and "lsq_u" in (ROOT / "tests/jfnk_core/test_pc_quality.f90").read_text(),
 )
