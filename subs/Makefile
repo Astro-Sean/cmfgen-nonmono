@@ -311,6 +311,7 @@ $(LIB)(%.o) : %.f  $(LIB)(set_kind_module.o)
 # fortran moudles. (The order of compilation matters.)
 #
 DIS=$(LIB_MOD)(mod_lev_dis_blk.o)
+ILF=$(LIB_MOD)(iter_log_fmt_mod.o)
 
 $(LIB)(dspheredchi.o) : dspheredchi.f $(LIB)(mod_trap_derivatives.o) $(LIB)(set_kind_module.o) 
 	$(F90) -c $(OPTION) dspheredchi.f
@@ -320,7 +321,15 @@ $(LIB)(occupation_prob.o) : occupation_prob.f $(DIS) $(LIB)(set_kind_module.o)
 	$(F90) -c $(OPTION) occupation_prob.f
 	ar $(AR_OPTION) $(LIB) occupation_prob.o
 
-$(DIS):
+$(LIB)(hydcrossl.o) : hydcrossl.f $(ILF)
+	$(F90) -c $(OPTION) hydcrossl.f
+	ar $(AR_OPTION) $(LIB) hydcrossl.o
+
+$(LIB)(mon_interp.o) : mon_interp.f $(ILF)
+	$(F90) -c $(OPTION) mon_interp.f
+	ar $(AR_OPTION) $(LIB) mon_interp.o
+
+$(DIS) $(ILF):
 	(cd ../new_main/mod_subs ; make)
 
 UNIX: 
