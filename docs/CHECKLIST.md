@@ -329,6 +329,28 @@ lagged channel still outside the block solve. Exit criterion: a revised
 arm converges, stalls with a sharper bounded diagnosis, or detonates;
 the verdict and mechanism are recorded here before any broader campaign.
 
+Execution experiment submitted 25-Nov-2026:
+`m15_2p82d_VAL_sob_lamesF_blkgmres_himpl`, CMFGEN 13671005 and OBS
+13671006, same eps1em3 seed with `MOM_BLKGMRES=T` plus `MOM_H_IMPL=T`.
+Pinned `cmfgen_dev.exe` sha256
+`60cdf8306f7d24f18abcb390cea66793fe78ef9306b5e148223ad6e4414c3819`;
+the job is queued behind `QOSGrpCpuLimit`. The first submission attempt
+was cancelled before start because the copied YAML kept the old
+`model_dir`; that mistake refreshed the cancelled blkgmres run directory
+and discarded its ITER_HISTORY/ITER_LEDGER files. The original OUTGEN
+through iteration 1040 was preserved at
+`cmfgen_validation/m15_2p82d_VAL_sob_lamesF_blkgmres/OUTGEN_cancelled_it1040`.
+The corrected config uses its own `_himpl` model directory and a staged
+copy of the parent SN_HYDRO_DATA.
+
+Initial audit lead: the converged-refresh path keeps the iterated field
+without applying the 50x retained-store jump guard used for best-pass
+fields. That guard was written for the non-converged branch only. This
+may explain how bulk-converged block refreshes can commit 1E10-1E14
+largest-cell excursions while passing the bulk census. Do not change it
+until the H_IMPL controlled arm separates outer H regularization from
+write-back policy; otherwise the two changes cannot be attributed.
+
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
