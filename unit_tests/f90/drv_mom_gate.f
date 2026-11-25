@@ -23,9 +23,11 @@
       CHARACTER(LEN=32) CASE
       INTEGER I,L,K
       REAL(KIND=LDP) RES_PASS(2,NP)
+      REAL(KIND=LDP) RES_SGN(2,NP)
       REAL(KIND=LDP) JF(ND,NCF),HF(ND,NCF)
       REAL(KIND=LDP) JS(ND,NCF),HS(ND,NCF)
       REAL(KIND=LDP) JP(ND,NCF),HP(ND,NCF)
+      REAL(KIND=LDP) SC(NCF)
       REAL(KIND=LDP) RHO,X,XN,R1,R2
       INTEGER NR
       LOGICAL LOK,KEEP
@@ -120,6 +122,38 @@
         WRITE(*,'(A,I4)')'NRAT=',NR
         WRITE(*,'(A,L2)')'LOK=',LOK
 !
+      ELSE IF(CASE .EQ. 'sgnpos' .OR. CASE .EQ. 'sgnosc' .OR.
+     1   CASE .EQ. 'sgnfew')THEN
+!
+! Signed-ratio cases for MOM_SAME_DIR_SGN (25-Nov-2026): entries are
+! already same-direction update ratios, so the routine pools and
+! medians them directly. sgnpos feeds +0.9 (monotone contraction),
+! sgnosc -0.9 (oscillation); the sign must survive to the omega
+! target 1/(1-lambda_hat). sgnfew is under-sampled -> LOK=F.
+!
+        RES_SGN=0.0_LDP
+        RHO=0.0_LDP
+        NR=0
+        LOK=.FALSE.
+        IF(CASE .EQ. 'sgnpos')THEN
+          RES_SGN(1,1)=0.9_LDP
+          RES_SGN(1,2)=0.88_LDP
+          RES_SGN(2,3)=0.92_LDP
+          RES_SGN(2,4)=0.9_LDP
+        ELSE IF(CASE .EQ. 'sgnosc')THEN
+          RES_SGN(1,1)=-0.9_LDP
+          RES_SGN(1,2)=-0.88_LDP
+          RES_SGN(2,3)=-0.92_LDP
+          RES_SGN(2,4)=-0.9_LDP
+        ELSE
+          RES_SGN(1,1)=0.9_LDP
+          RES_SGN(1,2)=0.85_LDP
+        END IF
+        CALL MOM_SAME_DIR_SGN(RES_SGN,NP,RHO,NR,LOK)
+        WRITE(*,'(A,ES16.8E3)')'RHO=',RHO
+        WRITE(*,'(A,I4)')'NRAT=',NR
+        WRITE(*,'(A,L2)')'LOK=',LOK
+!
       ELSE
 !
 ! Gate cases. Manufactured fields on the small grid: a smooth
@@ -128,10 +162,27 @@
 ! JP is also the restore target, so each case prints KEEP plus the
 ! gate's own warn line naming the failing check.
 !
+! SC is the per-column field scale. The original fixture keeps all
+! four columns at ~1 -- which is why a global-max jump scale never
+! failed a test. The dim/floor cases spread the columns across nine
+! decades so a dim-column blow-up has to be caught on its own
+! column peak, and the floor cases carry columns with no committed
+! field at all.
+!
+        DO L=1,NCF
+          SC(L)=1.0_LDP
+        END DO
+        IF(CASE .EQ. 'dimjmp' .OR. CASE .EQ. 'dimok' .OR.
+     1     CASE .EQ. 'flrseed' .OR. CASE .EQ. 'flrjmp')THEN
+          DO L=1,NCF
+            SC(L)=10.0_LDP**(-3*(L-1))
+          END DO
+        END IF
+!
         DO L=1,NCF
           DO I=1,ND
-            JS(I,L)=1.0_LDP+0.1_LDP*DBLE(I)
-            HS(I,L)=0.02_LDP*(DBLE(I)-4.5_LDP)
+            JS(I,L)=SC(L)*(1.0_LDP+0.1_LDP*DBLE(I))
+            HS(I,L)=SC(L)*0.02_LDP*(DBLE(I)-4.5_LDP)
             JP(I,L)=JS(I,L)
             HP(I,L)=HS(I,L)
             JF(I,L)=JP(I,L)
@@ -206,6 +257,82 @@
 ! move the candidate makes is a regression.
 !
           JF(4,2)=JS(4,2)*1.1_LDP
+        ELSE IF(CASE .EQ. 'dimjmp')THEN
+!
+! Nine-decade spread, dim-column blow-up: JF(5,4) sits 1e6x above a
+! column whose peak is ~1E-9 while the brightest column is ~1. A
+! global-max scale reads this as 1E-3 of the field peak and commits
+! it; the per-column rule must flag the jump. JP=JF keeps the bulk
+! census neutral so the jump check is the one tested.
+!
+          JP(5,4)=JS(5,4)*1.0E+6_LDP
+          JF(1:ND,1:NCF)=JP(1:ND,1:NCF)
+          HF(1:ND,1:NCF)=HP(1:ND,1:NCF)
+        ELSE IF(CASE .EQ. 'dimok')THEN
+!
+! Ordinary reshaping of the dimmest column: a few cells moved by a
+! factor of three. Well under the 50x bound on its own column peak,
+! so the guard must accept.
+!
+          JP(3,4)=JS(3,4)*3.0_LDP
+          JP(6,4)=JS(6,4)*0.3_LDP
+          JP(2,4)=JS(2,4)*2.0_LDP
+          JF(1:ND,1:NCF)=JP(1:ND,1:NCF)
+          HF(1:ND,1:NCF)=HP(1:ND,1:NCF)
+        ELSE IF(CASE .EQ. 'flrseed')THEN
+!
+! Floor-column seed fill consistent with the reference: column 4
+! has no committed field (store at 0, under the 1E-28 floor bound),
+! column 3 peaks at ~1.8E-6. A seed at 5E-7 sits well inside 50x of
+! the nearest committed column, so the guard must accept it --
+! this is the legitimate first-write class a naive per-column test
+! would veto.
+!
+          JS(1:ND,4)=0.0_LDP
+          HS(1:ND,4)=0.0_LDP
+          JP(1:ND,4)=5.0E-7_LDP
+          HP(1:ND,4)=1.0E-8_LDP
+          JF(1:ND,1:NCF)=JP(1:ND,1:NCF)
+          HF(1:ND,1:NCF)=HP(1:ND,1:NCF)
+        ELSE IF(CASE .EQ. 'flrjmp')THEN
+!
+! Same floor column, but the seed lands at 1E-2 against a 1.8E-6
+! reference -- over 50x the nearest committed column, the FG
+! sibling-reference violation class. The guard must flag it.
+!
+          JS(1:ND,4)=0.0_LDP
+          HS(1:ND,4)=0.0_LDP
+          JP(1:ND,4)=1.0E-2_LDP
+          JF(1:ND,1:NCF)=JP(1:ND,1:NCF)
+          HF(1:ND,1:NCF)=HP(1:ND,1:NCF)
+        ELSE IF(CASE .EQ. 'aalegit')THEN
+!
+! Investigation 4 fixture: a legitimate AA extrapolation on a slow
+! map. The store sits 27% from the fixed point (rho=0.95 map, x*=1);
+! the pre-AA field is one plain map step, so its churn vs the store
+! stays under the 5% floor (N5P=N50P=0). The candidate lands on x*
+! exactly -- residual ~1e-13, the step AA exists to take -- but it
+! moves every cell >5% vs the store, so the bulk census must veto
+! it. This pins the measured behaviour the investigation reports:
+! the gate prices movement, not residual reduction.
+!
+          JS(1:ND,1:NCF)=0.73_LDP
+          HS(1:ND,1:NCF)=0.0_LDP
+          JP(1:ND,1:NCF)=0.7435_LDP
+          HP(1:ND,1:NCF)=0.0_LDP
+          JF(1:ND,1:NCF)=1.0_LDP
+          HF(1:ND,1:NCF)=0.0_LDP
+        ELSE IF(CASE .EQ. 'coldstr')THEN
+!
+! True cold start: no column has a committed field, so there is no
+! reference scale at all and the fill stays exempt -- the same
+! exemption FG_JUMP_MAX keeps for REF<=0.
+!
+          JS(1:ND,1:NCF)=0.0_LDP
+          HS(1:ND,1:NCF)=0.0_LDP
+          JP(1:ND,1:NCF)=1.0E-6_LDP
+          JF(1:ND,1:NCF)=JP(1:ND,1:NCF)
+          HF(1:ND,1:NCF)=HP(1:ND,1:NCF)
         ELSE
           STOP 'DRV_MOM_GATE: unknown case'
         END IF
