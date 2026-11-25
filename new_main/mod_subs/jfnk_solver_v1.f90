@@ -256,6 +256,20 @@ module jfnk_solver_v1_mod
    logical :: jfnk_pc_qual_v2 = .false.
    double precision :: jfnk_pc_qual_tol = 0.5d0
    !
+   ! jfnk_pc_cert/cert_tol: [JFNK_PC_CERT, JFNK_PC_CERT_TOL] backward-
+   !    error certificate on the factored block itself (audit 25-Nov-2026,
+   !    T21): DGETRF INFO=0 does not imply a usable solve, and the x=1
+   !    micro-test cannot see it because b=M*1 is annihilated by any
+   !    stable M. Solves M_s z = M_s v for the PC_QUAL probe and rejects
+   !    when the componentwise relative residual exceeds cert_tol.
+   ! jfnk_pc_lsqfb: [JFNK_PC_LSQFB] when the LU ridge ladder exhausts,
+   !    attempt one LSQ normal-equation factorization (certified) before
+   !    giving the depth to Jacobi.
+   !
+   logical :: jfnk_pc_cert = .false.
+   double precision :: jfnk_pc_cert_tol = 1.0d-8
+   logical :: jfnk_pc_lsqfb = .false.
+   !
    ! Persistent workspace for newton_hook_v1 and gmres_m_v1 (audit §3,
    ! 09-Sep-2026): replaces large automatic arrays that were on the stack.
    ! For N=40000 (NT=200, ND=200), these accounted for ~2.5MB of stack.
@@ -543,14 +557,15 @@ contains
    ! through this routine.
    !
    subroutine jfnk_pc_set_options_v1(ptc_signed, reg_zerocol, &
-        tiny_equil, rcond_gate, rcond_min, itry_cap, qual, qual_tol)
+        tiny_equil, rcond_gate, rcond_min, itry_cap, qual, qual_tol, &
+        cert, cert_tol, lsqfb)
       implicit none
       logical, intent(in) :: ptc_signed, reg_zerocol, tiny_equil, &
            rcond_gate
       double precision, intent(in) :: rcond_min
       integer, intent(in) :: itry_cap
-      logical, intent(in), optional :: qual
-      double precision, intent(in), optional :: qual_tol
+      logical, intent(in), optional :: qual, cert, lsqfb
+      double precision, intent(in), optional :: qual_tol, cert_tol
       jfnk_pc_signed = ptc_signed
       jfnk_pc_reg_zerocol = reg_zerocol
       jfnk_pc_tiny_equil = tiny_equil
@@ -559,6 +574,9 @@ contains
       jfnk_itry_cap = itry_cap
       if(present(qual)) jfnk_pc_qual_v2 = qual
       if(present(qual_tol)) jfnk_pc_qual_tol = qual_tol
+      if(present(cert)) jfnk_pc_cert = cert
+      if(present(cert_tol)) jfnk_pc_cert_tol = cert_tol
+      if(present(lsqfb)) jfnk_pc_lsqfb = lsqfb
    end subroutine jfnk_pc_set_options_v1
 !
    ! jfnk_eval_cap_v1: effective per-activation residual-eval cap.
@@ -4357,11 +4375,12 @@ end subroutine jfnk_schur_apply_v1
    subroutine jfnk_pc_factor_block_v1(a, n, pre_reg, row_tiny, &
         ridge_piv, lsq_lam, lsq_mode, luer, &
         lu, ipiv, rsf, csf, reg, reg_tiny, ridge_rows, &
-        rcond, pivrat, itry_used, ridge_used, lu_ok)
+        rcond, pivrat, itry_used, ridge_used, lu_ok, lsq_used)
       use jfnk_solver_v1_mod, only: jfnk_ridge_floor, &
            jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil, &
            jfnk_rcond_gate, jfnk_rcond_min, jfnk_itry_cap, &
-           jfnk_pc_qual_v2, jfnk_pc_qual_tol
+           jfnk_pc_qual_v2, jfnk_pc_qual_tol, jfnk_pc_cert, &
+           jfnk_pc_cert_tol, jfnk_pc_lsqfb
       use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
       implicit none
       integer, intent(in) :: n, luer
@@ -4372,8 +4391,9 @@ end subroutine jfnk_schur_apply_v1
            ridge_rows(n), rcond, pivrat, ridge_used
       integer, intent(out) :: ipiv(n), itry_used
       logical, intent(out) :: reg(n), reg_tiny(n), lu_ok
+      logical, intent(out), optional :: lsq_used
 !
-      integer :: i, j, itry, ios, info_k, info_g, itry_max
+      integer :: i, j, itry, ios, info_k, info_g, itry_max, itry_top
       double precision :: eps, ridge_add, blkmax, scale_k, rowmax_i
       double precision :: row_cnd, col_cnd, amax, lsq_l2, anorm_k
       double precision :: s_tmp, piv_min, piv_max, rcond_k
@@ -4384,8 +4404,10 @@ end subroutine jfnk_schur_apply_v1
       logical, allocatable :: reg_raw(:), reg_eq(:)
       double precision, allocatable :: csf_pre(:)
       integer :: n_tiny_chg
+      logical :: lsq_try, lsq_fb_l
 !
       lu_ok = .false.
+      if(present(lsq_used)) lsq_used = .false.
       ridge_used = 0.0d0
       itry_used = -1
       rcond = -1.0d0
@@ -4409,7 +4431,8 @@ end subroutine jfnk_schur_apply_v1
 !
       allocate(mtst(n,n), b_tst(n), x_tst(n), stat=ios)
       if(ios /= 0) return
-      if(lsq_mode)then
+      lsq_fb_l = jfnk_pc_lsqfb .and. .not. lsq_mode
+      if(lsq_mode .or. lsq_fb_l)then
          allocate(gn_work(n,n), stat=ios)
          if(ios /= 0) return
       end if
@@ -4424,9 +4447,19 @@ end subroutine jfnk_schur_apply_v1
          itry_max = 8
       end if
 !
-      do itry = 0, itry_max
+! [JFNK_PC_LSQFB] (25-Nov-2026 audit, Phase 5): when the LU ladder
+! exhausts, one extra attempt (itry = itry_max+1) factorizes the
+! normal-equation block B^T B + lam^2 I instead of going straight to
+! Jacobi. The extra index reuses the same acceptance battery; lsq_try
+! tracks the attempt mode so the LU diagnostics keep their meaning.
+!
+      itry_top = itry_max
+      if(lsq_fb_l) itry_top = itry_max + 1
+!
+      do itry = 0, itry_top
          reg(1:n) = .false.
          reg_tiny(1:n) = .false.
+         lsq_try = lsq_mode .or. (itry .gt. itry_max)
          if(itry == 0)then
             eps = jfnk_ridge_floor
          else if(itry == 1)then
@@ -4443,8 +4476,10 @@ end subroutine jfnk_schur_apply_v1
             eps = 1.0d-6
          else if(itry == 7)then
             eps = 1.0d-4
-         else
+         else if(itry .le. itry_max)then
             eps = 1.0d-2
+         else
+            eps = jfnk_ridge_floor
          end if
          ridge_add = max(eps, jfnk_ridge_floor)
          lu(1:n,1:n) = a(1:n,1:n)
@@ -4564,7 +4599,7 @@ end subroutine jfnk_schur_apply_v1
             end do
          end do
 !
-         if(lsq_mode)then
+         if(lsq_try)then
             lsq_l2 = (lsq_lam * max(amax, 1.0d0))**2
             call dsyrk('L', 'T', n, n, 1.0d0, lu, n, 0.0d0, &
                  gn_work, n)
@@ -4613,7 +4648,7 @@ end subroutine jfnk_schur_apply_v1
 ! backward error stays ~1e-17; the gate instead compares the DGECON
 ! reciprocal condition estimate against JFNK_PC_RCOND_MIN directly.
 !
-            if(jfnk_rcond_gate .and. .not. lsq_mode)then
+            if(jfnk_rcond_gate .and. .not. lsq_try)then
                if(.not. allocated(gecon_work))then
                   allocate(gecon_work(4*n), gecon_iwork(n), stat=ios)
                   if(ios /= 0) return
@@ -4637,7 +4672,7 @@ end subroutine jfnk_schur_apply_v1
                   end do
                end do
                x_tst(1:n) = b_tst(1:n)
-               if(lsq_mode)then
+               if(lsq_try)then
                   call dpotrs('L', n, 1, lu, n, x_tst, n, info_g)
                else
                   call dgetrs('N', n, 1, lu, n, ipiv, x_tst, n, info_g)
@@ -4647,7 +4682,7 @@ end subroutine jfnk_schur_apply_v1
                   ridge_used = 0.0d0
                   cycle
                end if
-               if(lsq_mode)then
+               if(lsq_try)then
                   rcond = -1.0d0
                else
                   if(.not. allocated(gecon_work))then
@@ -4668,7 +4703,7 @@ end subroutine jfnk_schur_apply_v1
 ! deviates by more than qual_tol on any non-reg component. LU only:
 ! LSQ's Tikhonov damping is intentional direction attenuation.
 !
-            if(jfnk_pc_qual_v2 .and. .not. lsq_mode)then
+            if(jfnk_pc_qual_v2 .and. .not. lsq_try)then
                do i = 1, n
                   x_tst(i) = sin(2.17d0 * i + 0.3d0)
                end do
@@ -4696,9 +4731,66 @@ end subroutine jfnk_schur_apply_v1
                   cycle
                end if
             end if
+!
+! [JFNK_PC_CERT] (25-Nov-2026 audit, Phase 5): backward-error
+! certificate on the factored block. DGETRF returns INFO=0 on blocks
+! whose solve still carries residuals far above roundoff (T21 measured
+! per-depth residuals to 1e14 on the surrogate), and the x=1
+! micro-test cannot see it because b=M*1 is annihilated by any stable
+! M. Solve M_s z = M_s v for the deterministic probe, then take the
+! componentwise relative residual max_i |Mz-b|_i/(|M||z|+|b|)_i;
+! mtst holds the equilibrated matrix that was factored in either
+! mode, so the certificate measures pure factor+solve quality. Ridge
+! escalation improves it; the M-vs-A drift it ignores is the separate
+! JFNK_PC_QUAL question. Always runs on the LSQ fallback attempt --
+! the certificate is its only acceptance test.
+!
+            if(jfnk_pc_cert .or. itry .gt. itry_max)then
+               do i = 1, n
+                  x_tst(i) = sin(2.17d0 * i + 0.3d0)
+               end do
+               do i = 1, n
+                  s_tmp = 0.0d0
+                  do j = 1, n
+                     s_tmp = s_tmp + mtst(i,j) * x_tst(j)
+                  end do
+                  b_tst(i) = s_tmp
+               end do
+               x_tst(1:n) = b_tst(1:n)
+               if(lsq_try)then
+                  call dpotrs('L', n, 1, lu, n, x_tst, n, info_g)
+               else
+                  call dgetrs('N', n, 1, lu, n, ipiv, x_tst, n, &
+                       info_g)
+               end if
+               if(info_g /= 0)then
+                  ridge_used = 0.0d0
+                  cycle
+               end if
+               anorm_k = 0.0d0
+               do i = 1, n
+                  s_tmp = 0.0d0
+                  rowmax_i = 0.0d0
+                  do j = 1, n
+                     s_tmp = s_tmp + mtst(i,j) * x_tst(j)
+                     rowmax_i = rowmax_i + &
+                          abs(mtst(i,j)) * abs(x_tst(j))
+                  end do
+                  piv_min = abs(s_tmp - b_tst(i)) / &
+                       (rowmax_i + abs(b_tst(i)) + 1.0d-300)
+                  anorm_k = max(anorm_k, piv_min)
+               end do
+               if(.not. ieee_is_finite(anorm_k) .or. &
+                    anorm_k > jfnk_pc_cert_tol)then
+                  ridge_used = 0.0d0
+                  cycle
+               end if
+            end if
             lu_ok = .true.
             ridge_used = ridge_add
             itry_used = itry
+            if(present(lsq_used)) lsq_used = &
+                 (lsq_try .and. .not. lsq_mode)
             piv_min = huge(1.0d0)
             piv_max = 0.0d0
             do i = 1, n
