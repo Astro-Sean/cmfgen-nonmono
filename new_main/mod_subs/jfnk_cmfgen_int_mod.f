@@ -194,6 +194,10 @@
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_ROW_SF(:,:)
 	REAL(KIND=LDP), ALLOCATABLE, SAVE :: JFNK_COL_SF(:,:)
 	LOGICAL, ALLOCATABLE, SAVE :: JFNK_LU_OK(:)
+! JFNK_DEPTH_LSQ(K): depth K factored the normal-equation block under
+! [JFNK_PC_LSQFB] after the LU ridge ladder exhausted (audit 25-Nov-2026,
+! Phase 5). The apply path reads it to dispatch DPOTRS instead of DGETRS.
+	LOGICAL, ALLOCATABLE, SAVE :: JFNK_DEPTH_LSQ(:)
 ! JFNK_ROW_REG(J,K): rows replaced by the identity row (or repaired as
 ! null rows/cols in the banded path) at factor time. At apply time the
 ! corresponding output components are projected to zero -- a linear
@@ -620,9 +624,11 @@
 !                                           that was INACTIVE at the
 !                                           baseline point jfnk_x but active
 !                                           at the perturbed point. The FD
-!                                           JVP retries with smaller h when
-!                                           this is nonzero.
-	INTEGER, SAVE :: JFNK_N_JVP_HRETRY=0      ! JVP calls needing h-reduction
+!                                           JVP pre-caps every counted
+!                                           crossing; a nonzero value means
+!                                           an unmodelled boundary.
+	INTEGER, SAVE :: JFNK_N_JVP_HRETRY=0      ! JVP calls with unprevented
+!                                             constraint crossings (kept FD)
 !
 ! Diagnostic-only FD step multiplier for the COLPROBE h-scan. The
 ! nominal JVP step (~1.5D-8 in ln n) is below the cancellation floor
