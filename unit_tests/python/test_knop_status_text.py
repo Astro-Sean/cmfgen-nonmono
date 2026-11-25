@@ -177,7 +177,7 @@ def test_status_module_and_binding_sentences():
 
 
 def test_mom_sweep_table_is_prose():
-    body = section(MOM, "MOM_J_CMF_NONMONO_V1: GS sweep", "MOMJNXT_GS.tmp")
+    body = section(MOM, "MOM_J_CMF_NONMONO_V1 GS SWEEP", "MOMJNXT_GS.tmp")
     for token in (
         "n50=",
         "n5=",
@@ -199,7 +199,11 @@ def test_mom_sweep_table_is_prose():
     check("sweep table keeps SW_ST", "SW_ST" in body)
     check("sweep table keeps SV_ST", "SV_ST" in body)
     check("direction sentence used", "MOM_DIRECTION_SENTENCE" in body)
-    check("refresh delta sentence used", "'delta'" in body)
+    check(
+        "refresh duplicate dropped from sweep block",
+        "'delta'" not in body
+        and "reported in the moment-refresh summary" in body,
+    )
 
 
 def test_sweep_table_fmt_arg_counts():
@@ -284,12 +288,12 @@ def test_mode_and_format_lines():
     )
     check(
         "iteration count widened to I8",
-        "'(A,I8)')' Current great iteration count is" in CMF,
+        "'(A,I8)')' Current iteration count is" in CMF,
     )
     check(
         "no narrow I4 on the count line",
         not re.search(
-            r"\(A,I4\)\)' Current great iteration count is", CMF
+            r"\(A,I4\)\)' Current iteration count is", CMF
         ),
     )
 
@@ -337,7 +341,7 @@ def test_synthetic_block_still_parses():
         [
             " T [DO_JFNK]",
             " JFNK_MAX_EVALS  40",
-            " Current great iteration count is    1057",
+            " Current iteration count is    1057",
             " ITER_TYPE it= 1057  Running LAMBDA",
             " ------------- Moment refresh pass 4 - compressing direction ---",
             "  [OK]   Moment refresh converged at pass 7 (residual 1.8E-03).",
