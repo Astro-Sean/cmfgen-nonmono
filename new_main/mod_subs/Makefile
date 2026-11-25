@@ -253,6 +253,7 @@ $(LIB)(jfnk_cmfgen_int_mod.o) : jfnk_cmfgen_int_mod.f $(LIB_MOD)(mod_cmfgen.o)
 $(LIB)(jfnk_cmfgen_interface_v1.o) : jfnk_cmfgen_interface_v1.f $(LIB_MOD)(mod_cmfgen.o) \
                                   $(LIB_MOD)(steq_data_mod.o) $(LIB_MOD)(control_variable_mod.o) \
                                   $(LIB_MOD)(ang_qw_mod.o) $(LIB_MOD)(jfnk_solver_v1.o) \
+                                  $(LIB_MOD)(iter_log_fmt_mod.o) \
                                   $(LIB)(jfnk_cmfgen_int_mod.o)
 	$(F90) -c $(OPTION) jfnk_cmfgen_interface_v1.f
 	ar $(AR_OPTION) $(LIB) jfnk_cmfgen_interface_v1.o
