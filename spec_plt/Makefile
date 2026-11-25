@@ -62,7 +62,7 @@ $(EXE_DIR)%.exe : %.o $(OBJ) $(FN1) $(FN2) $(FN4) $(FN5)
 
 $(EXE_DIR)plt_phot_raw.exe : plt_phot_raw.o $(FN1) $(FN2) $(FN4) $(FN5) 
 	$(F90) plt_phot_raw.o \
-             -L$(LIB_DIR) -l$(LN5)  -l$(LN4) -l$(LN2) -l$(LN1) \
+             -L$(LIB_DIR) -l$(LN5)  -l$(LN4) -l$(LN2) -l$(LN1) -lmod \
                $(LOCLIB) $(PGLIB) $(X11LIB) $(G2CLIB) \
               -g -o $(EXE_DIR)plt_phot_raw.exe
 
