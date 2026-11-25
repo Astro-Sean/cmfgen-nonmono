@@ -18,6 +18,7 @@
 	SUBROUTINE RV_SN_MODEL_SNHYD(R,V,SIGMA,RMAX,RCORE,SN_AGE_DAYS,ND,LU,
 	1                           TAU_OPT)
 	USE SET_KIND_MODULE
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB,ILF_VI,ILF_VR
 	IMPLICIT NONE
 !
 	INTEGER ND
@@ -395,10 +396,9 @@
 	  END IF
 	END DO
 	IF(T1 .LT. 1.0E-4_LDP)THEN
-	  WRITE(LUER,'(A,ES12.4,A,I6,A,ES12.4,A)')
-	1   'RV_SN_MODEL_SNHYD: tightest cell dR/R-1=',T1,
-	2   ' at I=',I0,' (feature insertion floor is',
-	3   U_GAP_FAC,' of a uniform cell)'
+	  CALL ILF_KVB(LUER,'RV_SN_MODEL_SNHYD: tightest cell',3,
+	1   (/'dR/R-1','at I   ','insertion floor (uniform cell)'/),
+	2   (/ILF_VR(T1,4),ILF_VI(I0),ILF_VR(U_GAP_FAC,4)/))
 	END IF
 !
 ! Monotone-cubic interpolation of V in R with SIGMA from the cubic
