@@ -2349,8 +2349,10 @@
 ! iteration (print-hygiene fix, not flag-gated, no value change).
 !
 	IF(CONV_DIAG_LVL .GE. 2)
-	1    WRITE(LUER,'(A,L2,A,I10,A,L2)')'  EDDINGTON=',EDDINGTON,
-	1   ' ACCESS_F=',ACCESS_F,' COMPUTE_EDDFAC=',COMPUTE_EDDFAC
+	1    CALL ILF_KVB(LUER,'  EDDFAC settings:',3,
+	1   (/'EDDINGTON','ACCESS_F','COMPUTE_EDDFAC'/),
+	2   (/ILF_VL(EDDINGTON),ILF_VI(ACCESS_F),
+	3   ILF_VL(COMPUTE_EDDFAC)/))
 !
 ! Decide whether to use an file with old J values to provide an initial
 ! estimate of J with incoherent electron scattering. The options
@@ -5758,10 +5760,12 @@
 	2       MAIN_COUNTER,' (MAXCH_CTRL=',MAXCH_CTRL,')'
 	       IF((DO_NONMONO_SOB .OR. DO_NONMONO_KNOP) .AND.
 	1          CONV_DIAG_LVL .GE. 1)THEN
-	         WRITE(LUER,'(A,I0,A,I0,A,L1,A,L1)')
-	1         '  LAM_HANDOFF: stable count ',CNT_STABLE_LAM,'/',
-	2         N_STABLE_LAM,' probe_accept=',BA_RDLAM_ACCEPT,
-	3         ' field_ready=',.NOT. LAM_FIELD_NOT_READY
+	         CALL ILF_KVB(LUER,'  LAM_HANDOFF:',4,
+	1         (/'stable count','stable total','probe_accept',
+	2         'field_ready'/),
+	3         (/ILF_VI(CNT_STABLE_LAM),ILF_VI(N_STABLE_LAM),
+	4         ILF_VL(BA_RDLAM_ACCEPT),
+	5         ILF_VL(.NOT. LAM_FIELD_NOT_READY)/))
 	       END IF
 	       CALL UPDATE_KEYWORD(L_FALSE,'[DO_LAM_IT]','IN_ITS',L_TRUE,L_TRUE,LUIN)
 	       RD_LAMBDA=.FALSE.
