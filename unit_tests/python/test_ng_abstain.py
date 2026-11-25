@@ -78,7 +78,9 @@ def build():
     bins = {}
     for tag in ("new", "ref"):
         if tag == "new":
-            objs = [prod_obj(TREE / "new_main" / "subs" / "do_ng_accel_band_v4.f")]
+            objs = prod_objs(
+                [TREE / "new_main" / "subs" / "do_ng_accel_band_v4.f"]
+            )
         else:
             objs = compile_objs(
                 f"ng_{tag}_src",
