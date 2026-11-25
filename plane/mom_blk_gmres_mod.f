@@ -17,13 +17,15 @@
 !
       PRIVATE
       PUBLIC :: MOM_BLK_GMRES_SOLVE
+      PUBLIC :: BLK_MATVEC,BLK_PRECOND_VEC
 !
       CONTAINS
 !
 !-----------------------------------------------------------------------
 !
       SUBROUTINE MOM_BLK_GMRES_SOLVE(ND,NCF,TA,TB,TC,X0,CUP,KUP,
-     1  FRESH,XIN,X,RESTART,TOL,MAXRST,NITER,NREST,RESID,INFO)
+     1  FRESH,XIN,X,RESTART,TOL,MAXRST,NITER,NREST,RESID,INFO,
+     2  RESRAW)
       IMPLICIT NONE
 !
       INTEGER, INTENT(IN) :: ND,NCF,RESTART,MAXRST
@@ -36,9 +38,10 @@
       REAL(KIND=LDP), INTENT(IN) :: TOL
       INTEGER, INTENT(OUT) :: NITER,NREST,INFO
       REAL(KIND=LDP), INTENT(OUT) :: RESID
+      REAL(KIND=LDP), INTENT(OUT), OPTIONAL :: RESRAW
 !
       INTEGER N,M,I,J,JUSED,K,L,IOS,IPS
-      REAL(KIND=LDP) BETA,BNRM,RNRM,HN,T1,T2,RR
+      REAL(KIND=LDP) BETA,BNRM,RNRM,HN,T1,T2,RR,BNRM0
       REAL(KIND=LDP), ALLOCATABLE :: XV(:),B(:),Z(:),W(:),Y(:)
       REAL(KIND=LDP), ALLOCATABLE :: V(:,:),H(:,:),CS(:),SN(:),G(:)
 !
@@ -46,6 +49,7 @@
       NITER=0
       NREST=0
       RESID=HUGE(RESID)
+      IF(PRESENT(RESRAW))RESRAW=HUGE(RESRAW)
       X=XIN
       IF(ND .LT. 1 .OR. NCF .LT. 1 .OR. RESTART .LT. 1 .OR.
      1   MAXRST .LT. 1 .OR. TOL .LE. 0.0_LDP)RETURN
@@ -81,6 +85,13 @@
       END IF
       BNRM=SQRT(DOT_PRODUCT(Z,Z))
       IF(BNRM .EQ. 0.0_LDP)BNRM=1.0_LDP
+!
+! Raw RHS norm for RESRAW: the unpreconditioned counterpart of
+! BNRM, so the two reported residuals differ only by the
+! preconditioner, not by their normalization.
+!
+      BNRM0=SQRT(DOT_PRODUCT(B,B))
+      IF(BNRM0 .EQ. 0.0_LDP)BNRM0=1.0_LDP
 !
       DO NREST=0,MAXRST-1
         CALL BLK_MATVEC(ND,NCF,TA,TB,TC,CUP,KUP,FRESH,XV,W)
@@ -198,6 +209,7 @@
       IF(INFO .EQ. 0 .OR. INFO .EQ. 1)THEN
         CALL BLK_MATVEC(ND,NCF,TA,TB,TC,CUP,KUP,FRESH,XV,W)
         Z=B-W
+        IF(PRESENT(RESRAW))RESRAW=SQRT(DOT_PRODUCT(Z,Z))/BNRM0
         CALL BLK_PRECOND_VEC(ND,NCF,TA,TB,TC,FRESH,Z,W,IPS)
         IF(IPS .EQ. 0)RESID=SQRT(DOT_PRODUCT(W,W))/BNRM
       END IF
