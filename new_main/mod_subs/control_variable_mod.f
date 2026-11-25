@@ -2241,16 +2241,16 @@
 ! 30-Sep-2026 session). Everything here is either off by default
 ! or identical to the pre-existing path when left at its default.
 !
-! CONV_DIAG_LVL (VADAT [CONV_DIAG_LVL], default 2): verbosity of the
-! per-iteration convergence diagnostics.
-!   0 = ITER_SUM / ITER_HISTORY only
-!   1 = + ITER_MODE transitions, CONV_PLATEAU, GS-freeze dumps, the
-!       BA_RES_ACC trajectory line (under DO_NONMONO_KNOP also a
-!       decimated BA13-TRACE every 10th great iteration)
-!   2 = + MODCTL, MODE-OUT, BA-CTX, BA-SOLVE, BA13-TRACE (the output
-!       volume produced before this control existed)
+! OUT_LEVEL (VADAT [OUT_LEVEL], default 1): output verbosity.
+! CONV_DIAG_LVL is the legacy spelling and has the same effect when
+! OUT_LEVEL is absent. The levels are output-only:
+!   0 = iteration framing, parser-stable summary lines, and ISSUES
+!   1 = default summary tables, RUNAWAY top-N, ITER_SUM, ISSUES
+!   2 = the former full output volume in the current layout
+!   3 = full per-pass moment-refresh detail
 !
 	INTEGER CONV_DIAG_LVL
+	INTEGER OUT_LEVEL
 !
 ! LUM_RATIO_OI: outer/inner radiative luminosity ratio
 ! RLUMST(1)/RLUMST(ND), set in CMFGEN_SUB just before the
