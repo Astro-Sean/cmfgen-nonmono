@@ -433,6 +433,21 @@
 	INTEGER :: FCONV_CAP_CNT=0
 	REAL(KIND=LDP) :: FCONV_CAP_T1=0.0_LDP
 !
+! FCONV_CAP_IT_CNT / FCONV_CAP_IT_T1: the same census saved before
+! the per-iteration reset in CMFGEN_SUB, so the values survive to
+! the converged-exit gate later in the same great iteration. A
+! nonzero count means some frequencies left the f/electron-
+! scattering iteration at the pass cap this iteration -- an
+! unconverged electron-scattering source in the rates used by the
+! SE solve -- so CONV_EXIT_MET must hold the exit while it is set
+! (a capped run is not converged). FCONV_SUPPRESSED_CNT stays
+! excluded: the suppressed iteration-1 warnings are a SUBSET of the
+! cap census, counted here already -- suppressing the per-frequency
+! prints does not remove the physical event.
+!
+	INTEGER :: FCONV_CAP_IT_CNT=0
+	REAL(KIND=LDP) :: FCONV_CAP_IT_T1=0.0_LDP
+!
 	LOGICAL EXTEND_FRM_SOL
 	LOGICAL INSERT_FREQ_FRM_SOL
 !
@@ -2623,12 +2638,11 @@
 ! the best-iterate/Lambda path instead of burning sweeps.
 	INTEGER JFNK_MAX_EVALS
 !
-! JFNK_CLIP_RETRY (VADAT [JFNK_CLIP_RETRY], default 2): maximum clip-
-! crossing retries in JFNK_JVP_V1 -- each retry shrinks h by 10x.
-! Set 0 to accept the crossing at the nominal step; the h-sweep
-! showed crossings on degenerate floor components do not corrupt the
-! resolved FD on the stiff rows, while the shrink can push h below
-! the eval cancellation floor and destroy the JVP entirely.
+! JFNK_CLIP_RETRY (VADAT [JFNK_CLIP_RETRY], default 2): retained for
+! deck compatibility only. JFNK_JVP_V1 replaced the eval-result retry
+! with a deterministic a-priori cap on every crossing the residual
+! counts (audit issue B, 25-Nov-2026): an unprevented crossing is
+! logged and the FD kept as-is at the capped step.
 	INTEGER JFNK_CLIP_RETRY
 !
 ! JFNK_JVP_NDIR (VADAT [JFNK_JVP_NDIR], default 4): number of JVPs per
@@ -2756,6 +2770,17 @@
 ! near-null direction of A, which the b=M*1 micro-test cannot see.
 	LOGICAL JFNK_PC_QUAL
 	REAL(KIND=LDP) JFNK_PC_QUAL_TOL
+! JFNK_PC_CERT (default F): backward-error certificate on each
+! factored depth block -- solves M_s z = M_s v on a fixed probe and
+! rejects the factorization when the componentwise relative residual
+! exceeds JFNK_PC_CERT_TOL (default 1e-8). Catches DGETRF INFO=0
+! blocks whose solve is numerically unfit (audit T21, 25-Nov-2026).
+! JFNK_PC_LSQFB (default F): when the LU ridge ladder exhausts at a
+! depth, attempt one LSQ normal-equation factorization (certified)
+! before falling to Jacobi; the apply then uses DPOTRS there.
+	LOGICAL JFNK_PC_CERT
+	REAL(KIND=LDP) JFNK_PC_CERT_TOL
+	LOGICAL JFNK_PC_LSQFB
 	LOGICAL JFNK_PC_PAR_FACTOR
 	REAL(KIND=LDP) JFNK_REACH_GATE
 	REAL(KIND=LDP) JFNK_COS_MIN,JFNK_JZ_F_MAX,JFNK_CLIP_FRAC_MAX
