@@ -1,22 +1,21 @@
 module iter_log_fmt_mod
 !
 ! Shared layout for the per-iteration OUTGEN report. Section
-! banners, key/value rows and the end-of-iteration status line are
-! emitted through this module so the widths stay identical no
-! matter which routine does the printing. Formatting only: no
-! numerical state is stored or altered here.
+! banners, key/value rows, tables, tagged diagnostics and the
+! end-of-iteration status line are emitted through this module so
+! the widths stay identical no matter which routine does the
+! printing. Formatting only: no numerical state is stored or
+! altered here.
 !
-! Verbosity rides on the existing CONV_DIAG_LVL VADAT key
-! (default 2, clamped 0..2 by RD_CONTROL_VARIABLES):
-!   0 - iteration framing, the ITER_SUM block, Model Convergence,
-!       timing, and the IT status banner; the summary survives at
-!       level 0 by design (see SOLVE_FOR_POPS).
-!   1 - the above plus section banners and the per-call status
-!       lines (solve type, max corrections, luminosity, RUNAWAY
-!       table, ES_ALI/JCOMP census, JFNK verdicts).
-!   2 - everything, including the trace noise (setup chatter,
-!       non-thermal species dump, DEC/INC vectors, the
-!       BA-CTX/MODCTL/MODE-OUT/BA13-TRACE dev blocks).
+! Verbosity rides on OUT_LEVEL (preferred VADAT spelling) or the
+! legacy CONV_DIAG_LVL alias, clamped 0..3 by RD_CONTROL_VARIABLES:
+!   0 - iteration framing, ITER_SUM, Model Convergence, timing,
+!       the IT status banner, and the ISSUES block.
+!   1 - the above plus section banners, the moment-refresh table
+!       and summary, the RUNAWAY table, and per-call status lines.
+!   2 - the former full output volume in the new layout, including
+!       one compact detail block for the last moment-refresh pass.
+!   3 - all per-pass moment-refresh detail blocks.
 ! Lines that parsers consume keep their exact wording at every
 ! level that prints them; the level only decides whether they
 ! print, never how they are spelled.
@@ -25,11 +24,19 @@ module iter_log_fmt_mod
     implicit none
     private
 
-    public :: ilf_rule, ilf_section
+    public :: ilf_rule, ilf_section, ilf_subsection
     public :: ilf_kv, ilf_kvd, ilf_kvi
     public :: ilf_set_banner, ilf_banner
+    public :: ilf_es, ilf_es_trim, ilf_tag
+    public :: ilf_table_header, ilf_table_row, ilf_metric_row
+    public :: ilf_metric_header
+    public :: ilf_issue_reset, ilf_issue_report
+    public :: ilf_repeat_reset, ilf_repeat_write, ilf_repeat_flush
 
     integer, parameter :: ilf_lw = 80          ! section/rule width
+    integer, parameter :: ilf_maxline = 100    ! output line budget
+    integer, parameter :: ilf_maxissue = 128
+    integer, parameter :: ilf_msglen = 180
 
     ! Status-banner state exported by SOLVE_FOR_POPS once per great
     ! iteration and read by CMFGEN_SUB at the timing line. ILF_IT
@@ -41,7 +48,48 @@ module iter_log_fmt_mod
     integer           :: ilf_npct   = -1
     integer           :: ilf_it     = 0
 
+    ! Per-iteration issue census. Exact level/source/message triples
+    ! are counted; values embedded in the message therefore make
+    ! distinct entries, while unchanged repeated diagnostics fold.
+    integer :: ilf_nissue = 0
+    integer :: ilf_issue_overflow = 0
+    integer :: ilf_issue_count(ilf_maxissue) = 0
+    character(len=8) :: ilf_issue_level(ilf_maxissue) = ' '
+    character(len=16) :: ilf_issue_source(ilf_maxissue) = ' '
+    character(len=ilf_msglen) :: ilf_issue_msg(ilf_maxissue) = ' '
+
+    ! One-slot run-length filter used by hot-loop diagnostics.
+    logical :: ilf_rep_active = .false.
+    integer :: ilf_rep_count = 0
+    integer :: ilf_rep_lu = -1
+    character(len=8) :: ilf_rep_level = ' '
+    character(len=16) :: ilf_rep_source = ' '
+    character(len=ilf_msglen) :: ilf_rep_msg = ' '
+
 contains
+
+    ! Fixed-width scientific notation. Two exponent digits are used
+    ! whenever the exponent fits; three digits are used beyond that,
+    ! still in a fixed 11-character field. This avoids both width
+    ! drift and '*****' overflow at the values CMFGEN prints.
+    pure function ilf_es(x) result(str)
+        real(kind=ldp), intent(in) :: x
+        character(len=11) :: str
+        if (x /= x) then
+            str = '        NaN'
+        else if (abs(x) >= 1.0e100_ldp .or. &
+                 (x /= 0.0_ldp .and. abs(x) < 1.0e-99_ldp)) then
+            write (str, '(es11.3e3)') x
+        else
+            write (str, '(es11.4e2)') x
+        end if
+    end function ilf_es
+
+    pure function ilf_es_trim(x) result(str)
+        real(kind=ldp), intent(in) :: x
+        character(len=11) :: str
+        str = adjustl(ilf_es(x))
+    end function ilf_es_trim
 
     ! One 80-column rule of the fill character.
     subroutine ilf_rule(lu, fill)
@@ -51,8 +99,8 @@ contains
     end subroutine ilf_rule
 
     ! '--- TITLE ---' padded with dashes to 80 columns, with a
-    ! blank line before and after so sections stay visually
-    ! separated regardless of what precedes them.
+    ! blank line before and after. Blank lines are zero length, not
+    ! whitespace-only records.
     subroutine ilf_section(lu, title)
         integer, intent(in) :: lu
         character(len=*), intent(in) :: title
@@ -63,16 +111,27 @@ contains
         else
             line = '--- '//trim(title)
         end if
-        write (lu, '(a)') ' '
-        write (lu, '(a)') line
-        write (lu, '(a)') ' '
+        write (lu, '(a)') ''
+        write (lu, '(a)') trim(line)
+        write (lu, '(a)') ''
     end subroutine ilf_section
+
+    ! Single subsection style: '-- TITLE ' followed by dashes.
+    subroutine ilf_subsection(lu, title)
+        integer, intent(in) :: lu
+        character(len=*), intent(in) :: title
+        character(len=ilf_lw) :: line
+        line = ' '
+        if (len_trim(title) + 4 <= ilf_lw) then
+            line = '-- '//trim(title)//' '//repeat('-', ilf_lw)
+        else
+            line = '-- '//trim(title)
+        end if
+        write (lu, '(a)') trim(line)
+    end subroutine ilf_subsection
 
     ! '  key                          : value' -- label field 30
     ! wide so the colon column is fixed for every key/value row.
-    ! The key is buffered to 30 chars first: an A30 edit on a short
-    ! item right-justifies, which would pull the label away from
-    ! the left margin.
     subroutine ilf_kv(lu, key, val)
         integer, intent(in) :: lu
         character(len=*), intent(in) :: key, val
@@ -87,7 +146,7 @@ contains
         real(kind=ldp), intent(in) :: x
         character(len=30) :: kb
         kb = key
-        write (lu, '(2x,a30,a,es12.4)') kb, ': ', x
+        write (lu, '(2x,a30,a,a)') kb, ': ', trim(ilf_es_trim(x))
     end subroutine ilf_kvd
 
     subroutine ilf_kvi(lu, key, n)
@@ -98,6 +157,224 @@ contains
         kb = key
         write (lu, '(2x,a30,a,i0)') kb, ': ', n
     end subroutine ilf_kvi
+
+    ! Tagged diagnostic line. WARN/BAD lines also enter the
+    ! per-iteration issue census; printing is never conditional here,
+    ! so the caller retains ownership of when the diagnostic exists.
+    subroutine ilf_tag(lu, level, source, msg)
+        integer, intent(in) :: lu
+        character(len=*), intent(in) :: level, source, msg
+        character(len=8) :: lev
+        character(len=16) :: src
+        lev = adjustl(level)
+        src = adjustl(source)
+        write (lu, '(2x,a)') '['//trim(lev)//']['//trim(src)//'] '//trim(msg)
+        if (trim(lev) == 'WARN' .or. trim(lev) == 'BAD') then
+            call ilf_issue_add(trim(lev), trim(src), trim(msg))
+        end if
+    end subroutine ilf_tag
+
+    subroutine ilf_issue_add(level, source, msg)
+        character(len=*), intent(in) :: level, source, msg
+        integer :: j
+        do j = 1, ilf_nissue
+            if (ilf_issue_level(j) == level .and. &
+                ilf_issue_source(j) == source) then
+                ilf_issue_count(j) = ilf_issue_count(j) + 1
+                return
+            end if
+        end do
+        if (ilf_nissue < ilf_maxissue) then
+            ilf_nissue = ilf_nissue + 1
+            j = ilf_nissue
+            ilf_issue_level(j) = level
+            ilf_issue_source(j) = source
+            ilf_issue_msg(j) = msg
+            ilf_issue_count(j) = 1
+        else
+            ilf_issue_overflow = ilf_issue_overflow + 1
+        end if
+    end subroutine ilf_issue_add
+
+    subroutine ilf_issue_reset()
+        ilf_nissue = 0
+        ilf_issue_overflow = 0
+        ilf_issue_count = 0
+        ilf_issue_level = ' '
+        ilf_issue_source = ' '
+        ilf_issue_msg = ' '
+    end subroutine ilf_issue_reset
+
+    ! End-of-iteration issue census. N counts distinct level/source
+    ! tags; the first message is retained as an example. The block
+    ! intentionally exists even when empty so a
+    ! reader never has to infer whether warnings were lost.
+    subroutine ilf_issue_report(lu)
+        integer, intent(in) :: lu
+        integer :: j
+        write (lu, '(a,i0,a)') 'ISSUES (', ilf_nissue, ')'
+        do j = 1, ilf_nissue
+            if (ilf_issue_count(j) > 1) then
+                write (lu, '(2x,a,i0,a)') '['//trim(ilf_issue_level(j))// &
+                    ']['//trim(ilf_issue_source(j))//'] '// &
+                    trim(ilf_issue_msg(j))//' (x', ilf_issue_count(j), ')'
+            else
+                write (lu, '(2x,a)') '['//trim(ilf_issue_level(j))// &
+                    ']['//trim(ilf_issue_source(j))//'] '// &
+                    trim(ilf_issue_msg(j))
+            end if
+        end do
+        if (ilf_issue_overflow > 0) then
+            write (lu, '(2x,a,i0,a)') '[WARN][LOG] issue census full; ', &
+                ilf_issue_overflow, ' further occurrences omitted'
+        end if
+        call ilf_issue_reset()
+    end subroutine ilf_issue_report
+
+    ! Generic fixed-width table row emitter. WIDTHS includes the
+    ! visible cell width; one space separates cells. RIGHT selects
+    ! right alignment (useful for numbers). Long cells are truncated
+    ! rather than allowed to break the column boundary.
+    subroutine ilf_table_row(lu, cols, widths, right, indent)
+        integer, intent(in) :: lu
+        character(len=*), intent(in) :: cols(:)
+        integer, intent(in) :: widths(:)
+        logical, intent(in), optional :: right(:)
+        integer, intent(in), optional :: indent
+        integer :: j, n, pos, w, lenc, ind
+        character(len=256) :: line
+        character(len=64) :: cell
+        logical :: ralign
+        n = min(size(cols), size(widths))
+        ind = 0
+        if (present(indent)) ind = max(0, indent)
+        line = ''
+        if (ind > 0) line(1:ind) = repeat(' ', ind)
+        pos = ind + 1
+        do j = 1, n
+            w = widths(j)
+            ralign = .false.
+            if (present(right)) then
+                if (j <= size(right)) ralign = right(j)
+            end if
+            cell = adjustl(cols(j))
+            lenc = len_trim(cell)
+            if (pos + w - 1 > len(line)) exit
+            if (lenc == 0) then
+                line(pos:pos+w-1) = repeat(' ', w)
+            else if (ralign) then
+                if (lenc < w) then
+                    line(pos:pos+w-lenc-1) = repeat(' ', w-lenc)
+                    line(pos+w-lenc:pos+w-1) = cell(1:lenc)
+                else
+                    line(pos:pos+w-1) = cell(1:w)
+                end if
+            else
+                line(pos:pos+w-1) = cell(1:min(w, lenc))
+            end if
+            pos = pos + w + 1
+        end do
+        write (lu, '(a)') trim(line)
+    end subroutine ilf_table_row
+
+    subroutine ilf_table_header(lu, cols, widths, indent)
+        integer, intent(in) :: lu
+        character(len=*), intent(in) :: cols(:)
+        integer, intent(in) :: widths(:)
+        integer, intent(in), optional :: indent
+        integer :: j, n, w, ind, pos
+        character(len=256) :: sep
+        call ilf_table_row(lu, cols, widths, indent=indent)
+        ind = 0
+        if (present(indent)) ind = max(0, indent)
+        n = min(size(cols), size(widths))
+        sep = ''
+        if (ind > 0) sep(1:ind) = repeat(' ', ind)
+        pos = ind + 1
+        do j = 1, n
+            w = widths(j)
+            if (pos + w - 1 > len(sep)) exit
+            sep(pos:pos+w-1) = repeat('-', w)
+            pos = pos + w + 1
+        end do
+        write (lu, '(a)') trim(sep)
+    end subroutine ilf_table_header
+
+    ! Standard metric/A/B/status/note row used by ITER_SUM and the
+    ! solver censuses. Widths keep the whole row below 100 columns.
+    subroutine ilf_metric_header(lu)
+        integer, intent(in) :: lu
+        character(len=12) :: cols(5)
+        integer :: widths(5)
+        cols = [character(len=12) :: 'metric', 'A', 'B', 'status', 'note']
+        widths = [14, 11, 11, 7, 38]
+        call ilf_table_header(lu, cols, widths, indent=2)
+    end subroutine ilf_metric_header
+
+    subroutine ilf_metric_row(lu, metric, a, b, status, note)
+        integer, intent(in) :: lu
+        character(len=*), intent(in) :: metric, a, b, status, note
+        character(len=40) :: cols(5)
+        integer :: widths(5)
+        logical :: right(5)
+        cols(1) = metric
+        cols(2) = a
+        cols(3) = b
+        cols(4) = status
+        cols(5) = note
+        widths = [14, 11, 11, 7, 38]
+        right = [.false., .true., .true., .false., .false.]
+        call ilf_table_row(lu, cols, widths, right=right, indent=2)
+    end subroutine ilf_metric_row
+
+    ! Run-length compression for consecutive identical tagged
+    ! messages. The first instance is buffered until the next unlike
+    ! message or an explicit flush, so ordering with unrelated writes
+    ! is the caller's responsibility: flush before leaving the hot
+    ! loop that uses the filter.
+    subroutine ilf_repeat_reset()
+        ilf_rep_active = .false.
+        ilf_rep_count = 0
+        ilf_rep_lu = -1
+        ilf_rep_level = ' '
+        ilf_rep_source = ' '
+        ilf_rep_msg = ' '
+    end subroutine ilf_repeat_reset
+
+    subroutine ilf_repeat_write(lu, level, source, msg)
+        integer, intent(in) :: lu
+        character(len=*), intent(in) :: level, source, msg
+        if (ilf_rep_active .and. ilf_rep_lu == lu .and. &
+            ilf_rep_level == level .and. ilf_rep_source == source .and. &
+            ilf_rep_msg == msg) then
+            ilf_rep_count = ilf_rep_count + 1
+            return
+        end if
+        call ilf_repeat_flush(lu)
+        ilf_rep_active = .true.
+        ilf_rep_count = 1
+        ilf_rep_lu = lu
+        ilf_rep_level = level
+        ilf_rep_source = source
+        ilf_rep_msg = msg
+    end subroutine ilf_repeat_write
+
+    subroutine ilf_repeat_flush(lu)
+        integer, intent(in) :: lu
+        character(len=ilf_msglen+16) :: msg
+        if (.not. ilf_rep_active) return
+        if (lu /= ilf_rep_lu) return
+        if (ilf_rep_count > 1) then
+            write (msg, '(a,a,i0,a)') trim(ilf_rep_msg), ' (x', &
+                ilf_rep_count, ')'
+            call ilf_tag(lu, trim(ilf_rep_level), trim(ilf_rep_source), &
+                trim(msg))
+        else
+            call ilf_tag(lu, trim(ilf_rep_level), trim(ilf_rep_source), &
+                trim(ilf_rep_msg))
+        end if
+        call ilf_repeat_reset()
+    end subroutine ilf_repeat_flush
 
     ! Record this call's status words for the banner. Called from
     ! SOLVE_FOR_POPS once CONV_NPCT exists, inside the same
@@ -121,7 +398,7 @@ contains
         character(len=12) :: tbuf
         if (ilf_it /= it) return
         write (tbuf, '(f8.1)') tsec
-        write (lu, '(a)') ' '
+        write (lu, '(a)') ''
         call ilf_rule(lu, '-')
         if (ilf_npct >= 0) then
             write (lu, '(a,i0,7a,i0,3a)') ' IT ', it, ' | ', &
@@ -135,7 +412,7 @@ contains
                 trim(adjustl(tbuf)), ' s'
         end if
         call ilf_rule(lu, '-')
-        write (lu, '(a)') ' '
+        write (lu, '(a)') ''
     end subroutine ilf_banner
 
 end module iter_log_fmt_mod
