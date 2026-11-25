@@ -1280,6 +1280,19 @@
 !
 	LOGICAL MOM_BLKGMRES
 !
+! MOM_AUG_RES (default FALSE): augmented-residual diagnostic for
+! the non-monotonic moment solver. Captures the H-row and
+! lagged-term coefficients alongside the NU_* row equations and,
+! at each MOM_KNOP_REFRESH_V1 exit, evaluates the residual of the
+! full coupled J+H equations on the committed J_NEXT_FRQ and
+! H_NEXT_FRQ fields. Reports RESID_IMPLEMENTED (the equations as
+! assembled, every stabiliser active) and RESID_TARGET (the same
+! rows with the equation-changing stabilisers removed) separately
+! for the moment and H rows. Read-only: no solver state changes.
+! Diagnostic key. VADAT keyword [MOM_AUG_RES].
+!
+	LOGICAL MOM_AUG_RES
+!
 ! MOM_FAC_RLX (default 0.25, was 1.0 = off): under-relaxation
 ! weight for the Eddington-factor update between great iterations
 ! in MOM_J_CMF_NONMONO_V1 -- with pops held, the formal-solve factor
