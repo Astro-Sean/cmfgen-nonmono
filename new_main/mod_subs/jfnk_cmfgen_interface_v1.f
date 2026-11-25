@@ -1662,6 +1662,8 @@
 ! edited by Sean Brennan (V4, 2026-09)
 !
 	SUBROUTINE JFNK_RESIDUAL_V1(N, X, Y)
+
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_log_unknown,
@@ -2026,10 +2028,10 @@
 	    END DO
 	  END DO
 	  IF(JFNK_N_RESIDUAL_EVALS .EQ. 0 .OR. N_NAN_SM+N_INF_SM .GT. 0)THEN
-	    WRITE(LUER,'(A,I6,A,I6,A,ES12.4,A,ES12.4)')
-	1      '  RESID STEQ_MAT: NaN=', N_NAN_SM,
-	1      ' Inf=', N_INF_SM,
-	1      ' max=', MAX_SM, ' min=', MIN_SM
+	    CALL ILF_KVB(LUER,'  RESID STEQ_MAT:',4,
+	1      (/'NaN','Inf','max','min'/),
+	2      (/ILF_VI(N_NAN_SM),ILF_VI(N_INF_SM),
+	3       ILF_VR(MAX_SM,4),ILF_VR(MIN_SM,4)/))
 	    FLUSH(LUER)
 	  END IF
 	END BLOCK
@@ -2071,10 +2073,10 @@
 	      END IF
 	    END DO
 	    IF(JFNK_N_RESIDUAL_EVALS .EQ. 0 .OR. N_NAN_YR+N_INF_YR .GT. 0)THEN
-	      WRITE(LUER,'(A,I6,A,I6,A,ES12.4,A,ES12.4)')
-	1      '  RESID YRAD: NaN=', N_NAN_YR,
-	1      ' Inf=', N_INF_YR,
-	1      ' max=', MAX_YR, ' min=', MIN_YR
+	      CALL ILF_KVB(LUER,'  RESID YRAD:',4,
+	1      (/'NaN','Inf','max','min'/),
+	2      (/ILF_VI(N_NAN_YR),ILF_VI(N_INF_YR),
+	3       ILF_VR(MAX_YR,4),ILF_VR(MIN_YR,4)/))
 	      FLUSH(LUER)
 	    END IF
 	  END BLOCK
@@ -2179,9 +2181,9 @@
 	jfnk_resid_nbad = N_BAD
 	IF(N_BAD .GT. 0)THEN
 	  JFNK_N_RESIDUAL_NAN = JFNK_N_RESIDUAL_NAN + 1
-	  WRITE(LUER,'(A,I6,A,I6,A,I6)')
-	1    '  RESID NaN guard: bad=', N_BAD,
-	1    ' NaN=', N_NAN_Y, ' Inf=', N_INF_Y
+	  CALL ILF_KVB(LUER,'  RESID NaN guard:',3,
+	1    (/'bad','NaN','Inf'/),
+	2    (/ILF_VI(N_BAD),ILF_VI(N_NAN_Y),ILF_VI(N_INF_Y)/))
 	  FLUSH(LUER)
 	  DO IDX = 1, N
 	    IF(Y(IDX) .NE. Y(IDX))THEN
@@ -3883,6 +3885,8 @@
 ! (edited 15-Oct-2026)
 !
 	SUBROUTINE JFNK_FACTOR_PRECOND_V1(DO_FACTOR)
+
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR, ILF_VL, ILF_VS
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC, JFNK_PRECOND_TYPE,
@@ -4498,11 +4502,10 @@
 	  JFNK_LU_INFO = 0
 	  IF(N_OK .EQ. 0) JFNK_LU_INFO = 1
 	  IF(LUER .GT. 0)THEN
-	    WRITE(LUER,'(A,A,A,I4,A,I4,A,I4,A,I4)')
-	1      '  JFNK: equilibrated block ', JFNK_PRECOND_TYPE,
-	2      '  nfact=',
-	1      JFNK_N_LU_FACTORS+1, '  ok=', N_OK,
-	1      '  ridged=', N_RIDGE, '  Jacobi=', N_FAIL
+	    CALL ILF_KVB(LUER,'  JFNK:',5,
+	1      (/'equilibrated block','nfact','ok','ridged','Jacobi'/),
+	2      (/ILF_VS(JFNK_PRECOND_TYPE),ILF_VI(JFNK_N_LU_FACTORS+1),
+	3       ILF_VI(N_OK),ILF_VI(N_RIDGE),ILF_VI(N_FAIL)/))
 	    IF(N_OK .GT. 0)THEN
 	      WRITE(LUER,'(A,2ES10.2,A,2ES10.2)')
 	1        '  JFNK: row scale min/max=', ROW_SF_MIN, ROW_SF_MAX,
@@ -4723,10 +4726,10 @@
 	  IF(ALLOCATED(GN_WORK)) DEALLOCATE(GN_WORK)
 	  IF(ALLOCATED(MTST))DEALLOCATE(MTST,B_TST,X_TST)
 	  IF(LUER .GT. 0)THEN
-	    WRITE(LUER,'(A,A,I4,A,I4,A,I4,A,L2)')
-	1      '  JFNK: SCHUR pop-block LSQ nfact=',
-	2      JFNK_N_LU_FACTORS+1, ' ok=', N_OK,
-	3      ' ridged=', N_RIDGE, ' S_ok=', JFNK_SCHUR_OK
+	    CALL ILF_KVB(LUER,'  JFNK: SCHUR pop-block LSQ:',4,
+	1      (/'nfact','ok','ridged','S_ok'/),
+	2      (/ILF_VI(JFNK_N_LU_FACTORS+1),ILF_VI(N_OK),
+	3       ILF_VI(N_RIDGE),ILF_VL(JFNK_SCHUR_OK)/))
 	    IF(N_REG_ROWS .GT. 0) WRITE(LUER,'(A,I8)')
 	1      '  JFNK: SCHUR regularized pop rows=', N_REG_ROWS
 	  END IF
@@ -5610,6 +5613,7 @@
 ! edited by Sean Brennan (08-Sep-2026)
 !
 	RECURSIVE SUBROUTINE JFNK_PRECOND_V1(N, V)
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR, ILF_VS
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_n_zmax_hit, jfnk_n_reg_proj,
@@ -6124,11 +6128,10 @@
 !
 	IF(NZERO .GT. 0 .AND. JFNK_LUER .GT. 0 .AND.
 	1   JFNK_N_PRECOND_APPLIES .LT. 8)THEN
-	  WRITE(JFNK_LUER,'(A,A,A,I8,A,I8,A,ES10.2)')
-	1    '  JFNK: precond ', JFNK_PRECOND_TYPE,
-	1    ' applied=', NJAC,
-	1    '  zeroed=', NZERO,
-	1    '  ridge=', JFNK_BA_RIDGE_FAC
+	  CALL ILF_KVB(JFNK_LUER,'  JFNK:',4,
+	1    (/'precond','applied','zeroed','ridge'/),
+	2    (/ILF_VS(JFNK_PRECOND_TYPE),ILF_VI(NJAC),
+	3     ILF_VI(NZERO),ILF_VR(JFNK_BA_RIDGE_FAC,2)/))
 	END IF
 !
 ! FIX_T_AUTO: under left preconditioning every Krylov basis vector
@@ -6384,6 +6387,8 @@
 ! edited by Sean Brennan (10-Oct-2026)
 !
 	SUBROUTINE JFNK_GMRES_AUDIT_V1(TEST_K)
+
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VR
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC
@@ -6563,10 +6568,10 @@
 	  T2 = MAX(T2, ABS(V_VEC(I)))
 	  RES = RES + (B_VEC(I) - V_VEC(I))**2
 	END DO
-	WRITE(LUER,'(A)') '  Direct M^{-1}*A*v - v test:'
-	WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)') '    ||M^{-1}Av-v||_inf=',
-	1   T1, ' ||v||_inf=', T2, ' rel=', T1/MAX(T2,1.0E-30_LDP)
-	WRITE(LUER,'(A,ES12.4)') '    ||M^{-1}Av-v||_2  =', SQRT(RES)
+	CALL ILF_KVB(LUER,'  Direct M^{-1}*A*v - v test:',4,
+	1   (/'||M^{-1}Av-v||_inf','||v||_inf','rel','||M^{-1}Av-v||_2'/),
+	2   (/ILF_VR(T1,4),ILF_VR(T2,4),
+	3    ILF_VR(T1/MAX(T2,1.0E-30_LDP),4),ILF_VR(SQRT(RES),4)/))
 !
 ! Eigenvalue spread estimate (diagonal approximation)
 !
@@ -6578,9 +6583,10 @@
 	    EIG_MIN = MIN(EIG_MIN, EIG_VAL)
 	  END IF
 	END DO
-	WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1   '  Eigenvalue spread: max=', EIG_MAX, ' min=', EIG_MIN,
-	1   ' ratio=', EIG_MAX/MAX(EIG_MIN,1.0E-30_LDP)
+	CALL ILF_KVB(LUER,'  Eigenvalue spread:',3,
+	1   (/'max','min','ratio'/),
+	2   (/ILF_VR(EIG_MAX,4),ILF_VR(EIG_MIN,4),
+	3    ILF_VR(EIG_MAX/MAX(EIG_MIN,1.0E-30_LDP),4)/))
 	FLUSH(LUER)
 !
 ! Run toy GMRES for each RSCALE choice
@@ -6742,6 +6748,8 @@
 ! edited by Sean Brennan (10-Oct-2026)
 !
 	SUBROUTINE JFNK_RSCALE_AUDIT_V1()
+
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_M_GMRES, JFNK_MAX_GMRES,
@@ -6828,11 +6836,12 @@
 !
 	WRITE(LUER,'(/,A)')
 	1   ' =========================== MULTI-DEPTH RSCALE AUDIT =========================='
-	WRITE(LUER,'(A,I6,A,I4,A,I8)')
-	1   '  NT=', JFNK_NT, ' ND=', JFNK_ND, ' N=', N
-	WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1   '  Initial ||F(0)||_w  =', F0_W,
-	1   ' ||F(0)||_inf=', F0_INF, ' ||F(0)||_2  =', F0_L2
+	CALL ILF_KVB(LUER,'  Grid dims:',3,
+	1   (/'NT','ND','N'/),
+	2   (/ILF_VI(JFNK_NT),ILF_VI(JFNK_ND),ILF_VI(N)/))
+	CALL ILF_KVB(LUER,'  Initial:',3,
+	1   (/'||F(0)||_w','||F(0)||_inf','||F(0)||_2'/),
+	2   (/ILF_VR(F0_W,4),ILF_VR(F0_INF,4),ILF_VR(F0_L2,4)/))
 	FLUSH(LUER)
 !
 ! Save left_pc setting and force right preconditioning for the RSCALE
@@ -7126,6 +7135,8 @@
 ! V4 audit, 2026-10.
 !
 	SUBROUTINE JFNK_PRECOND_AUDIT_V1(N, F_BASE, LUER)
+
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_BA_RIDGE_FAC
@@ -7186,9 +7197,10 @@
 	  END DO
 	  R_MEAN = R_MEAN / DBLE(N)
 	  R_DRANGE = R_MAX / MAX(R_MIN, 1.0E-30_LDP)
-	  WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4)')
-	1    '  RSCALE: min=', R_MIN, ' max=', R_MAX,
-	1    ' mean=', R_MEAN, ' dynamic_range=', R_DRANGE
+	  CALL ILF_KVB(LUER,'  RSCALE:',4,
+	1    (/'min','max','mean','dynamic_range'/),
+	2    (/ILF_VR(R_MIN,4),ILF_VR(R_MAX,4),
+	3     ILF_VR(R_MEAN,4),ILF_VR(R_DRANGE,4)/))
 	ELSE
 	  WRITE(LUER,'(A)') '  RSCALE: not ready (uniform weighting)'
 	END IF
@@ -7214,13 +7226,14 @@
 	  END IF
 	END DO
 	D_MEAN = D_MEAN / DBLE(JFNK_NT)
-	WRITE(LUER,'(A,I3,A,ES12.4,A,ES12.4,A,ES12.4)')
-	1    '  BA diag (depth ', K, '): min=', D_MIN,
-	1    ' max=', D_MAX, ' mean=', D_MEAN
-	WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1    '  ridge/diag ratio: min=', RATIO_MIN,
-	1    ' max=', RATIO_MAX,
-	1    ' (ridge_fac=', JFNK_BA_RIDGE_FAC
+	CALL ILF_KVB(LUER,'  BA diag:',4,
+	1    (/'depth','min','max','mean'/),
+	2    (/ILF_VI(K),ILF_VR(D_MIN,4),
+	3     ILF_VR(D_MAX,4),ILF_VR(D_MEAN,4)/))
+	CALL ILF_KVB(LUER,'  ridge/diag ratio:',3,
+	1    (/'min','max','ridge_fac'/),
+	2    (/ILF_VR(RATIO_MIN,4),ILF_VR(RATIO_MAX,4),
+	3     ILF_VR(JFNK_BA_RIDGE_FAC,4)/))
 !
 ! Report per-species diag and ridge for first 10 and last 10 species
 !
@@ -7303,11 +7316,10 @@
 	  Z_NORM = MAX(Z_NORM, ABS(Z_TEST(I)))
 	END DO
 	REL_ERR = R_NORM / MAX(V_NORM, 1.0E-30_LDP)
-	WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4)')
-	1    '  PC accuracy (v=F): ||Mz-v||/||v||=', REL_ERR,
-	1    ' ||v||_inf=', V_NORM,
-	1    ' ||z||_inf=', Z_NORM,
-	1    ' ||Mz-v||_inf=', R_NORM
+	CALL ILF_KVB(LUER,'  PC accuracy (v=F):',4,
+	1    (/'||Mz-v||/||v||','||v||_inf','||z||_inf','||Mz-v||_inf'/),
+	2    (/ILF_VR(REL_ERR,4),ILF_VR(V_NORM,4),
+	3     ILF_VR(Z_NORM,4),ILF_VR(R_NORM,4)/))
 !
 ! Row-resolved decomposition. The apply projects frozen rows
 ! (J=NT T, J=NT-1 Ne) out of z, so the full-space metric mixes the
@@ -7532,12 +7544,10 @@
 	  END DO
 	  COS_JZV = JZ_DOT /
 	1    MAX(SQRT(JZ_N2)*SQRT(V_N2), 1.0E-300_LDP)
-	  WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4,A,ES12.4)')
-	1    '  PC banded J*M^-1 (v=F): |Jz-v|/|v|=',
-	1    R_NORM/MAX(V_NORM, 1.0E-30_LDP),
-	2    ' |Jz|_inf=', JZ_NORM,
-	3    ' |z|_inf=', Z_NORM,
-	4    ' cos(Jz,v)=', COS_JZV
+	  CALL ILF_KVB(LUER,'  PC banded J*M^-1 (v=F):',4,
+	1    (/'|Jz-v|/|v|','|Jz|_inf','|z|_inf','cos(Jz,v)'/),
+	2    (/ILF_VR(R_NORM/MAX(V_NORM, 1.0E-30_LDP),4),
+	3     ILF_VR(JZ_NORM,4),ILF_VR(Z_NORM,4),ILF_VR(COS_JZV,4)/))
 	  WRITE(LUER,'(A,ES12.4)')
 	1    '  PC banded J*M^-1 (v=F, non-reg pop rows): |Jz-v|_inf=',
 	1    R_NORM_NR
@@ -7549,11 +7559,10 @@
 ! reduction, or specific depth blocks with dropped band content).
 !
 	  IARG_Z = MAXLOC(ABS(Z_TEST(1:N)), 1)
-	  WRITE(LUER,'(A,I4,A,I6,A,I4,A,I6,A)')
-	1    '  PC banded J*M^-1 worst: |Jz-v| at K=',
-	1    (IARG_R-1)/JFNK_NT + 1, ' row=', MOD(IARG_R-1, JFNK_NT)+1,
-	2    ' ; |z|max at K=', (IARG_Z-1)/JFNK_NT + 1,
-	3    ' row=', MOD(IARG_Z-1, JFNK_NT)+1
+	  CALL ILF_KVB(LUER,'  PC banded J*M^-1 worst:',4,
+	1    (/'|Jz-v| at K','row','|z|max at K','row'/),
+	2    (/ILF_VI((IARG_R-1)/JFNK_NT + 1),ILF_VI(MOD(IARG_R-1, JFNK_NT)+1),
+	3     ILF_VI((IARG_Z-1)/JFNK_NT + 1),ILF_VI(MOD(IARG_Z-1, JFNK_NT)+1)/))
 	END IF
 !
 ! Test vector 2: unit vector in the first species at first depth
@@ -7631,6 +7640,8 @@
 ! review §1-§5, 2026-09-10.
 !=======================================================================
 	SUBROUTINE JFNK_COMP_DIAGNOSTIC_V1(N, F_BASE, LUER)
+
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI, ILF_VR
 	USE SET_KIND_MODULE
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx
@@ -7942,11 +7953,10 @@
 	  V_NORM_K = MAX(V_NORM_K, ABS(JV_BA(I)))
 	  R_NORM_K = MAX(R_NORM_K, ABS(JV_FD(I) - JV_BA(I)))
 	END DO
-	WRITE(LUER,'(A,I4,A,ES12.4,A,ES12.4,A,ES12.4)')
-	1   '  Worst depth K=', KK,
-	1   '  ||BA*v||_inf=', V_NORM_K,
-	1   '  ||FD-BA||_inf=', R_NORM_K,
-	1   '  rel=', R_NORM_K/MAX(V_NORM_K,1.0D-30)
+	CALL ILF_KVB(LUER,'  Worst depth:',4,
+	1   (/'K','||BA*v||_inf','||FD-BA||_inf','rel'/),
+	2   (/ILF_VI(KK),ILF_VR(V_NORM_K,4),
+	3    ILF_VR(R_NORM_K,4),ILF_VR(R_NORM_K/MAX(V_NORM_K,1.0D-30),4)/))
 !
 ! Report overall
 !
@@ -7956,11 +7966,10 @@
 	  R_NORM_K = MAX(R_NORM_K, ABS(JV_FD(I) - JV_BA(I)))
 	  V_NORM_K = MAX(V_NORM_K, ABS(JV_BA(I)))
 	END DO
-	WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1   '  Overall: ||FD-BA||/||BA||=',
-	1   R_NORM_K/MAX(V_NORM_K,1.0D-30),
-	1   '  ||FD||_inf=', JV_NORM,
-	1   '  ||BA||_inf=', V_NORM_K
+	CALL ILF_KVB(LUER,'  Overall:',3,
+	1   (/'||FD-BA||/||BA||','||FD||_inf','||BA||_inf'/),
+	2   (/ILF_VR(R_NORM_K/MAX(V_NORM_K,1.0D-30),4),
+	3    ILF_VR(JV_NORM,4),ILF_VR(V_NORM_K,4)/))
 !
 !=======================================================================
 ! 4. LU PRECONDITIONER RESIDUAL PER DEPTH
@@ -8191,6 +8200,8 @@
 ! carry the residual.
 !
 	SUBROUTINE JFNK_ROW_ANATOMY_V1(LUER,JZ_VEC,N_JZ)
+
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VR
 	USE SET_KIND_MODULE
 	USE MOD_CMFGEN
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_ROW_DIAG
@@ -8287,10 +8298,9 @@
 	  IF(HAVE_JZ)JZ2T=JZ2T+JZ_VEC(I)**2
 	END DO
 !
-	WRITE(LUER,'(A,ES12.4,A,ES12.4,A,ES12.4)')
-	1   '  JFNK ANATOMY: |F|=',REAL(SQRT(F2T)),
-	2   ' |coll|=',REAL(SQRT(C2T)),
-	3   ' |rad|=',REAL(SQRT(R2T))
+	CALL ILF_KVB(LUER,'  JFNK ANATOMY:',3,
+	1   (/'|F|','|coll|','|rad|'/),
+	2   (/ILF_VR(SQRT(F2T),4),ILF_VR(SQRT(C2T),4),ILF_VR(SQRT(R2T),4)/))
 	IF(HAVE_JZ)WRITE(LUER,'(A,ES12.4)')
 	1   '    |Jz|=',REAL(SQRT(JZ2T))
 !
@@ -8670,6 +8680,8 @@
 ! whole admission window.
 !
 	SUBROUTINE JFNK_ASSEMBLE_ENRICH_V1(LUER)
+
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI
 	USE SET_KIND_MODULE
 	USE MOD_CMFGEN
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_ENRICH,JFNK_ENRICH_K,
@@ -8859,9 +8871,9 @@
 ! budget added to the entry count, so it shrinks on higher rungs
 ! and when entry evals were already spent -- print NEV0 so the
 ! anchor-count-vs-cap arithmetic is checkable.
-	  WRITE(LUER,'(A,I4,A,I8,A,I8,A)')
-	1   '    anchors K=',KWANT,'   eval cap at=',NEV_CAP,
-	2   ' (entry at',NEV0,')'
+	  CALL ILF_KVB(LUER,'    anchors:',3,
+	1   (/'K','eval cap at','entry at'/),
+	2   (/ILF_VI(KWANT),ILF_VI(NEV_CAP),ILF_VI(NEV0)/))
 	END IF
 !
 	M=0
@@ -8996,6 +9008,8 @@
 !
 !
 	SUBROUTINE JFNK_ASSEMBLE_ENRICH_ARN_V1(LUER)
+
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB, ILF_VI
 	USE SET_KIND_MODULE
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_ENRICH_K,
 	1     JFNK_ENRICH_PERCENT,JFNK_MAX_EVALS
@@ -9075,9 +9089,9 @@
 !
 	IF(LUER .GT. 0)THEN
 	  WRITE(LUER,'(/,A)')' --------------------------- JFNK ENRICH-ARN ------------------------------'
-	  WRITE(LUER,'(A,I4,A,I8,A,I8,A)')
-	1   '    arnoldi K=',KWANT,'   eval cap at=',NEV_CAP,
-	2   ' (entry at',NEV0,')'
+	  CALL ILF_KVB(LUER,'    arnoldi:',3,
+	1   (/'K','eval cap at','entry at'/),
+	2   (/ILF_VI(KWANT),ILF_VI(NEV_CAP),ILF_VI(NEV0)/))
 	END IF
 !
 ! v_1 = normalized masked residual. A masked-near-zero F means
