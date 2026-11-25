@@ -1,5 +1,53 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] JFNK independent audit + phase-1 fixes (25-Nov-2026).
+      Audit verdicts: (a) BA-vs-FD Jacobian gap CONFIRMED at
+      source - JFNK_SYNC_ATM_FROM_POPS recomputes POPION,
+      COMP_LEV_DIS_BLK and SUP_TO_FULL_V4 at perturbed pops
+      while BA carries no derivatives of the aggregate
+      dissolution factors (interface l.775 comment admits);
+      all channels are depth-block-local and analytic.
+      (b) JVP nonlinearity CONFIRMED measured: T9 near-null
+      direction rel err 3.5 at eps=1e-8 (hard surrogate);
+      additivity defect ~6x FD error; homogeneity exact.
+      (c) Production LU preconditioner CONFIRMED deficient:
+      GMRES residual grows 5.18e37 -> 8.91e37 under LU on
+      hard surrogate while TSVD/PTC-LU/LSQ converge ~1e-12;
+      per-depth LU backward err 2.4e-2 (author XFAIL);
+      dgetrf info=0 does not imply a usable operator.
+      (d) Equation-structure freeze, PTC coordinate fold
+      (sigma*exp(-x)/dtau), residual purity (byte-identical
+      repeats), globalization norms all VERIFIED correct.
+      (e) MAXCH defect CONFIRMED: factor folds S_PTC into
+      JFNK_BA_DIAG (in place, persistent via BA_A) so
+      jfnk_maxch_est divides by the regularized diagonal.
+      FIX landed this commit: JFNK_BA_DIAG_RAW +
+      JFNK_BA_DIAG_RAW_READY added (int_mod), filled from
+      JFNK_C_MAT before the PTC fold in BUILD_BA_RAD and
+      FACTOR rebuild branch; MAXCH, RSCALE=DIAG,
+      RSCALE=DIAG_RDG and the newton-diagnostic BA_diag
+      column now read RAW-preferred. Schur S3 defect fixed:
+      jfnk_blk_lsq_solve flags nonfinite DPOTRS results
+      (info_out=np+1), schur_form rejects nonfinite S before
+      DGETRF, schur_apply flags nonfinite v (S3 apply now
+      ierr=5 instead of propagating garbage).
+      Test-infra repairs (kv-refactor fallout, pre-existing):
+      iter_log_fmt_mod.o companion added to
+      unit_tests/common.py _PROD_COMPANION_SOURCES for
+      jfnk_solver_v1.f90 + jfnk_op_probe_v1.f90 and to all
+      tests/jfnk_core link rules incl test_trace_state;
+      stale literal patterns in test_jfnk_regressions
+      ('BA src it=unknown', raw-direction A/ES format) updated
+      to the ILF_KVB forms; parse_opprobe absorbs ilf_kvb
+      continuation lines. Tests: jfnk_core make test all 9
+      binaries PASS (test_trace_state now builds); opint
+      36/36; regressions all PASS incl new Issue-E/S3 checks.
+      Owed: Phase-2 PTC x~=0 regression test; per-depth LU
+      backward-error certificate + TSVD/LSQ fallback (Phase
+      5); deterministic norm-scaled JVP step (Phase 4);
+      block-local augmented preconditioner for the Issue-A
+      derivative channels (Phase 5/6); thread-count
+      reproducibility.
 - [x] Production-route consolidation audit (25-Nov-2026, work
       order: moment solver preserved but no longer the production
       target; production = DO_NONMONO_SOB + USE_LAM_ES=T).
