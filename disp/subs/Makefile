@@ -99,6 +99,16 @@ $(LIB)(%.o) : %.f90 ../mod_disp.o $(NT)
 	$(F90) -c $(FFREE)  -I../ -I../../new_main/subs/non_therm $<
 	ar $(AR_OPTION) $(LIB) $*.o
 
+ILF = $(LIB_DIR)libmod.a(iter_log_fmt_mod.o)
+
+$(LIB)(two_phot_opac_disp_v3.o) : two_phot_opac_disp_v3.f $(ILF)
+	$(F90) -c  $(FG) two_phot_opac_disp_v3.f
+	ar $(AR_OPTION) $(LIB) two_phot_opac_disp_v3.o
+
+$(LIB)(set_two_phot_disp_v3.o) : set_two_phot_disp_v3.f $(ILF)
+	$(F90) -c  $(FG) set_two_phot_disp_v3.f
+	ar $(AR_OPTION) $(LIB) set_two_phot_disp_v3.o
+
 $(LIB)(branch_rat.o) : branch_rat.f ../mod_disp.o  $(GEN)
 	$(F90) -c  $(FG) -I../ branch_rat.f
 	ar $(AR_OPTION) $(LIB) branch_rat.o
