@@ -4243,8 +4243,10 @@
 ! Field legend, once per process: the table rows below use short
 ! names so the per-iteration block stays compact.
 !
-	  WRITE(LUER,'(/,A)')' -------------------------------- ITER SUMMARY ---------------------------------'
-	  IF(.NOT. ITER_LEG_DONE)THEN
+	  WRITE(LUER,'(A)')''
+	  CALL ILF_SUBSECTION(LUER,'ITERATION SUMMARY')
+	  IF(.NOT. ITER_LEG_DONE .AND. (MAIN_COUNTER .EQ. 1 .OR.
+	1    CONV_DIAG_LVL .GE. 2))THEN
 	    ITER_LEG_DONE=.TRUE.
 	    WRITE(LUER,'(A)')'  ITER_SUM legend:'
 	    WRITE(LUER,'(A)')'   demand/applied = largest non-exempted'//
@@ -4298,6 +4300,7 @@
 	1    ' ITER_SUM: it=',MAIN_COUNTER,'  mode=',TRIM(MODE_NOW),
 	2    ' -> ',TRIM(MODE_NEXT),'  ba=',TRIM(BA_CH),
 	3    '  frozen=',GS_FREEZE,'  held=',GS_POPS_HELD
+	  CALL ILF_METRIC_HEADER(LUER)
 !
 ! Audit D1/D2 accelerator census. The getter is called here
 ! (before ITER_SUM) so the same LEDG_AA_* values feed both the
@@ -4326,18 +4329,16 @@
 	  IF(BA_NREJ_CONSEC .GT. 0)BA_ST='[REJ]  '
 	  LUM_ST='[INFO] '
 !
-	  WRITE(LUER,'(4X,A14,2(2X,ES10.3),2X,A,1X,A)')
-	1    'pops',MAXCH,MAXCH_APP,POP_ST,
-	2    'demand / applied correction'
+	  CALL ILF_METRIC_ROW(LUER,'pops',ILF_ES_TRIM(MAXCH),
+	1    ILF_ES_TRIM(MAXCH_APP),POP_ST,'demand / applied correction')
 	  IF(NG_DEM_PRE .GE. 0.0_LDP)THEN
-	    WRITE(LUER,'(4X,A14,2(2X,ES10.3),2X,A)')
-	1    'ng rebound',NG_DEM_PRE,MAXCH,
-	2    'demand before last NG / this call'
+	    CALL ILF_METRIC_ROW(LUER,'ng rebound',ILF_ES_TRIM(NG_DEM_PRE),
+	1    ILF_ES_TRIM(MAXCH),'[INFO]',
+	2    'demand before last NG / this call')
 	    NG_DEM_PRE=-1.0_LDP
 	  END IF
-	  WRITE(LUER,'(4X,A14,2(2X,ES10.3),2X,A,1X,A)')
-	1    'se residual',BA_SE_RES,BA_SE_RES2,SE_ST,
-	2    'all cells / excl. worst cols'
+	  CALL ILF_METRIC_ROW(LUER,'se residual',ILF_ES_TRIM(BA_SE_RES),
+	1    ILF_ES_TRIM(BA_SE_RES2),SE_ST,'all cells / excl. worst cols')
 !
 ! Audit D2 accelerator-state row: enabled state and activity are
 ! reported separately so a zero count cannot masquerade as
@@ -4427,14 +4428,16 @@
 ! Demand channels print %, BA_TR_ABS is named as the |dn|/POP_ATOM
 ! metric, and [OFF] shows the polish-disabled state instead of
 ! implying the exit gate is holding.
-	  WRITE(LUER,'(4X,A14,2(2X,ES10.3,A),2X,ES12.4E3,2X,A,1X,'//
-	1    'A,ES12.4E3,A,1X,A,ES12.4E3)')
-	2    'exempt/trc',BA_DEM_EXM,'%',BA_DEM_EXR,'%',BA_TR_ABS,TRC_ST,
-	3    'dem>',MAX(10.0_LDP*EPS,1.0_LDP),'%',
-	4    ' trc|dn|/gas>',BA_TR_ABSMAX
-	  IF(BA_TR_MAXSWP .GT. 0)WRITE(LUER,'(4X,A14,2X,A,I4,A,I4,2X,A,A3)')
-	1    'stageB','sweep',BA_TR_NSWP,'/',BA_TR_MAXSWP,
-	2    'phase ',MERGE('yes','no ',BA_TRACE_PHASE)
+	  CALL ILF_METRIC_ROW(LUER,'exempt/trc',
+	1    TRIM(ILF_ES_TRIM(BA_DEM_EXM))//'%',
+	2    TRIM(ILF_ES_TRIM(BA_DEM_EXR))//'%',TRC_ST,
+	3    'trc '//TRIM(ILF_ES_TRIM(BA_TR_ABS))//
+	4    '; dem>'//TRIM(ILF_ES_TRIM(MAX(10.0_LDP*EPS,1.0_LDP)))//'%')
+	  IF(BA_TR_MAXSWP .GT. 0)THEN
+	    WRITE(TEMP_CHAR,'(I4,A,I4)')BA_TR_NSWP,'/',BA_TR_MAXSWP
+	    CALL ILF_METRIC_ROW(LUER,'stageB',TEMP_CHAR,'-','[INFO]',
+	1    'phase '//MERGE('yes','no ',BA_TRACE_PHASE))
+	  END IF
 !
 ! Per-depth residual profile (edited 15-Oct-2026): under
 ! CONV_DIAG_LVL list the five depths carrying the largest column-max
@@ -4451,11 +4454,13 @@
 	      INTEGER ITOP,ID_TOP
 	      RES_TOP(1:ND)=BA_COL_RES(1:ND)
 	      RES_SUM=SUM(RES_TOP)
+	      WRITE(LUER,'(A)')'  res depth        depth    residual   share %'
+	      WRITE(LUER,'(A)')'  --------------   -----    --------   -------'
 	      DO ITOP=1,MIN(5,ND)
 	        ID_TOP=MAXLOC(RES_TOP,1)
 	        IF(RES_TOP(ID_TOP) .LE. 0.0_LDP)EXIT
-	        WRITE(LUER,'(4X,A14,1X,I5,2X,ES10.3,2X,F5.1,A)')
-	1        'res depth',ID_TOP,RES_TOP(ID_TOP),
+	        WRITE(LUER,'(2X,A14,1X,I5,2X,A,2X,F5.1,A)')
+	1        'res depth',ID_TOP,TRIM(ILF_ES_TRIM(RES_TOP(ID_TOP))),
 	2        100.0_LDP*RES_TOP(ID_TOP)/MAX(RES_SUM,1.0E-30_LDP),
 	3        '% of column sum'
 	        RES_TOP(ID_TOP)=0.0_LDP
