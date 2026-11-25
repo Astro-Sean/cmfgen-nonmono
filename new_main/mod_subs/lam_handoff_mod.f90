@@ -102,7 +102,7 @@
       RETURN
       END FUNCTION LAM_HANDOFF_OK
 !
-! Nine-gate converged-exit replica for the SOLVE_FOR_POPS ITER_SUM
+! Ten-gate converged-exit replica for the SOLVE_FOR_POPS ITER_SUM
 ! report. CMFGEN_SUB evaluates the real CONV_EXIT_MET inline at both
 ! 9999 exit splits; this evaluator takes the same resolved state,
 ! recomputes the lambda-state leg itself, and returns the verdict,
@@ -111,7 +111,7 @@
 ! a label away from the real gate -- the missing ninth conjunct
 ! (.NOT. LAM_FIELD_NOT_READY, the audit F-32 finding) is exactly the
 ! drift class this removes. Label order matches the historical
-! replica; the ninth label is appended last.
+! replica; the ninth and tenth labels are appended last.
 !
 ! edited 24-Nov-2026 [KN_LAM_PARTIAL_HANDOFF, default F]: the ninth
 ! conjunct reads the strict FIELD_NCONV (LAM_FIELD_NOT_CONVERGED --
@@ -122,14 +122,21 @@
 ! FIELD_NRDY under the flag-off wiring, so the default label text
 ! is unchanged.
 !
+! edited 25-Nov-2026: tenth gate CAP_CNT -- the saved per-iteration
+! census of f-iteration cap exits (FCONV_CAP_IT_CNT). A nonzero
+! count means the rates the SE solve used carry an unconverged
+! electron-scattering source, so the exit holds; the suppressed
+! iteration-1 warning subset is inside the census and is not a
+! separate gate.
+!
       SUBROUTINE CONV_EXIT_EVAL(RD_LAM,DO_LAM_AUTO,LAST_LAM,&
      &     MAIN_COUNTER,JFNK_UNCONV,EX_MAXCH,EPS,DEM_OK,&
      &     HYDRO_REV,POPS_HELD,RESACC_PEND,LAST_NG,FIELD_NRDY,&
-     &     FIELD_NCONV,LAM_OK,ALL_MET,NPASS,FAILS)
+     &     FIELD_NCONV,CAP_CNT,LAM_OK,ALL_MET,NPASS,FAILS)
       LOGICAL, INTENT(IN) :: RD_LAM,DO_LAM_AUTO,JFNK_UNCONV,DEM_OK
       LOGICAL, INTENT(IN) :: HYDRO_REV,POPS_HELD,RESACC_PEND,FIELD_NRDY
       LOGICAL, INTENT(IN) :: FIELD_NCONV
-      INTEGER, INTENT(IN) :: LAST_LAM,MAIN_COUNTER,LAST_NG
+      INTEGER, INTENT(IN) :: LAST_LAM,MAIN_COUNTER,LAST_NG,CAP_CNT
       REAL(KIND=LDP), INTENT(IN) :: EX_MAXCH,EPS
       LOGICAL, INTENT(OUT) :: LAM_OK,ALL_MET
       INTEGER, INTENT(OUT) :: NPASS
@@ -140,7 +147,7 @@
      &     (EX_MAXCH .LT. EPS) .AND. DEM_OK .AND.&
      &     .NOT. HYDRO_REV .AND. .NOT. POPS_HELD .AND.&
      &     .NOT. RESACC_PEND .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.&
-     &     .NOT. FIELD_NCONV
+     &     .NOT. FIELD_NCONV .AND. (CAP_CNT .EQ. 0)
       NPASS=0
       IF(LAM_OK)NPASS=NPASS+1
       IF(.NOT. JFNK_UNCONV)NPASS=NPASS+1
@@ -151,6 +158,7 @@
       IF(.NOT. RESACC_PEND)NPASS=NPASS+1
       IF(MAIN_COUNTER .NE. LAST_NG)NPASS=NPASS+1
       IF(.NOT. FIELD_NCONV)NPASS=NPASS+1
+      IF(CAP_CNT .EQ. 0)NPASS=NPASS+1
       FAILS=' all pass'
       IF(.NOT. ALL_MET)THEN
         FAILS=' '
@@ -164,6 +172,7 @@
         IF(RESACC_PEND)FAILS=TRIM(FAILS)//' resacc-pending'
         IF(MAIN_COUNTER .EQ. LAST_NG)&
      &       FAILS=TRIM(FAILS)//' on-ng-iteration'
+        IF(CAP_CNT .GT. 0)FAILS=TRIM(FAILS)//' f-cap-exits'
         IF(FIELD_NCONV)THEN
           IF(FIELD_NRDY)THEN
             FAILS=TRIM(FAILS)//' lam-field-not-ready'
