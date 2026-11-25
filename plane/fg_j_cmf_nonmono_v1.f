@@ -4,6 +4,7 @@
 !
 	MODULE FG_J_CMF_NONMONO_MOD_V1
 	USE SET_KIND_MODULE
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB,ILF_VI,ILF_VR,ILF_VL,ILF_VS
 	IMPLICIT NONE
 !
 ! The *_STORE routines are used to store the radiation field, as computed
@@ -1927,9 +1928,10 @@
         implicit none
         character(len=*), intent(in) :: path,message
         integer, intent(in) :: ray,pass
-        write(error_unit,'(a,a,a,i0,a,i0,2a)')
-     1    '[FAIL] file=',trim(path),' ray=',ray,' pass=',pass,
-     2    ' ',trim(message)
+        call ilf_kvb(error_unit,' FAIL:',4,
+     1   (/'file   ','ray    ','pass   ','message'/),
+     2   (/ilf_vs(trim(path)),ilf_vi(ray),ilf_vi(pass),
+     3   ilf_vs(trim(message))/))
         error stop 227
         end subroutine kn_replay_fail
 
@@ -3193,6 +3195,7 @@
 	USE FG_J_CMF_NONMONO_MOD_V1
 	USE MOD_RAY_MOM_STORE
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_IN_EVAL,CONV_DIAG_LVL
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB,ILF_VI,ILF_VR,ILF_VL,ILF_VS
 	IMPLICIT NONE
 !
 ! Altered 05-Oct-2026: V and SIGMA_TRUE fingerprints added to the NEW_R_GRID test so a
@@ -4670,9 +4673,10 @@
 	  END DO
 	  WRITE(LUER,'(A)')'FG_J_CMF_NONMONO_V1: non-monotonic formal solver'
 	  IF(N_RAYS_MULTI .GT. 0)THEN
-	    WRITE(LUER,'(A,I4,A,I3,A,I3,A)')
-	1       '    multi-root rays=',N_RAYS_MULTI,
-	1       '  (min=',NRES_MIN,'  max=',NRES_MAX,' turning points)'
+	    CALL ILF_KVB(LUER,' MULTI-ROOT:',3,
+	1     (/'rays        ','min turn pts','max turn pts'/),
+	2     (/ILF_VI(N_RAYS_MULTI),ILF_VI(NRES_MIN),
+	3     ILF_VI(NRES_MAX)/))
 	  ELSE
 	    WRITE(LUER,'(A)')'    no multi-root resonances detected'
 	  END IF
@@ -6846,9 +6850,10 @@ C
 	1         LAMSTAR_DIAG(I) .GT. 1.0_LDP)N_OUT_LAMSTAR=N_OUT_LAMSTAR+1
 	    END DO
 	    IF(N_OUT_LAMSTAR .GT. 0)THEN
-	      WRITE(LUER,'(A,ES12.4,A,ES12.4,A,I8)')
-	1     '  LAMSTAR_DIAG: min=',LAMSTAR_MIN,' max=',LAMSTAR_MAX,
-	1     ' outside (0,1]:',N_OUT_LAMSTAR
+	      CALL ILF_KVB(LUER,' LAMSTAR_DIAG:',3,
+	1     (/'min          ','max          ','outside (0,1]'/),
+	2     (/ILF_VR(LAMSTAR_MIN,4),ILF_VR(LAMSTAR_MAX,4),
+	3     ILF_VI(N_OUT_LAMSTAR)/))
 	    END IF
 	  END IF
 	END IF
@@ -7753,10 +7758,10 @@ C
 	4   FG_ARG_HV(K),K=1,4),FG_GS_CLS
 	WRITE(LUER,'(A,I10)')'    cap/bad writes=',FG_INEXT_CAPPED
 	WRITE(LUER,'(A,I10)')'    cells>50%=',FG_GS_NCONV
-	WRITE(LUER,'(A,I8,2(A,I10))')
-	1   '    div rays=',FG_GS_NDIV,
-	2   '  healed slots=',FG_DIV_HEAL,
-	3   '  commit rejs=',FG_COMMIT_REJ+FG_NC_REJ
+	CALL ILF_KVB(LUER,' DIV-HEAL:',3,
+	1   (/'div rays    ','healed slots','commit rejs '/),
+	2   (/ILF_VI(FG_GS_NDIV),ILF_VI(FG_DIV_HEAL),
+	3   ILF_VI(FG_COMMIT_REJ+FG_NC_REJ)/))
 	WRITE(LUER,'(A,I6)')'    NCF=',FG_GS_NCF
 	WRITE(LUER,'(A,ES12.4)')'    max |HBC|=',FG_MAX_HBC
 	WRITE(LUER,'(A,ES12.4)')'    min boundary J=',FG_MIN_JBND
@@ -8438,9 +8443,9 @@ C
 	WRITE(LUER,'(A)')'  I_NEXT valid: YES'
 	WRITE(LUER,'(A,I8,A)')
 	1 '  RESTORED COMPLETE I_NEXT GENERATION (tag=',TAG,')'
-	WRITE(LUER,'(A,I6,A,I8,A,I8)')
-	1 '  N_COMP=',N_COMP,'  OBS remap: file NCF=',NCF_F,
-	2 '  -> OBS NCF=',NCF_IN
+	CALL ILF_KVB(LUER,' OBS-REMAP:',3,
+	1   (/'N_COMP  ','file NCF','OBS NCF '/),
+	2   (/ILF_VI(N_COMP),ILF_VI(NCF_F),ILF_VI(NCF_IN)/))
 	WRITE(LUER,'(A,ES10.3,A,I6)')
 	1 '  last-sweep max change=',FG_GS_CHG_FILE,
 	1 '  cap/floor events=',FG_GS_CAP_FILE
@@ -9690,17 +9695,24 @@ C
 ! seed identity and unchanged-store evidence stay together.
 !
 	IF(KN_NOP_ARM .AND. KN_SEED_ARM .GE. 0 .AND. KN_DK_RDY)THEN
-	  WRITE(LUER,'(A,I4,A,I3,A,I3,A,2I8,A,I3)')
-	1   '  KN-SEED ray=',KN_NOCP_PROBE_LS,' arm=',KN_SEED_ARM,
-	2   ' used=',KN_SEED_USED,' sib fill/map=',
-	3   KN_SEED_NFILL,KN_SEED_NMAP,' pcix=',KN_SEED_PCIX
-	  WRITE(LUER,'(A,2I8,A,I8,A,2I4,A,3(1X,ES11.3),A,1X,F7.4)')
-	1   '    unmapped/retained=',KN_SEED_NUNM,KN_SEED_NRET,
-	2   ' dead=',KN_DK_NDEAD,' pcref/pcnp=',KN_SEED_PCREF,
-	3   KN_SEED_PCNP,' dab/rmax/pcrs=',KN_SEED_DAB,
-	4   KN_SEED_RMAX,KN_SEED_PCRS,' schg=',KN_SEED_SCHG
-	  WRITE(LUER,'(A,2(1X,ES11.3))')
-	1   '    eod even/odd=',KN_DK_EOD(1),KN_DK_EOD(2)
+	  CALL ILF_KVB(LUER,' KN-SEED:',6,
+	1   (/'ray     ','arm     ','used    ','sib fill',
+	2   'sib map ','pcix    '/),
+	3   (/ILF_VI(KN_NOCP_PROBE_LS),ILF_VI(KN_SEED_ARM),
+	4   ILF_VI(KN_SEED_USED),ILF_VI(KN_SEED_NFILL),
+	5   ILF_VI(KN_SEED_NMAP),ILF_VI(KN_SEED_PCIX)/))
+	  CALL ILF_KVB(LUER,' KN-SEED-2:',9,
+	1   (/'unmapped','retained','dead    ','pcref   ',
+	2   'pcnp    ','dab     ','rmax    ','pcrs    ',
+	3   'schg    '/),
+	4   (/ILF_VI(KN_SEED_NUNM),ILF_VI(KN_SEED_NRET),
+	5   ILF_VI(KN_DK_NDEAD),ILF_VI(KN_SEED_PCREF),
+	6   ILF_VI(KN_SEED_PCNP),ILF_VR(KN_SEED_DAB,3),
+	7   ILF_VR(KN_SEED_RMAX,3),ILF_VR(KN_SEED_PCRS,3),
+	8   ILF_VR(KN_SEED_SCHG,4)/))
+	  CALL ILF_KVB(LUER,' KN-SEED-3:',2,
+	1   (/'eod even','eod odd '/),
+	2   (/ILF_VR(KN_DK_EOD(1),3),ILF_VR(KN_DK_EOD(2),3)/))
 	END IF
 !
 ! Reduce the per-ray Q cell statistics into the channel totals.
@@ -9971,15 +9983,16 @@ C
 	2      KN_PROD_XRAY)
 	    IF(CONV_DIAG_LVL .GE. 2)THEN
 	      IF(L .GE. KN_RHO_MIN_SAM)THEN
-	        WRITE(LUER,'(A,ES10.3,A,
-	1        ES10.3,A,ES10.3,A,I5,A,ES10.3)')
-	2        '    omega est: rho_p90=',RHO_H(2),' rho_med=',RHO_H(1),
-	3        ' rho_max=',RHO_MX,' n_ray=',L,
-	4        ' applied omega=',T2
+	        CALL ILF_KVB(LUER,' OMEGA-EST:',5,
+	1        (/'rho_p90','rho_med','rho_max','n_ray',
+	2        'applied omega'/),
+	3        (/ILF_VR(RHO_H(2),3),ILF_VR(RHO_H(1),3),
+	4        ILF_VR(RHO_MX,3),ILF_VI(L),ILF_VR(T2,3)/))
 	      ELSE
-	        WRITE(LUER,'(A,I5,A,I3,A,ES10.3)')
-	1        '    omega est: n_ray=',L,' < min_sam=',KN_RHO_MIN_SAM,
-	2        ' retained omega=',INEXT_RELAX
+	        CALL ILF_KVB(LUER,' OMEGA-EST:',3,
+	1        (/'n_ray','min_sam','retained omega'/),
+	2        (/ILF_VI(L),ILF_VI(KN_RHO_MIN_SAM),
+	3        ILF_VR(INEXT_RELAX,3)/))
 	      END IF
 	    END IF
 	    INEXT_RELAX=T2
@@ -10038,9 +10051,10 @@ C
 	1  SUM(NDV_LS,MASK=KN_PROD_MASK)
 	WRITE(LUER,'(A,I8)')'    clamp events=',
 	1  SUM(NNG_LS,MASK=KN_PROD_MASK)
-	IF(KN_PROD_XRAY .GT. 0)WRITE(LUER,'(A,I4,A,ES10.3,A,I8,A,I14)')
-	1  '    probe ray=',KN_PROD_XRAY,' resid=',RES_LS(KN_PROD_XRAY),
-	2  ' div=',NDV_LS(KN_PROD_XRAY),' nbad=',NBD_LS(KN_PROD_XRAY)
+	IF(KN_PROD_XRAY .GT. 0)CALL ILF_KVB(LUER,' KN-PROBE:',4,
+	1  (/'ray  ','resid','div  ','nbad'/),
+	2  (/ILF_VI(KN_PROD_XRAY),ILF_VR(RES_LS(KN_PROD_XRAY),3),
+	3  ILF_VI(NDV_LS(KN_PROD_XRAY)),ILF_VI(INT(NBD_LS(KN_PROD_XRAY)))/))
 	WRITE(LUER,'(A,I14)')'    same-census cap/floor=',FG_RF_CAPPED
 	WRITE(LUER,'(A,I14,A,I14,A,ES9.2)')
 	1  '    unconverged cells=',FG_GS_NBAD,' of',FG_GS_NTOT,
@@ -10067,17 +10081,18 @@ C
 	WRITE(LUER,'(A,ES12.4,A,ES12.4)')
 	1  '    sweep drift: fg_sw_one=',FG_SW_MAXCHG,
 	2  ' fg_sw_sym=',FG_SW_MAXSYM
-	IF(FG_SW_SYMR .GT. 0)WRITE(LUER,'(A,I5,A,I4,A,I8,A,I2)')
-	1  '    fg_sw_sym argmax: k=',FG_SW_SYMK,' r=',FG_SW_SYMR,
-	2  ' f=',FG_SW_SYML,' ch=',FG_SW_SYMC
+	IF(FG_SW_SYMR .GT. 0)CALL ILF_KVB(LUER,' FG-SW-SYM:',4,
+	1  (/'argmax k','r      ','f      ','ch     '/),
+	2  (/ILF_VI(FG_SW_SYMK),ILF_VI(FG_SW_SYMR),
+	3  ILF_VI(FG_SW_SYML),ILF_VI(FG_SW_SYMC)/))
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    best-pass bad cells=',FG_GS_NBAD_BLK,' of',
 	2  FG_GS_NTOT_BLK
-	WRITE(LUER,'(A,I6,A,I6,A,I6,A,I6)')
-	1  '    healed slots=',FG_DIV_HEAL,
-	2  '   commit rejects=',FG_COMMIT_REJ,
-	3  '   nc rejects=',FG_NC_REJ,
-	4  '   nc capped=',FG_NC_CAP
+	CALL ILF_KVB(LUER,' HEAL:',4,
+	1  (/'healed slots  ','commit rejects','nc rejects    ',
+	2  'nc capped     '/),
+	3  (/ILF_VI(FG_DIV_HEAL),ILF_VI(FG_COMMIT_REJ),
+	4  ILF_VI(FG_NC_REJ),ILF_VI(FG_NC_CAP)/))
 	IF(KN_HOT_SPENT .GT. 0)WRITE(LUER,'(A,I8,A,I6)')
 	1  '    hot-pass budget spent=',INT(MIN(KN_HOT_SPENT,2**30_8)),
 	2  '  cap=',KN_HOT_TOTAL_PASSES
@@ -10134,10 +10149,11 @@ C
 	KN_CCLS(3)=COUNT(KN_CS_LS .EQ. KN_CS_STAG .AND. KN_PROD_MASK)
 	KN_CCLS(4)=COUNT(KN_CS_LS .EQ. KN_CS_DIV .AND. KN_PROD_MASK)
 	KN_CCLS(5)=COUNT(KN_CS_LS .EQ. KN_CS_INV .AND. KN_PROD_MASK)
-	WRITE(LUER,'(A,I5,5(A,I5))')
-	1  '    cert census: full=',KN_CCLS(0),
-	2  ' bulk=',KN_CCLS(1),' itlim=',KN_CCLS(2),
-	3  ' stag=',KN_CCLS(3),' div=',KN_CCLS(4),' inv=',KN_CCLS(5)
+	CALL ILF_KVB(LUER,' CERT:',6,
+	1  (/'full ','bulk ','itlim','stag ','div  ','inv  '/),
+	2  (/ILF_VI(KN_CCLS(0)),ILF_VI(KN_CCLS(1)),
+	3  ILF_VI(KN_CCLS(2)),ILF_VI(KN_CCLS(3)),
+	4  ILF_VI(KN_CCLS(4)),ILF_VI(KN_CCLS(5))/))
 !
 ! All-ray verdict (Phase 2.17): TRUE only when every production
 ! ray certified FULL this refresh. An incomplete census (rays
@@ -10197,9 +10213,10 @@ C
 	  WRITE(LUER,'(A,I5)')'    ray exits: FAILED build=',NX_CNT(-2)
 	END IF
 	IF(FG_ORD_AA)THEN
-	  WRITE(LUER,'(4(A,I8))')
-	1    '    AA: applied=',KN_AA_APP,' vetoed=',KN_AA_VETO,
-	2    ' rejected=',KN_AA_REJ,' solve-fail=',KN_AA_SNG
+	  CALL ILF_KVB(LUER,' AA:',4,
+	1    (/'applied   ','vetoed    ','rejected  ','solve-fail'/),
+	2    (/ILF_VI(INT(KN_AA_APP)),ILF_VI(INT(KN_AA_VETO)),
+	3    ILF_VI(INT(KN_AA_REJ)),ILF_VI(INT(KN_AA_SNG))/))
 	END IF
 	IF(FG_ORD_P2DAMP)THEN
 	  WRITE(LUER,'(A,I14)')
@@ -10327,23 +10344,29 @@ C
 	      ELSE
 	        IQ_K=-1
 	      END IF
-	      WRITE(LUER,'(A,L2,A,A3,A,3(I6),A,I6,A,I6)')
-	1      '    q argmax gs-cell-match=',
-	2      (IQ_K .GT. 0 .AND. FG_GS_ARGR .EQ. IQ_R .AND.
-	3      IQ_K .EQ. KN_QA_J(IQ_R,IQ_C) .AND.
-	4      FG_GS_ARGL .EQ. KN_QA_L(IQ_R,IQ_C)-1),
-	5      ' gs-cls=[',FG_GS_CLS,'] gs-argmax k,r,f=',
-	6      FG_GS_ARGK,FG_GS_ARGR,FG_GS_ARGL,
-	7      ' qmap raypt k=',IQ_K,' f=',KN_QA_L(IQ_R,IQ_C)-1
-	      WRITE(LUER,'(A,I6,1X,I8,A,5(ES12.5),A,L1)')
-	1      '    q argmax j,l=',KN_QA_J(IQ_R,IQ_C),KN_QA_L(IQ_R,IQ_C),
-	2      ' vold,vnew,vmaxraw,vmaxf,denom=',
-	3      KN_QA_VOLD(IQ_R,IQ_C),KN_QA_VN(IQ_R,IQ_C),
-	4      KN_QA_VM(IQ_R,IQ_C),MAX(KN_QA_VM(IQ_R,IQ_C),1.0E-25_LDP),
-	5      MAX(KN_QA_VOLD(IQ_R,IQ_C),
-	6      1.0E-4_LDP*MAX(KN_QA_VM(IQ_R,IQ_C),1.0E-25_LDP)),
-	7      ' floor-dom=',KN_QA_VOLD(IQ_R,IQ_C)
-	8      .LT. 1.0E-4_LDP*MAX(KN_QA_VM(IQ_R,IQ_C),1.0E-25_LDP)
+	      CALL ILF_KVB(LUER,' Q-ARGMAX:',7,
+	1      (/'gs-cell-match','gs-cls       ','gs-argmax k  ',
+	2      'gs-argmax r  ','gs-argmax f  ','qmap k       ',
+	3      'qmap f       '/),
+	4      (/ILF_VL(IQ_K .GT. 0 .AND. FG_GS_ARGR .EQ. IQ_R .AND.
+	5      IQ_K .EQ. KN_QA_J(IQ_R,IQ_C) .AND.
+	6      FG_GS_ARGL .EQ. KN_QA_L(IQ_R,IQ_C)-1),
+	7      ILF_VS(FG_GS_CLS(1:3)),ILF_VI(FG_GS_ARGK),
+	8      ILF_VI(FG_GS_ARGR),ILF_VI(FG_GS_ARGL),ILF_VI(IQ_K),
+	9      ILF_VI(KN_QA_L(IQ_R,IQ_C)-1)/))
+	      CALL ILF_KVB(LUER,' Q-ARGMAX-V:',6,
+	1      (/'j        ','l        ','vold     ','vnew     ',
+	2      'vmaxraw  ','vmaxf    '/),
+	3      (/ILF_VI(KN_QA_J(IQ_R,IQ_C)),ILF_VI(KN_QA_L(IQ_R,IQ_C)),
+	4      ILF_VR(KN_QA_VOLD(IQ_R,IQ_C),5),
+	5      ILF_VR(KN_QA_VN(IQ_R,IQ_C),5),ILF_VR(KN_QA_VM(IQ_R,IQ_C),5),
+	6      ILF_VR(MAX(KN_QA_VM(IQ_R,IQ_C),1.0E-25_LDP),5)/))
+	      CALL ILF_KVB(LUER,' Q-ARGMAX-D:',2,
+	1      (/'denom    ','floor-dom'/),
+	2      (/ILF_VR(MAX(KN_QA_VOLD(IQ_R,IQ_C),1.0E-4_LDP*
+	3      MAX(KN_QA_VM(IQ_R,IQ_C),1.0E-25_LDP)),5),
+	4      ILF_VL(KN_QA_VOLD(IQ_R,IQ_C) .LT. 1.0E-4_LDP*
+	5      MAX(KN_QA_VM(IQ_R,IQ_C),1.0E-25_LDP))/))
 	      WRITE(LUER,'(A,ES12.5)')'    exact-defect=',IQ_T
 !
 ! Production-side context for the same ray (Task-2 audit): the
@@ -10352,16 +10375,16 @@ C
 ! normalized by the column peak so floor-dominated cells can be
 ! judged by physical magnitude rather than the denominator alone.
 !
-	      WRITE(LUER,'(A,ES11.3,A,I3,A,I3,A,L1,A,ES11.3)')
-	1      '    prod ray resid/ixit/npas=',RES_LS(IQ_R),
-	2      '/',NXT_LS(IQ_R),'/',NPS_LS(IQ_R),
-	3      ' bnd=',
-	4      (IQ_C .EQ. 2 .AND. KN_QA_J(IQ_R,IQ_C) .EQ.
+	      CALL ILF_KVB(LUER,' KN-PROD:',5,
+	1      (/'resid','ixit','npas','bnd','dv/vmaxf'/),
+	2      (/ILF_VR(RES_LS(IQ_R),3),ILF_VI(NXT_LS(IQ_R)),
+	3      ILF_VI(NPS_LS(IQ_R)),
+	4      ILF_VL((IQ_C .EQ. 2 .AND. KN_QA_J(IQ_R,IQ_C) .EQ.
 	5      NI_RAY(IQ_R)) .OR.
-	6      (IQ_C .EQ. 1 .AND. KN_QA_J(IQ_R,IQ_C) .EQ. 1),
-	7      ' |dv|/vmaxf=',ABS(KN_QA_VN(IQ_R,IQ_C)
+	6      (IQ_C .EQ. 1 .AND. KN_QA_J(IQ_R,IQ_C) .EQ. 1)),
+	7      ILF_VR(ABS(KN_QA_VN(IQ_R,IQ_C)
 	8      -KN_QA_VOLD(IQ_R,IQ_C))/
-	9      MAX(KN_QA_VM(IQ_R,IQ_C),1.0E-25_LDP)
+	9      MAX(KN_QA_VM(IQ_R,IQ_C),1.0E-25_LDP),3)/))
 !
 ! Per-channel production context for the same ray (Task-2
 ! audit): KN_PA_* hold each direction's own terminal residual,
@@ -10516,16 +10539,16 @@ C
 	        END DO
 	        QS_TMP(J+1)=IQ_A
 	      END DO
-	      WRITE(LUER,'(A,4(ES11.3),A,3(I8),A,I8)')
-	1      '    q dist per-ray-max,p50,p95,p99=',
-	2      QS_TMP(IQ_N),QS_TMP(MAX(1,(IQ_N+1)/2)),
-	3      QS_TMP(MAX(1,(95*IQ_N+99)/100)),
-	4      QS_TMP(MAX(1,(99*IQ_N+99)/100)),
-	5      ' n>1e-2,1e-1,1=',
-	6      COUNT(QS_TMP(1:IQ_N) .GT. 1.0E-2_LDP),
-	7      COUNT(QS_TMP(1:IQ_N) .GT. 1.0E-1_LDP),
-	8      COUNT(QS_TMP(1:IQ_N) .GT. 1.0_LDP),
-	9      ' nrays=',IQ_N
+	      CALL ILF_KVB(LUER,' Q-DIST:',8,
+	1      (/'pmax   ','p50    ','p95    ','p99    ',
+	2      'n>1e-2 ','n>1e-1 ','n>1    ','nrays  '/),
+	3      (/ILF_VR(QS_TMP(IQ_N),3),
+	4      ILF_VR(QS_TMP(MAX(1,(IQ_N+1)/2)),3),
+	5      ILF_VR(QS_TMP(MAX(1,(95*IQ_N+99)/100)),3),
+	6      ILF_VR(QS_TMP(MAX(1,(99*IQ_N+99)/100)),3),
+	7      ILF_VI(COUNT(QS_TMP(1:IQ_N) .GT. 1.0E-2_LDP)),
+	8      ILF_VI(COUNT(QS_TMP(1:IQ_N) .GT. 1.0E-1_LDP)),
+	9      ILF_VI(COUNT(QS_TMP(1:IQ_N) .GT. 1.0_LDP)),ILF_VI(IQ_N)/))
 	      DEALLOCATE(QS_TMP)
 	    END IF
 !
@@ -10601,10 +10624,11 @@ C
 ! refresh operator despite KN_FREEZE_COEF.
 !
 	IF(KN_COEF_FROZEN)THEN
-	  WRITE(LUER,'(A,2(ES16.8),A,ES10.3,A,I6)')
-	1    '    coef fp raw=',KN_COEF_FP(1),KN_COEF_FP(2),
-	2    ' rebuilt drift=',KN_COEF_FP_DRIFT,
-	3    ' armed refreshes=',KN_COEF_FP_N
+	  CALL ILF_KVB(LUER,' COEF-FP:',4,
+	1    (/'fp raw 1       ','fp raw 2       ','rebuilt drift  ',
+	2    'armed refreshes'/),
+	3    (/ILF_VR(KN_COEF_FP(1),8),ILF_VR(KN_COEF_FP(2),8),
+	4    ILF_VR(KN_COEF_FP_DRIFT,3),ILF_VI(KN_COEF_FP_N)/))
 	  WRITE(LUER,'(A,2(I20),A,I8)')
 	1    '    coef hash chi,eta=',KN_COEF_HSH(1),KN_COEF_HSH(2),
 	2    ' mismatched refreshes=',KN_COEF_HSH_BAD
@@ -10671,19 +10695,20 @@ C
 	5    '  div=',COUNT(FG_RAY_VC.EQ.4),
 	6    '  unsolved=',COUNT(FG_RAY_VC.EQ.-1),
 	7    '  worst=(ixit',NXT_LS(LS),',v',FG_RAY_VC(LS),')'
-	  WRITE(LUER,'(A,ES11.3,A,ES11.3,A,ES11.3)')
-	1    '    worst-ray delta: commit=',FG_RAY_DCH(LS),
-	2    '  max=',MAXVAL(FG_RAY_DCH),
-	3    '  committed-max=',
-	4    MAX(0.0_LDP,MAXVAL(FG_RAY_DCH,MASK=FG_RAY_VC.EQ.0))
+	  CALL ILF_KVB(LUER,' RAY-DELTA:',3,
+	1    (/'commit        ','max           ','committed-max'/),
+	2    (/ILF_VR(FG_RAY_DCH(LS),3),ILF_VR(MAXVAL(FG_RAY_DCH),3),
+	3    ILF_VR(MAX(0.0_LDP,MAXVAL(FG_RAY_DCH,
+	4    MASK=FG_RAY_VC.EQ.0)),3)/))
 	  WRITE(LUER,'(A,ES11.3)')
 	1    '    pending-ray delta: max=',FG_RF_PEND
 	END IF
 	IF(ALLOCATED(FG_RAY_WI))THEN
-	  WRITE(LUER,'(A,I5,A,I5,A,I4,A,I4)')
-	1    '    worst cell: i=',FG_RAY_WI(LS),' l=',FG_RAY_WL(LS),
-	2    ' same-cell passes=',FG_RAY_WS(LS),
-	3    ' max same=',MAXVAL(FG_RAY_WS)
+	  CALL ILF_KVB(LUER,' WORST-CELL:',4,
+	1    (/'i               ','l               ',
+	2    'same-cell passes','max same        '/),
+	3    (/ILF_VI(FG_RAY_WI(LS)),ILF_VI(FG_RAY_WL(LS)),
+	4    ILF_VI(FG_RAY_WS(LS)),ILF_VI(MAXVAL(FG_RAY_WS))/))
 	END IF
 !
 ! Per-pass convergence history (max over rays). I_M and I_P sweeps
