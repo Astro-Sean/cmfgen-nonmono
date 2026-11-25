@@ -387,6 +387,42 @@ paths and reused pinned `cmfgen_dev.exe` sha256
 `60cdf8306f7d24f18abcb390cea66793fe78ef9306b5e148223ad6e4414c3819`;
 no solver source changed for this arm.
 
+Literature-correctness audit declared (25-Nov-2026, user-directed):
+question - does the current `USE_LAM_ES=F` implementation still solve
+the radiation moment equations intended by the cited non-monotonic
+literature, and are the block-GMRES linearization, boundary conditions,
+Eddington closure, refresh acceptance, relaxation, and Anderson
+acceleration mathematically consistent with that target. References to
+check: Knop, Hauschildt and Baron 2009 Papers I/II, Baron and
+Hauschildt 2004, Hillier and Miller 1998, Dessart, Audit and Hillier
+2015 where applicable. Evidence plan: line-level audit of
+`plane/mom_j_cmf_nonmono_v1.f`, `plane/mom_blk_gmres_mod.f`, dispatch
+and capture wiring, original-paper equations, and live-arm diagnostics.
+Exit criterion: per-component VERIFIED/PARTIAL/DEFECT verdicts with
+prioritized fixes recorded in `docs/audits/` and here. The audit is
+read-only for solver source while the three pinned-executable arms are
+running.
+
+Audit verdict recorded 25-Nov-2026 in
+`docs/audits/MOMENT_LITERATURE_AUDIT_2026-11-25.md`: PARTIAL with
+defects. The sign-keyed frequency upwinding, positive generalized
+opacity, depth-tridiagonal solve, and GMRES kernel are usable. The
+current block system is not the full literature wavelength boundary-
+value problem because H and EPS coupling remain explicit in `NU_X0`,
+and `H_NEXT_FRQ` is not reconstructed after the block J update. The
+printed GMRES residual is measured before negative-cell rejection,
+write caps, damping, and AA, so it does not certify the committed
+field. LAG_BND, EPS limiting, XM_POS, the EPS depth-upwind stencil,
+and MOM_H_IMPL change the equations or the fixed point unless proven
+inactive. The V2 adaptive relaxation estimator mixes alternating
+directional maps; fixed relaxation remains the valid control. Final
+write-back acceptance is path-dependent because converged refreshes
+bypass the jump guard and outer AA can write after that guard.
+Decision: implementation changes DEFERRED pending user direction; the
+first correctness task is a full discrete H/EPS wavelength-coupling
+derivation and a post-write residual measurement. The running pinned
+arms were left unchanged.
+
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
