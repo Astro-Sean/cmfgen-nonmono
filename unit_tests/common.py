@@ -456,6 +456,11 @@ def _prod_mod_mtime():
 # than whole archives, so these companions must be explicit.
 _PROD_COMPANION_SOURCES = {
     "mom_j_cmf_nonmono_v1.f": ["plane/mom_blk_gmres_mod.f"],
+    # ilf_* logging calls entered both objects with the kv-block
+    # refactor; prod_obj links members, not archives, so the module
+    # object must ride along explicitly.
+    "jfnk_op_probe_v1.f90": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
+    "jfnk_solver_v1.f90": ["new_main/mod_subs/iter_log_fmt_mod.f90"],
 }
 
 
