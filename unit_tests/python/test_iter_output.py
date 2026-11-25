@@ -9,8 +9,8 @@ Reads the production Fortran sources as text and asserts:
 - every Makefile that builds a consumer file carries the module dep
   so the build order cannot regress;
 - the parser-visible tokens downstream scripts grep keep their exact
-  wording ('Current great iteration count is', 'POPULATION SOLVE',
-  'Luminosity of star', 'Time taken for iteration', 'Maximm changes
+  wording ('Current iteration count is', 'POPULATION SOLVE',
+  'Luminosity of star', 'Time taken for iteration', 'Maximum changes
   as returned by SOLVEBA_V13 is', 'Average number of calls to
   FG_J_CMF is', 'Maximum % increase', 'Maximum % decrease',
   'DEC_VEC:'/'INC_VEC:', 'ITER_TYPE', 'Model Convergence:');
@@ -119,13 +119,13 @@ def test_consumers_use_module():
 
 def test_parser_tokens_preserved():
     pairs = [
-        ("' Current great iteration count is'", CMF),
+        ("' Current iteration count is'", CMF),
         ("' Time taken for iteration'", CMF),
         ("'Luminosity of star", CMF),
         ("POPULATION SOLVE", POPS),
         ("'Model Convergence:'", POPS),
         ("ITER_TYPE", POPS),
-        ("Maximm changes as returned by SOLVEBA_V13 is", BA),
+        ("Maximum changes as returned by SOLVEBA_V13 is", BA),
         ("' DEC_VEC: '", BA),
         ("' INC_VEC: '", BA),
         ("' Maximum % increase at depth '", BA),
@@ -134,6 +134,58 @@ def test_parser_tokens_preserved():
     ]
     for token, src in pairs:
         check(f"token {token.strip()} preserved", token in src)
+
+
+def test_round2_helpers_and_moment_table():
+    check(
+        "fixed-width scientific helper uses two-digit exponent first",
+        "write (str, '(es11.4e2)') x" in ILF,
+    )
+    check(
+        "fixed-width scientific helper has three-digit fallback",
+        "write (str, '(es11.3e3)') x" in ILF,
+    )
+    check(
+        "tag helper emits fixed level/source grammar",
+        "'['//trim(lev)//']['//trim(src)//'] '" in ILF,
+    )
+    check(
+        "issue census prints an empty iteration explicitly",
+        "'ISSUES ('" in ILF,
+    )
+    check(
+        "shared consecutive-message compressor exists",
+        "subroutine ilf_repeat_write" in ILF
+        and "subroutine ilf_repeat_flush" in ILF,
+    )
+    mom = Path("plane/mom_j_cmf_nonmono_v1.f").read_text()
+    check(
+        "moment refresh prints one pass-table header",
+        mom.count("CALL ILF_TABLE_HEADER(LUER,TBLC,TBLW,INDENT=2)") == 1,
+    )
+    check(
+        "moment refresh row uses the fixed-width numeric helper",
+        "RES_W=ILF_ES(MOM_BLK_RESID)" in mom
+        and "CHG_W=ILF_ES(PASS_CHG)" in mom,
+    )
+    check(
+        "best-pass detail line is verbose-only",
+        "IF(CONV_DIAG_LVL .GE. 3)WRITE(LUER,'(A,I4,A,A,A,I12,A,I12,A,ES12.4)')"
+        in mom,
+    )
+    check(
+        "XM rejection warnings go through the shared compressor",
+        "CALL ILF_REPEAT_WRITE(LUER,'WARN','MOM',TRIM(XM_MSG))" in mom,
+    )
+    check(
+        "GS sweep no longer repeats the stored-field sentence",
+        "stored-field change reported in the moment-refresh summary" in mom,
+    )
+    check(
+        "iteration end prints the issue census before timing",
+        CMF.index("CALL ILF_ISSUE_REPORT(LUER)")
+        < CMF.index("' Time taken for iteration'"),
+    )
 
 
 def test_banner_call_and_state_export():
@@ -244,6 +296,7 @@ def main():
     test_makefile_wiring()
     test_consumers_use_module()
     test_parser_tokens_preserved()
+    test_round2_helpers_and_moment_table()
     test_banner_call_and_state_export()
     test_verbosity_levels()
     test_runaway_table_layout()
