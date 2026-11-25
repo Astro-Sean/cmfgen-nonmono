@@ -300,6 +300,35 @@ The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
 
+## Block-solve arm verdict and outer-loop investigation (25-Nov-2026, user-directed)
+
+E4 verdict after user-requested cancellation: bounded outer-loop stall,
+not a detonation and not convergence. CMFGEN 13655952 was cancelled at
+iteration 1039 after 11.0 h; OBS 13655953 was cancelled with it. The
+linear solve itself was strong: median two and maximum five Krylov
+iterations per pass, zero restarts, median final residual 4.18E-4, and
+714 of 746 refresh writes marked converged. Recent moment quality was
+orders better than the chain arm: 4.1% of cells above 5% and 0.38%
+above 50%, versus 69.1% and 36.6% under MOM_NUSOLV. The production
+model still did not converge: it remained in LAMBDA_TFIX, population
+demand oscillated at 1E5-1E9 percent scale with cap hits, recent
+accepted largest moment-store writes reached 1E10-1E14, and the
+outer/inner luminosity ratio stayed flat near 0.33. The chain probe
+13654121 was also cancelled at iteration 1080; all 828 refresh writes
+failed and retained the pre-refresh field, a harder bounded stall.
+
+New bounded investigation, user directive 25-Nov-2026: determine why a
+linearly converged MOM_BLKGMRES refresh still leaves the outer
+population/field loop non-contractive, then test the smallest justified
+source or execution-policy change toward a converging eps1em3 model.
+Evidence plan: audit write-back, best-pass acceptance, active-set,
+adaptive relaxation, outer AA, and the lagged H/EPS channels against
+the cancelled-arm output; use the existing opt-in MOM_H_IMPL arm as the
+first controlled execution experiment because H is the largest known
+lagged channel still outside the block solve. Exit criterion: a revised
+arm converges, stalls with a sharper bounded diagnosis, or detonates;
+the verdict and mechanism are recorded here before any broader campaign.
+
 ## Moment-machinery audit (24-Nov-2026, user-directed)
 
 Question: is the moment-equation procedure in mom_j_cmf_nonmono_v1.f
