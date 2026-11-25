@@ -4555,6 +4555,18 @@
 	2    '  max |dF| at exit=',FCONV_CAP_T1
 	  CALL ILF_TAG(LUER,'WARN','F-ITER',TRIM(TMP_STRING))
 	END IF
+!
+! edited 25-Nov-2026: save the census for the converged-exit gate
+! before the per-iteration reset. A nonzero saved count means the
+! rates the SE solve just consumed still carry an unconverged
+! electron-scattering source, so CONV_EXIT_MET must not release on
+! this iteration. FCONV_SUPPRESSED_CNT is deliberately not saved:
+! the suppressed iteration-1 warnings are a subset of this census,
+! and the gate measures the physical event (a capped exit), not
+! the print policy.
+!
+	FCONV_CAP_IT_CNT=FCONV_CAP_CNT
+	FCONV_CAP_IT_T1=FCONV_CAP_T1
 	FCONV_CAP_CNT=0
 	FCONV_CAP_T1=0.0_LDP
 	FLUSH(UNIT=LU_EDD)
@@ -5122,12 +5134,22 @@
 ! KN_LAM_PARTIAL_HANDOFF released the handoff path, in which case
 ! the exit still waits for the all-ray-FULL fold.
 !
+! edited 25-Nov-2026: FCONV_CAP_IT_CNT.EQ.0 joins the gate -- a
+! frequency that left the f/electron-scattering iteration at the
+! pass cap this great iteration left an unconverged ES source in
+! the rates the SE solve just used, so a capped iteration is not a
+! converged one. The census is saved before the per-iteration
+! reset (FCONV_CAP_IT_*, CONTROL_VARIABLE_MOD); the suppressed
+! iteration-1 warnings stay excluded -- they are a subset of the
+! same census, and the gate reads the physical event.
+!
 	  CONV_EXIT_MET=( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
 	1    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
 	2    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
 	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_CONVERGED
+	6    .AND. FCONV_CAP_IT_CNT .EQ. 0
 !
 ! Exit-reason string for the one-time report: a converged exit can be
 ! clean, ride on a saturated (unsatisfiable) exempted demand, or close
@@ -5155,6 +5177,15 @@
 	1    BA_DEM_EXM .GE. MAX(10.0_LDP*EPS,1.0_LDP))CONV_EXIT_WHY=
 	2    'exempted demand held; trace polish disabled'//
 	3    ' (BA_TR_MAXSWP<=0 or BA_DEM_PFLOOR<=0)'
+!
+! edited 25-Nov-2026: distinct reason for the f-iteration cap gate.
+! Reachable only on a HELD exit -- a met gate already implies
+! FCONV_CAP_IT_CNT=0 -- so this string names why the run stopped
+! unconverged on the budget-exhausted branch below.
+!
+	  IF(FCONV_CAP_IT_CNT .GT. 0)CONV_EXIT_WHY=
+	1    'f-iteration cap exits outstanding: unconverged electron'//
+	2    '-scattering source left in the rates'
 !
 ! NB - Need GE because of NG acceleration.
 !
@@ -5192,6 +5223,8 @@
 	    WRITE(LUER,'(A)')
 	1     ' Iteration budget exhausted before convergence;'//
 	2     ' writing unconverged model state.'
+	    IF(FCONV_CAP_IT_CNT .GT. 0)WRITE(LUER,'(2A)')
+	3     '   exit held: ',TRIM(CONV_EXIT_WHY)
 	  END IF
 !
 	  CALL TUNE(ITWO,'GIT')
@@ -5562,6 +5595,7 @@
 	3    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	4    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
 	5    (MAIN_COUNTER .NE. LAST_NG) .AND. .NOT. LAM_FIELD_NOT_CONVERGED
+	6    .AND. FCONV_CAP_IT_CNT .EQ. 0
 !
 ! Deferred-exit diagnostic: when every other gate passes but the
 ! resacc verdict is still pending, name the one-iteration deferral
@@ -5575,9 +5609,31 @@
 	2    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
 	3    .NOT. GS_POPS_HELD .AND. (MAIN_COUNTER .NE. LAST_NG) .AND.
 	4    .NOT. LAM_FIELD_NOT_CONVERGED .AND.
-	5    CONV_DIAG_LVL .GE. 1)
-	5    WRITE(LUER,'(A)')' Converged exit deferred: resacc '//
-	6    'verdict pending on the armed BA step'
+	5    FCONV_CAP_IT_CNT .EQ. 0 .AND.
+	6    CONV_DIAG_LVL .GE. 1)
+	6    WRITE(LUER,'(A)')' Converged exit deferred: resacc '//
+	7    'verdict pending on the armed BA step'
+!
+! Same diagnostic for the f-iteration cap gate (edited 25-Nov-2026):
+! when every other gate passes but this iteration's J solves hit the
+! f/electron-scattering pass cap somewhere, name the deferral so a
+! held exit is never read as a stall. The cap count is the full
+! census -- the iteration-1 suppressed-warning subset is inside it,
+! so a run that keeps capping can never print converged while an
+! unconverged ES source sits in the rates it just used.
+!
+	  IF(.NOT. CONV_EXIT_MET .AND. FCONV_CAP_IT_CNT .GT. 0 .AND.
+	1    ( (RD_LAMBDA .AND. .NOT. DO_LAMBDA_AUTO) .OR.
+	2    (LAST_LAMBDA .NE. MAIN_COUNTER)) .AND.
+	3    .NOT. JFNK_UNCONVERGED_COMMIT .AND. BA_EX_MAXCH .LT. EPS .AND.
+	4    BA_DEM_EXIT_OK .AND. .NOT. DONE_HYDRO_REVISION .AND.
+	5    .NOT. GS_POPS_HELD .AND. .NOT. BAACC_PENDING .AND.
+	6    (MAIN_COUNTER .NE. LAST_NG) .AND.
+	7    .NOT. LAM_FIELD_NOT_CONVERGED .AND.
+	8    CONV_DIAG_LVL .GE. 1)WRITE(LUER,'(A,I6,A)')
+	9    ' Converged exit deferred: ',FCONV_CAP_IT_CNT,
+	1    ' f-iteration cap exits left an unconverged electron-'//
+	2    'scattering source in this iteration''s rates'
 !
 ! BA_STAGEB_ARM uses the same tests as the converged-exit branch
 ! below, plus BA_TRACE_NEEDED. When it is set the exit is skipped
