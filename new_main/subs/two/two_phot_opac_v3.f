@@ -4,6 +4,7 @@
 	SUBROUTINE TWO_PHOT_OPAC_V3(ETA,CHI,POPS,T,FREQ,TWO_PHOTON_METHOD,ND,NT)
 	USE SET_KIND_MODULE
 	USE TWO_PHOT_MOD
+	USE ITER_LOG_FMT_MOD, ONLY: ILF_TAG
 	IMPLICIT NONE
 !
 ! Altered 24-Sep-2023: Updated to use consistent physical constants (Long ver -- 15-Oct-23)
@@ -55,7 +56,8 @@
 	LUER=ERROR_LU()
 	IF(TWO_METHOD .NE. TWO_PHOTON_METHOD)THEN
 	  TWO_METHOD=TWO_PHOTON_METHOD
-	  WRITE(LUER,*)'Using ',TRIM(TWO_METHOD),' method for two-photon decay'
+	  CALL ILF_TAG(LUER,'INFO','TWO_PHOT','Using '//
+	1    TRIM(TWO_METHOD)//' method for two-photon decay')
 	END IF
 !
 ! The factor 10^10 arises since R is units of 10^10cm, and we
