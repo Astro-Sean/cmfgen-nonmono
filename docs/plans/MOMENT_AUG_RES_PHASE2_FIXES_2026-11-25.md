@@ -225,3 +225,32 @@ every refresh retained the pre-refresh field.
 Revised ordering on evidence: FIX 4 first (s2H dominates),
 then FIX 5's LAG_BND arm (pervasive, small measured share),
 XM_POS third, FIX 3 last (cap dormant on this model).
+
+## FIX 4 stage-1 verdict (25-Nov-2026): augmented solve contracts without mass
+
+Prototype `unit_tests/python/test_mom_himpl.py` builds both
+operators in numpy from the drv_mom_augres captured-array dumps:
+the production-emulated lagged map (captured x block + CUP edges,
+optional |VB|+|VC| mass, lagged H/EPS bracket, exact H-recurrence
+step) and the augmented operator (implemented linear skeleton with
+the lagged bracket and H rows implicit, no mass).
+
+The "hcon" case boosts NU_VB/NU_VC x30 on the epsmix capture - the
+regime where production reaches for MOM_H_IMPL. Measured:
+
+- rho(lagged, no mass) = 2.55: the unmassed map diverges.
+- rho(lagged, massed) = 0.83: the mass contracts it.
+- The massed fixed point is shifted 57% in x from the true
+  solution: the stabiliser buys contraction with model error,
+  exactly the consistency cost the audit predicted.
+- The unmassed augmented operator solves exactly (dense residual
+  2.8e-16, recovers the manufactured field to 1.8e-15); GMRES
+  converges in 55 iterations unpreconditioned and 31 with the
+  per-frequency dense-block preconditioner.
+
+Exit criterion met: the augmented operator contracts without
+diagonal mass on a case where the lagged map requires it, and the
+mass's cost is quantified. Stage 2 - a production-side matrix-free
+matvec for the augmented operator behind a flag, credited by
+RESID_TARGET on a real capture - is now justified. MOM_H_IMPL is
+retired only after that stage lands.
