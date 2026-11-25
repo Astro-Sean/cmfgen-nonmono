@@ -3010,19 +3010,31 @@
 	  CALL RD_STORE_INT(LUM_DIV_RWARM,'LUM_DIV_RWARM',L_FALSE,
 	1     'KNOP: post-start calls with the LUM_DIV_CAP stop suppressed')
 !
-! CONV_DIAG_LVL (default 2): verbosity of the dev convergence
-! diagnostics. 2 reproduces the pre-existing output volume
-! (MODCTL, MODE-OUT, BA-CTX, BA-SOLVE, BA13-TRACE plus the
-! freeze dumps and the BA_RES_ACC trajectory); 1 drops the
-! per-call trace lines and keeps ITER_SUM, ITER_MODE,
-! CONV_PLATEAU, the freeze dumps and the trajectory line;
-! 0 emits ITER_SUM and ITER_HISTORY only.
+! OUT_LEVEL (preferred) / CONV_DIAG_LVL (legacy alias), 0-3:
+! per-iteration OUTGEN verbosity. Both spellings set the same
+! internal level; OUT_LEVEL wins when both are present.
+!   0 - iteration framing, ITER_SUM, Model Convergence, timing,
+!       the IT banner, and the ISSUES census.
+!   1 (default) - the above plus section banners, the moment
+!       refresh pass table and one-line summary, the RUNAWAY
+!       table, and per-call status lines.
+!   2 - the former full output volume in the round-2 layout,
+!       including one compact detail block for the last
+!       moment-refresh pass.
+!   3 - adds the full per-pass moment-refresh detail blocks.
+! Parser-visible lines keep their exact wording at every level
+! that prints them; the level only decides whether they print.
 !
-	  CONV_DIAG_LVL=2
+	  CONV_DIAG_LVL=1
 	  CALL RD_STORE_INT(CONV_DIAG_LVL,'CONV_DIAG_LVL',L_FALSE,
-	1     'Convergence diagnostic verbosity (0-2)?')
+	1     'Legacy output verbosity alias (0-3)?')
+	  OUT_LEVEL=-1
+	  CALL RD_STORE_INT(OUT_LEVEL,'OUT_LEVEL',L_FALSE,
+	1     'Output verbosity (0-3)?')
+	  IF(OUT_LEVEL .GE. 0)CONV_DIAG_LVL=OUT_LEVEL
 	  IF(CONV_DIAG_LVL .LT. 0)CONV_DIAG_LVL=0
-	  IF(CONV_DIAG_LVL .GT. 2)CONV_DIAG_LVL=2
+	  IF(CONV_DIAG_LVL .GT. 3)CONV_DIAG_LVL=3
+	  OUT_LEVEL=CONV_DIAG_LVL
 	  LUM_RATIO_OI=1.0_LDP
 !
 ! The Knop chi_hat formalism is only implemented in the INTEGRAL
