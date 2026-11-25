@@ -57,29 +57,45 @@ def run_seprobe(system):
 
 
 def parse_opprobe(out):
-    """Parse ' OPPROBE <sect> k=v k=v ...' lines into records."""
+    """Parse ' OPPROBE <sect> k=v k=v ...' lines into records.
+
+    ilf_kvb sections emit the header ' OPPROBE <sect>:' alone and
+    wrap the items onto indented '  key  =  value' continuation
+    lines; absorb those into the open record.
+    """
     recs = []
+    cur = None
     for ln in out.splitlines():
-        if " OPPROBE " not in ln:
+        if " OPPROBE " in ln:
+            cur = None
+            toks = ln.split()
+            sect = toks[toks.index("OPPROBE") + 1].rstrip(":")
+            cur = (sect, toks[toks.index("OPPROBE") + 2:])
+            recs.append(cur)
             continue
-        toks = ln.split()
-        sect = toks[toks.index("OPPROBE") + 1]
+        # Indented continuation 'key  =  value' lines belong to the
+        # open ilf_kvb record.
+        if cur is not None and "=" in ln and ln.startswith(" "):
+            cur[1].extend(ln.split())
+    out_recs = []
+    for sect, rest in recs:
         kv = {}
-        rest = toks[toks.index("OPPROBE") + 2:]
         i = 0
         while i < len(rest):
             t = rest[i]
             if "=" in t:
                 k, v = t.split("=", 1)
-                # Fortran fixed formats can emit 'key= value' with the
-                # value in the next token.
                 if v == "" and i + 1 < len(rest) and "=" not in rest[i + 1]:
                     v = rest[i + 1]
                     i += 1
                 kv[k] = v
+            elif i + 1 < len(rest) and rest[i + 1] == "=":
+                # 'key = value' split across three tokens.
+                kv[t] = rest[i + 2] if i + 2 < len(rest) else ""
+                i += 2
             i += 1
-        recs.append((sect, kv))
-    return recs
+        out_recs.append((sect, kv))
+    return out_recs
 
 
 def probe_compile(rep):
