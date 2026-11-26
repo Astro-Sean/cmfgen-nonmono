@@ -15,7 +15,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, TREE, WORKDIR, Report, compile_driver, run
+from common import SRC, F90DIR, TREE, WORKDIR, Report, compile_driver, run
 
 ND = 5
 NCF = 12
@@ -25,7 +25,7 @@ CASES = ["exp", "cmp", "ring2", "ring4", "marg", "mix", "depth", "fresh"]
 def build():
     return compile_driver(
         "drv_mom_blk",
-        [TREE / "tools" / "set_kind_module.f", F90DIR / "drv_mom_blk.f"],
+        [SRC / "tools" / "set_kind_module.f", F90DIR / "drv_mom_blk.f"],
     )
 
 
@@ -194,8 +194,8 @@ def main():
     prodexe = compile_driver(
         "drv_mom_blk_solve",
         [
-            TREE / "tools" / "set_kind_module.f",
-            TREE / "plane" / "mom_blk_gmres_mod.f",
+            SRC / "tools" / "set_kind_module.f",
+            SRC / "plane" / "mom_blk_gmres_mod.f",
             F90DIR / "drv_mom_blk_solve.f",
         ],
     )
