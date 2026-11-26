@@ -42,13 +42,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 
 def build():
     md = BINDIR / "obj_fg_gs"
-    objs = [prod_obj(TREE / "plane" / "fg_j_cmf_nonmono_v1.f")]
+    objs = [prod_obj(SRC / "plane" / "fg_j_cmf_nonmono_v1.f")]
     objs += compile_objs(
         "fg_gs_drv", [F90DIR / "drv_fg_gs.f90"],
         moddir=md, extra_flags=PROD_MOD_INC)
