@@ -1562,6 +1562,79 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # -- WP-5 --------------------------------------------------
+    # KN_OMEGA_SGN defaults F: the signed-Aitken store relaxation is
+    # off unless a deck explicitly arms it, keeping the V2 pool
+    # estimator as the adaptive-relax default. FG_OSGN_FLG echoes
+    # the module-side flag the setter pushed.
+    d = write_vadat(WORKDIR / "vadat_wp5_abs", knop_base)
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-5 KN_OMEGA_SGN absent defaults F",
+        "RESULT_OK" in p.stdout
+        and v.get("KN_OMEGA_SGN") == "F"
+        and v.get("FG_OSGN_FLG") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    rep.check(
+        "WP-5 KN_OSGN clamps default to 5.0E-2, 2.0",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("KN_OSGN_MIN", "nan").replace("D", "E")) - 0.05)
+        < 1.0e-8
+        and abs(float(v.get("KN_OSGN_MAX", "nan").replace("D", "E")) - 2.0)
+        < 1.0e-8,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_wp5_on",
+        dict(knop_base, **{"KN_OMEGA_SGN": "T"}),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-5 KN_OMEGA_SGN=T parses and lands on the module",
+        "RESULT_OK" in p.stdout
+        and v.get("KN_OMEGA_SGN") == "T"
+        and v.get("FG_OSGN_FLG") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_wp5_lim",
+        dict(
+            knop_base,
+            **{"KN_OSGN_MIN": "2.0D-1", "KN_OSGN_MAX": "1.5D0"},
+        ),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-5 explicit KN_OSGN clamps land",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("KN_OSGN_MIN", "nan").replace("D", "E")) - 0.2)
+        < 1.0e-8
+        and abs(float(v.get("KN_OSGN_MAX", "nan").replace("D", "E")) - 1.5)
+        < 1.0e-8,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    # A misordered deck clamps MAX up to MIN rather than stopping.
+    d = write_vadat(
+        WORKDIR / "vadat_wp5_inv",
+        dict(
+            knop_base,
+            **{"KN_OSGN_MIN": "3.0D0", "KN_OSGN_MAX": "1.0D0"},
+        ),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-5 inverted clamps coalesce at MIN",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("KN_OSGN_MAX", "nan").replace("D", "E")) - 3.0)
+        < 1.0e-8,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 
