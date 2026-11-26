@@ -17,7 +17,7 @@ set -e
 cd "$(dirname "$0")"
 
 ROOT="$(cd ../.. && pwd)"
-SRC=$ROOT/new_main/mod_subs
+SRC=$ROOT/cmfgen/new_main/mod_subs
 mkdir -p mod mod2 obj
 
 # ifort resolves .mod files from the cwd ahead of -I paths, so a stub
@@ -38,8 +38,8 @@ echo "== [solver test] resolve production jfnk_solver_v1.o"
 SOLVER_O=$(python3 - "$ROOT" <<'PYEOF'
 import sys
 sys.path.insert(0, sys.argv[1] + "/unit_tests")
-from common import TREE, prod_obj
-print(prod_obj(TREE / "new_main/mod_subs/jfnk_solver_v1.f90"))
+from common import SRC, TREE, prod_obj
+print(prod_obj(SRC / "new_main/mod_subs/jfnk_solver_v1.f90"))
 PYEOF
 )
 
@@ -48,8 +48,8 @@ PYEOF
 ILF_O=$(python3 - "$ROOT" <<'PYEOF'
 import sys
 sys.path.insert(0, sys.argv[1] + "/unit_tests")
-from common import TREE, prod_obj
-print(prod_obj(TREE / "new_main/mod_subs/iter_log_fmt_mod.f90"))
+from common import SRC, TREE, prod_obj
+print(prod_obj(SRC / "new_main/mod_subs/iter_log_fmt_mod.f90"))
 PYEOF
 )
 
