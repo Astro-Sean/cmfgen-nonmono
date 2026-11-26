@@ -34,16 +34,16 @@ WORK = common.WORKDIR / "fg_sw_sym"
 WORK.mkdir(parents=True, exist_ok=True)
 
 FG = (
-    common.TREE / "plane" / "fg_j_cmf_nonmono_v1.f"
+    common.SRC / "plane" / "fg_j_cmf_nonmono_v1.f"
 ).read_text()
 SFP = (
-    common.TREE / "new_main" / "mod_subs" / "solve_for_pops.f"
+    common.SRC / "new_main" / "mod_subs" / "solve_for_pops.f"
 ).read_text()
 CVM = (
-    common.TREE / "new_main" / "mod_subs" / "control_variable_mod.f"
+    common.SRC / "new_main" / "mod_subs" / "control_variable_mod.f"
 ).read_text()
 RDV = (
-    common.TREE / "new_main" / "mod_subs" / "rd_control_variables.f"
+    common.SRC / "new_main" / "mod_subs" / "rd_control_variables.f"
 ).read_text()
 
 
@@ -233,12 +233,11 @@ HELPERS = [
     "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
-    "unit_tests/f90/stub_vadat.f",
 ]
 
 binpath = common.compile_and_link_prod(
     "drv_badid",
-    [common.TREE / h for h in HELPERS] + [common.F90DIR / "drv_badid.f90"],
+    [common.SRC / h for h in HELPERS] + [common.F90DIR / "stub_vadat.f", common.F90DIR / "drv_badid.f90"],
 )
 r = common.run(binpath, cwd=WORK)
 REP.check("drv_badid ran", r.returncode == 0 and "RESULT_OK" in r.stdout)
@@ -345,7 +344,7 @@ REP.check("untracked counted", i("M4_UNTR") == 1)
 
 binray = common.compile_and_link_prod(
     "knray_badid",
-    [common.TREE / h for h in HELPERS] + [common.F90DIR / "drv_knop_ray.f90"],
+    [common.SRC / h for h in HELPERS] + [common.F90DIR / "stub_vadat.f", common.F90DIR / "drv_knop_ray.f90"],
 )
 
 for case in ("badid", "bido"):
