@@ -8,7 +8,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, TREE, WORKDIR, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, TREE, WORKDIR, Report, compile_and_link_prod, run
 from test_knop_ray import HELPERS, parse
 
 
@@ -16,7 +16,8 @@ def main():
     rep = Report("knop_oneway")
     exe = compile_and_link_prod(
         "knray_oneway",
-        [TREE / name for name in HELPERS] + [F90DIR / "drv_knop_ray.f90"],
+        [SRC / name for name in HELPERS]
+        + [F90DIR / "stub_vadat.f", F90DIR / "drv_knop_ray.f90"],
     )
     for name, expected in (("gposo", 0), ("gzzo", 0), ("gnego", 1), ("ord", 1)):
         result = run(exe, name, cwd=WORKDIR, check=False)
