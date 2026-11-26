@@ -13,6 +13,23 @@
       (com/restart_model.sh, obs_template) were updated to match.
       The ptmp2 worktree keeps its old layout until it pulls; a
       rebuild there writes into the new cmfgen/-relative layout.
+      Follow-up same day: the generated slurms also resolve
+      $cmfdist/com/out2in.sh at epilogue time, a ref missed in the
+      first pass - it produced exit 127 on every CMFGEN teardown
+      (Ni075_E13_m06 job 13722141, knop_jfnk 13699394). The
+      cmfgen_base template, run_model_grid.py and ~148 generated
+      slurms/submit copies were repointed to cmfgen/com/out2in.sh
+      (project repo, uncommitted).
+      Verdicts landed alongside: the Ni075_E13_m06 40 d arm NaN'd
+      again at it35 with the same 193-bad STEQ signature on the
+      synced deck (TRT_NON_TE=T, LAM_EXIT=5.0D1, LAM_N_STABLE=3) -
+      the deck hypothesis is rejected; the failure is the open
+      BLKBAND/Jacobian defect class. knop_jfnk (13699394) stopped
+      non-convergent at it100 on GS_REL_NOPROG_LIM - the
+      release/refreeze cycle never matured the lagged field; its
+      OBS chain (13699395) was cancelled. knop_formal (13699389)
+      still runs; its OBS (13699390) will need resubmission after
+      teardown.
 - [x] DO_JFNK + FIX_X_DPTH inner-T pin: fail closed (25-Nov-2026).
       Question: does a JFNK run silently ignore the FIX_INB_T +
       FIX_X_DPTH thin-release T pin? Evidence plan: audit which
