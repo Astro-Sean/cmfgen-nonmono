@@ -1075,6 +1075,26 @@
 	INTEGER*8, ALLOCATABLE, SAVE :: FG_NBAD_CM_RAY(:)
 	INTEGER*8, ALLOCATABLE, SAVE :: FG_NTOT_CM_RAY(:)
 !
+! WP-4 [KN_STORE_LS] (26-Nov-2026): residual-descent backtracking
+! on the provisional commit. Instead of the fixed FG_COMMIT_NC
+! rate limit, a non-certified ray tries store blends
+! old + alpha*(fresh-old) for alpha = 1, 0.5, 0.25, 0.125 and
+! accepts the first whose committed-state residual (the WP-3
+! verify) beats the retained store's own. FG_COMMIT_NC is only
+! the floor of the ladder; a rung at NC itself is appended when
+! it falls below 0.125. If no rung descends the store keeps its
+! pre-refresh generation and the ray counts as an LS rejection.
+! Census: FG_LS_HIST bins the accepted alpha (1/0.5/0.25/0.125/
+! NC-floor), FG_LS_REJ counts rejections, FG_LS_R0/FG_LS_R1 sum
+! the baseline and accepted residuals for the refresh epilogue,
+! and FG_RAY_LSA records the accepted alpha per ray (-1 never
+! ran the search, -2 rejected).
+!
+	LOGICAL FG_STORE_LS
+	INTEGER FG_LS_HIST(5),FG_LS_REJ,FG_LS_N
+	REAL(KIND=LDP) FG_LS_R0,FG_LS_R1
+	REAL(KIND=LDP), ALLOCATABLE, SAVE :: FG_RAY_LSA(:)
+!
 ! KN_RF_TOT_MB: total refresh memory budget (MB) across all OMP
 ! threads. Each thread in KNOP_RAY_SOLVE_V1 can hold ~80 B per
 ! (depth,frequency) cell (8-array coefficient pack + FLD + work), so
@@ -1275,6 +1295,15 @@
 	DATA KN_GATE_COMMIT_RES /.TRUE./
 	DATA FG_RF_COMMIT_RES /-1.0_LDP/
 	DATA FG_GS_NBAD_CM /0_8/,FG_GS_NTOT_CM /-1_8/
+!
+! WP-4 store line search: default T so provisional commits are
+! accepted by residual descent rather than the fixed NC bound;
+! VADAT F (KN_STORE_LS) restores the WRITE_STORE_CAP path
+! exactly.
+!
+	DATA FG_STORE_LS /.TRUE./
+	DATA FG_LS_HIST /5*0/,FG_LS_REJ /0/,FG_LS_N /0/
+	DATA FG_LS_R0 /0.0_LDP/,FG_LS_R1 /0.0_LDP/
 !
 ! KNOP_DUMP_TOPO: diagnostic-only topology-checkpoint hook (P1-T1h).
 ! When set, FG_KNOP_REFRESH_V1 calls DUMP_KNOP_TOPO_V1 once, at the
@@ -8679,6 +8708,14 @@ C
 	RETURN
 	END
 !
+	SUBROUTINE SET_FG_STORE_LS(DO_LS)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_STORE_LS
+	IMPLICIT NONE
+	LOGICAL DO_LS
+	FG_STORE_LS=DO_LS
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_FREEZE_COEF(DO_FZ)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_FREEZE_COEF
 	IMPLICIT NONE
@@ -9581,6 +9618,20 @@ C
 	FG_RF_COMMIT_RES=-1.0_LDP
 	FG_GS_NBAD_CM=0_8
 	FG_GS_NTOT_CM=MERGE(0_8,-1_8,KN_GATE_COMMIT_RES)
+!
+! WP-4 line-search census [KN_STORE_LS]: per-refresh totals plus
+! per-ray accepted alpha. -1 marks rays that never ran the
+! search (certified, probe, or LS disarmed), -2 marks an LS
+! rejection where no rung descended.
+!
+	FG_LS_HIST=0
+	FG_LS_REJ=0
+	FG_LS_N=0
+	FG_LS_R0=0.0_LDP
+	FG_LS_R1=0.0_LDP
+	IF(ALLOCATED(FG_RAY_LSA))DEALLOCATE(FG_RAY_LSA)
+	ALLOCATE(FG_RAY_LSA(KN_NP),STAT=IOS)
+	IF(IOS .EQ. 0)FG_RAY_LSA=-1.0_LDP
 	IF(ALLOCATED(FG_RAY_WI))DEALLOCATE(FG_RAY_WI)
 	IF(ALLOCATED(FG_RAY_WL))DEALLOCATE(FG_RAY_WL)
 	IF(ALLOCATED(FG_RAY_WS))DEALLOCATE(FG_RAY_WS)
@@ -10249,6 +10300,15 @@ C
 	WRITE(LUER,'(A,I14,A,I14)')
 	1  '    best-pass bad cells=',FG_GS_NBAD_BLK,' of',
 	2  FG_GS_NTOT_BLK
+	IF(FG_LS_N .GT. 0 .OR. FG_LS_REJ .GT. 0)THEN
+	  WRITE(LUER,'(A,5I7,A,I7)')
+	1    '    store_ls alpha 1/.5/.25/.125/nc:',
+	2    FG_LS_HIST(1),FG_LS_HIST(2),FG_LS_HIST(3),
+	3    FG_LS_HIST(4),FG_LS_HIST(5),'  rej=',FG_LS_REJ
+	  IF(FG_LS_N .GT. 0)WRITE(LUER,'(A,2ES12.4)')
+	1    '    store_ls res before/after:',
+	2    FG_LS_R0/FG_LS_N,FG_LS_R1/FG_LS_N
+	END IF
 	CALL ILF_KVB(LUER,' HEAL:',4,
 	1  (/'healed slots  ','commit rejects','nc rejects    ',
 	2  'nc capped     '/),
@@ -11113,6 +11173,18 @@ C
 	LOGICAL L_WRITTEN
 	REAL(KIND=LDP) QM_CM,QP_CM
 	INTEGER*8 NB_CM,NT_CM
+!
+! WP-4 [KN_STORE_LS]: candidate store columns and the ladder
+! state for the residual-descent search. ST_M/ST_P are thread
+! locals -- the solve runs inside the ray loop so no shared
+! storage is touched. R_LS0 is the retained store's committed
+! residual, R_LS1 the accepted rung's.
+!
+	LOGICAL L_LS_ACC
+	REAL(KIND=LDP) R_LS0,R_LS1,A_LS
+	REAL(KIND=LDP), ALLOCATABLE :: ST_M(:,:),ST_P(:,:)
+	INTEGER IL_LS,IB_LS,IOS_LS
+	REAL(KIND=LDP) LS_LAD(5)
 ! INVS_SV: INVR is saved across the verify scratch sweep alongside
 ! DIVERGED (Phase 2.16) -- a coefficient fault hit only on the
 ! independent re-solve must not mark the production state invalid.
@@ -11917,7 +11989,89 @@ C
 ! exit whose independent verify failed or never ran cannot
 ! certify either.
 !
-	    IF(FG_COMMIT_NC .GT. 0.0_LDP)THEN
+! WP-4 [KN_STORE_LS]: the provisional commit is a residual-
+! descent line search on the store, not the fixed NC bound. The
+! retained store's committed residual is the baseline; candidate
+! blends old + alpha*(fresh-old) at alpha = 1, 0.5, 0.25, 0.125
+! (FG_COMMIT_NC is only the floor: rungs below it are skipped,
+! and one rung at NC itself is appended when it falls under
+! 0.125) are verified on the committed point and the first one
+! that descends is written. No descent keeps the pre-refresh
+! store and counts an LS rejection; an unmeasurable baseline
+! falls back to the legacy NC path untouched.
+!
+	  L_LS_ACC=.FALSE.
+	  R_LS0=-1.0_LDP
+	  A_LS=-1.0_LDP
+	  IF(FG_STORE_LS .AND. .NOT. L_NOPROBE)THEN
+	    CALL KN_LS_VER(I_M_DEPTH_NEXT(:,LS,:),
+	1     I_P_DEPTH_NEXT(:,LS,:),QM_CM,QP_CM,NB_CM,NT_CM)
+	    R_LS0=MAX(QM_CM,QP_CM)
+	    IF(R_LS0 .GE. 0.0_LDP)THEN
+	      LS_LAD(1)=1.0_LDP
+	      LS_LAD(2)=0.5_LDP
+	      LS_LAD(3)=0.25_LDP
+	      LS_LAD(4)=0.125_LDP
+	      LS_LAD(5)=-1.0_LDP
+	      IF(FG_COMMIT_NC .GT. 0.0_LDP .AND.
+	1       FG_COMMIT_NC .LT. 0.125_LDP)LS_LAD(5)=FG_COMMIT_NC
+	      ALLOCATE(ST_M(SIZE(I_M_DEPTH_NEXT,1),
+	1       SIZE(I_M_DEPTH_NEXT,3)),
+	2       ST_P(SIZE(I_P_DEPTH_NEXT,1),
+	3       SIZE(I_P_DEPTH_NEXT,3)),STAT=IOS_LS)
+	      IF(IOS_LS .EQ. 0)THEN
+	        DO IL_LS=1,5
+	          A_LS=LS_LAD(IL_LS)
+	          IF(A_LS .LE. 0.0_LDP)CYCLE
+	          IF(A_LS .LT. FG_COMMIT_NC)CYCLE
+	          CALL KN_LS_BLEND(FLD,I_M_DEPTH_NEXT(:,LS,:),
+	1           ST_M,A_LS,DCH_M)
+	          CALL KN_LS_BLEND(FLD_P,I_P_DEPTH_NEXT(:,LS,:),
+	1           ST_P,A_LS,DCH_P)
+	          CALL KN_LS_VER(ST_M,ST_P,QM_CM,QP_CM,NB_CM,NT_CM)
+	          R_LS1=MAX(QM_CM,QP_CM)
+	          IF(R_LS1 .GE. 0.0_LDP .AND. R_LS1 .LT. R_LS0)THEN
+	            I_M_DEPTH_NEXT(:,LS,:)=ST_M
+	            I_P_DEPTH_NEXT(:,LS,:)=ST_P
+	            L_LS_ACC=.TRUE.
+	            IB_LS=IL_LS
+	            EXIT
+	          END IF
+	        END DO
+	        DEALLOCATE(ST_M,ST_P)
+	      ELSE
+	        R_LS0=-1.0_LDP
+	      END IF
+	    END IF
+	  END IF
+!
+	  IF(L_LS_ACC)THEN
+	    L_WRITTEN=.TRUE.
+!$OMP CRITICAL (FG_LS_UPD)
+	    FG_LS_HIST(IB_LS)=FG_LS_HIST(IB_LS)+1
+	    FG_LS_N=FG_LS_N+1
+	    FG_LS_R0=FG_LS_R0+R_LS0
+	    FG_LS_R1=FG_LS_R1+R_LS1
+	    FG_NC_CAP=FG_NC_CAP+1
+!$OMP END CRITICAL (FG_LS_UPD)
+!$OMP CRITICAL (FG_DCHG_UPD)
+	    FG_RF_DCHG=MAX(FG_RF_DCHG,DCH_M,DCH_P)
+!$OMP END CRITICAL (FG_DCHG_UPD)
+	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=3
+	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=
+	1      MAX(DCH_M,DCH_P)
+	    IF(ALLOCATED(FG_RAY_LSA))FG_RAY_LSA(LS)=A_LS
+	  ELSE IF(FG_STORE_LS .AND. .NOT. L_NOPROBE .AND.
+	1    R_LS0 .GE. 0.0_LDP)THEN
+! LS rejection: every rung measured and none descended, so the
+! store keeps its pre-refresh generation.
+!$OMP CRITICAL (FG_LSR_UPD)
+	    FG_LS_REJ=FG_LS_REJ+1
+!$OMP END CRITICAL (FG_LSR_UPD)
+	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=2
+	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=JUMP
+	    IF(ALLOCATED(FG_RAY_LSA))FG_RAY_LSA(LS)=-2.0_LDP
+	  ELSE IF(FG_COMMIT_NC .GT. 0.0_LDP)THEN
         if(kn_stage_active(ls))then
           call kn_stage_field('COMMIT_CAP',ls,2,np_m,
      1      i_m_depth_next(:,ls,:),res_m,fg_commit_nc)
@@ -13131,6 +13285,24 @@ C
 	SUBROUTINE KN_COMMIT_VER(QM,QP,NB_S,NT_S)
 	REAL(KIND=LDP) QM,QP
 	INTEGER*8 NB_S,NT_S
+	CALL KN_LS_VER(I_M_DEPTH_NEXT(:,LS,:),
+	1   I_P_DEPTH_NEXT(:,LS,:),QM,QP,NB_S,NT_S)
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_LS_VER (WP-4, [KN_STORE_LS]): committed-state verify on an
+! arbitrary store column pair. Same pass machinery as the WP-3
+! post-commit verify -- one non-committing L_QP sweep per
+! direction on the production field with store cells overwritten
+! by the supplied column -- so the line search can measure a
+! candidate before writing it. -1 returns mark an unrun verify
+! (alloc fault).
+! ----------------------------------------------------------------
+	SUBROUTINE KN_LS_VER(STM,STP,QM,QP,NB_S,NT_S)
+	REAL(KIND=LDP) STM(:,:),STP(:,:)
+	REAL(KIND=LDP) QM,QP
+	INTEGER*8 NB_S,NT_S
 	INTEGER IOS_CV
 	QM=-1.0_LDP; QP=-1.0_LDP; NB_S=-1_8; NT_S=-1_8
 	LDVS_SV=DIVERGED; LCES_SV=CLEAN_EXIT; INVS_SV=INVR
@@ -13145,16 +13317,13 @@ C
 	IF(IOS_CV .EQ. 0)THEN
 !
 ! FLD_Q starts from the solved field, then store cells are
-! overwritten with the committed values -- the point the
-! retention actually kept. Cells outside the store carry no
-! committed value (the next refresh seeds them at 0 and the
-! march fills them fresh), so they keep the solve's own values
-! here: a zero seed would read ~1E30 on the floor-denominator
-! residual metric and swamp the census with cells the commit
-! never touched.
+! overwritten with the candidate values -- the point the
+! retention would keep. Cells outside the store keep the solve's
+! own values, so the census covers only cells the commit could
+! touch.
 !
 	  FLD_Q=FLD
-	  CALL SEED_FLD(FLD_Q,I_M_DEPTH_NEXT)
+	  CALL KN_LS_SEED(FLD_Q,STM)
 	  IF(ORD_SWEEP)THEN
 	    CALL SWEEP_FLD_ORD(FLD_Q,.TRUE.,RES_Q,NP_Q,NB_Q,NT_Q,
 	1     IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
@@ -13164,7 +13333,7 @@ C
 	  END IF
 	  QM=RES_Q; NB_S=NB_Q; NT_S=NT_Q
 	  FLD_Q=FLD_P
-	  CALL SEED_FLD(FLD_Q,I_P_DEPTH_NEXT)
+	  CALL KN_LS_SEED(FLD_Q,STP)
 	  IF(ORD_SWEEP)THEN
 	    CALL SWEEP_FLD_ORD(FLD_Q,.FALSE.,RES_Q,NP_Q,NB_Q,NT_Q,
 	1     IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
@@ -13183,6 +13352,84 @@ C
 	NCL_P=NCLS_SV(3); NNL_P=NCLS_SV(4)
 	NCAP=NPCS_SV; NNEG=NNGS_SV; NP2_CNT=NPT2_SV
 	RHO_M=RHOS_SV(1); RHO_P=RHOS_SV(2)
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_LS_SEED (WP-4): 2D-store-column variant of SEED_FLD -- the
+! line search verifies candidate columns that do not sit in the
+! production store slots yet.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_LS_SEED(FLDQ,STC)
+	REAL(KIND=LDP) FLDQ(NI,NCF)
+	REAL(KIND=LDP) STC(:,:)
+	INTEGER KS,LS2,JP2
+	DO KS=1,KN_ND
+	  IF(COMP_DEPTH_IDX(KS) .GE. 1)THEN
+	    JP2=J_PNT(KS,LS)
+	    IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
+	      DO LS2=2,NCF
+	        FLDQ(JP2,LS2)=STC(COMP_DEPTH_IDX(KS),LS2-1)
+	      END DO
+	    END IF
+	  END IF
+	END DO
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_LS_BLEND (WP-4, [KN_STORE_LS]): form the alpha-blend
+! candidate column old + alpha*(fresh-old). The fresh value takes
+! the same NONMONO_INEXT_CAP clip and non-finite floor heal as
+! WRITE_STORE_CAP so a candidate can never write a value the
+! production write path would reject; DMAX carries the max
+! relative change for the FG_RF_DCHG fold. V2<=0 slots take the
+! alpha fraction of the fresh value, matching the seed-fill
+! convention that a floor slot has no base to bound from.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_LS_BLEND(FLDQ,STO,STN,ALPHA,DMAX)
+	REAL(KIND=LDP) FLDQ(NI,NCF)
+	REAL(KIND=LDP) STO(:,:),STN(:,:)
+	REAL(KIND=LDP) ALPHA,DMAX
+	INTEGER KS,LS2,JP2
+	REAL(KIND=LDP) V1,V2,DLOC
+	REAL(KIND=LDP) VMAX_F(NCF)
+	DO LS2=1,NCF
+	  VMAX_F(LS2)=MAX(1.0E-25_LDP,
+	1    MAXVAL(FLDQ(1:NI,LS2),
+	2    MASK=FLDQ(1:NI,LS2) .EQ. FLDQ(1:NI,LS2)))
+	END DO
+	DMAX=0.0_LDP
+	DO KS=1,KN_ND
+	  IF(COMP_DEPTH_IDX(KS) .GE. 1)THEN
+	    JP2=J_PNT(KS,LS)
+	    IF(JP2 .GE. 1 .AND. JP2 .LE. NI)THEN
+	      DO LS2=2,NCF
+	        V1=FLDQ(JP2,LS2)
+	        IF(V1 .EQ. V1 .AND. V1 .GT. 0.0_LDP)THEN
+	          IF(V1 .GT. NONMONO_INEXT_CAP)V1=NONMONO_INEXT_CAP
+	        ELSE
+	          V1=1.0E-30_LDP
+	        END IF
+	        V2=STO(COMP_DEPTH_IDX(KS),LS2-1)
+	        IF(V2 .GT. 0.0_LDP)THEN
+	          V1=V2+ALPHA*(V1-V2)
+	        ELSE
+	          V1=ALPHA*V1
+	        END IF
+	        STN(COMP_DEPTH_IDX(KS),LS2-1)=V1
+	        IF(V2 .GT. 0.0_LDP)THEN
+	          DLOC=ABS(V1-V2)/MAX(V2,1.0E-4_LDP*VMAX_F(LS2))
+	        ELSE IF(V1 .GT. 1.0E-4_LDP*VMAX_F(LS2))THEN
+	          DLOC=1.0_LDP
+	        ELSE
+	          DLOC=0.0_LDP
+	        END IF
+	        DMAX=MAX(DMAX,DLOC)
+	      END DO
+	    END IF
+	  END IF
+	END DO
 	RETURN
 	END
 !
