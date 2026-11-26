@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, Report,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, Report,
                     compile_objs, link_prod, prod_obj, run)
 
 MSG = "clamped"
@@ -31,8 +31,8 @@ MSG = "clamped"
 def build():
     md = BINDIR / "obj_grey"
     objs = [
-        prod_obj(TREE / "new_main" / "mod_subs" / "comp_grey_v2.f"),
-        prod_obj(TREE / "new_main" / "mod_subs" / "comp_grey_v4.f"),
+        prod_obj(SRC / "new_main" / "mod_subs" / "comp_grey_v2.f"),
+        prod_obj(SRC / "new_main" / "mod_subs" / "comp_grey_v4.f"),
     ]
     objs += compile_objs(
         "grey_drv", [F90DIR / "drv_grey.f90"],
