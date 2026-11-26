@@ -1548,6 +1548,26 @@
 	1     L_FALSE,'Same-map omega estimator in the MOM refresh?')
 	  CALL SET_MOM_OMEGA_V2(MOM_ADAPT_OMEGA_V2_V)
 !
+! KN_OMEGA_SGN (default FALSE, WP-5 26-Nov-2026): signed
+! vector-Aitken relaxation for the lagged I_NEXT store write,
+! consuming the outer store-map residual sequence instead of the
+! inner per-ray pass ratios. Needs KN_ADAPT_RELAX armed -- the
+! update only replaces the adaptive-relax branch. Off keeps the
+! FG_ADAPT_OMEGA_V2 estimator as the default.
+!
+	  KN_OMEGA_SGN=.FALSE.
+	  CALL RD_STORE_LOG(KN_OMEGA_SGN,'KN_OMEGA_SGN',L_FALSE,
+	1     'Signed Aitken relaxation on the FG store write?')
+	  CALL SET_FG_OMEGA_SGN(KN_OMEGA_SGN)
+!
+	  KN_OSGN_MIN_V=0.05_LDP
+	  CALL RD_STORE_DBLE(KN_OSGN_MIN_V,'KN_OSGN_MIN',L_FALSE,
+	1     'Lower clamp on the signed-Aitken store omega')
+	  KN_OSGN_MAX_V=2.0_LDP
+	  CALL RD_STORE_DBLE(KN_OSGN_MAX_V,'KN_OSGN_MAX',L_FALSE,
+	1     'Upper clamp on the signed-Aitken store omega')
+	  CALL SET_FG_OSGN_LIMS(KN_OSGN_MIN_V,KN_OSGN_MAX_V)
+!
 ! KN_RAY_ORDERED (default FALSE, WP-1 26-Nov-2026): ordered
 ! characteristic march in the FG refresh (Knop Paper II
 ! ordering). The WP-0 fixture measured the claimed freshness
