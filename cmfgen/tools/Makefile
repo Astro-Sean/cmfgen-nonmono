@@ -44,7 +44,7 @@ OBJ = $(LIB)(usr_option.o)\
 
 
 all : $(LIB)
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 	rm -f *.o
 $(LIB) : $(OBJ)	
