@@ -124,6 +124,50 @@ def main():
         f"maxerr={err:.2e}",
     )
 
+    # WP-7b: the DIAG-path solve contract in CMF_BLKBAND_V3.  A
+    # depth whose equilibration/factorisation fails now counts in
+    # NDFAIL and the routine returns FLAG=.FALSE. instead of
+    # certifying a zeroed STEQ column.  drv_cmf_diag seeds a two-ion
+    # species; 'badrow' zeroes one rate row so DGEEQU reports it.
+    md = WORKDIR / "obj_cmf_diag"
+    objs = prod_objs(
+        [
+            SRC / "new_main" / "subs" / "cmf_blkband_v3.f",
+            SRC / "new_main" / "subs" / "generate_full_matrix_v3.f",
+            SRC / "new_main" / "subs" / "fixpop_in_ba_v3.f",
+            SRC / "new_main" / "subs" / "cmf_blkband_pin_null_v1.f",
+            SRC / "new_main" / "subs" / "cmf_blkband_pin_sym_v1.f",
+        ]
+    )
+    objs += compile_objs(
+        "cmf_diag_drv",
+        [F90DIR / "drv_cmf_diag.f90", F90DIR / "stub_vadat.f"],
+        moddir=md,
+        extra_flags=PROD_MOD_INC,
+    )
+    libs = [TREE / "lib" / a for a in ("libsubs.a", "libmod.a", "libsubs.a")]
+    diag = link_prod("cmf_diag", objs + libs, moddir=md)
+
+    out = run(diag, "ok").stdout
+    rep.check("diag ok: well-posed depths return FLAG=T", "FLAG= T" in out)
+    steq_lines = out.splitlines()[out.splitlines().index("STEQ") + 1 :][:2]
+    vals = [float(x) for ln in steq_lines for x in ln.split()]
+    rep.check(
+        "diag ok: corrections are finite",
+        all(v == v and abs(v) < 1.0e30 for v in vals),
+    )
+    out = run(diag, "badrow").stdout
+    rep.check(
+        "diag badrow: failed depth returns FLAG=F",
+        "FLAG= F" in out,
+        out[-400:],
+    )
+    rep.check(
+        "diag badrow: the failure is reported",
+        "DIAG solve failed at           1  of           2" in out
+        or "DIAG solve failed" in out,
+    )
+
     return rep.summary()
 
 
