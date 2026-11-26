@@ -12,7 +12,7 @@ python3 - "$TD" <<'EOF'
 import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
-from common import TREE, UT, compile_and_link_prod
+from common import SRC, TREE, UT, compile_and_link_prod
 
 compile_and_link_prod(
     "se_driver",
@@ -20,8 +20,8 @@ compile_and_link_prod(
         UT / "jfnk_int_mod_stub.f90",
         UT / "se_prob_mod.f90",
         UT / "se_driver.f90",
-        TREE / "new_main" / "mod_subs" / "jfnk_solver_v1.f90",
-        TREE / "new_main" / "mod_subs" / "jfnk_op_probe_v1.f90",
+        SRC / "new_main" / "mod_subs" / "jfnk_solver_v1.f90",
+        SRC / "new_main" / "mod_subs" / "jfnk_op_probe_v1.f90",
     ],
 )
 print("built unit_tests/bin/se_driver")
