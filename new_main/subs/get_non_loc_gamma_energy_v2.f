@@ -10,6 +10,12 @@
 	USE NUC_ISO_MOD
 	IMPLICIT NONE
 !
+! Altered 25-Nov-2026 - Guarded the ABS_TRANS branch on ASSOCIATED.  The decay
+!                          energy arrays are allocated only by RD_NUC_DECAY_DATA_V2
+!                          under INC_RAD_DECAYS=T; on isotope-free hydro the emitted
+!                          energy is identically zero so the absorption transport
+!                          is a no-op.  Bug fix in the stock path (not flag gated):
+!                          ABS_TRANS + INC_RAD_DECAYS=F dereferenced a null pointer.
 ! Altered 20-May-2023 - This version had not been updated in main source. Made two version compatible.
 ! Altered 21-Nov-2021 - Added option to read in GAMRAY_ENERGY_DEP if present and when
 !                          GAMRAY_TRANS='RAD_TRANS'
@@ -46,8 +52,14 @@
 ! Before the call, WRK must contain the locally EMITTED energy. After the call,
 ! RADIOACTIVE_DECAY_ENERGY will contain the locally ABSORBED energy.
 !
-	   WRK=RADIOACTIVE_DECAY_ENERGY
-	   CALL DO_GAM_ABS_APPROX_V2(RADIOACTIVE_DECAY_ENERGY,WRK,KINETIC_DECAY_ENERGY,ND)
+! With INC_RAD_DECAYS=F the storage pointers are unassociated and the emitted
+! profile is identically zero, so the absorbed profile is zero too: skip the
+! transport call rather than dereference the pointers (see header note).
+!
+	   IF(ASSOCIATED(RADIOACTIVE_DECAY_ENERGY))THEN
+	      WRK=RADIOACTIVE_DECAY_ENERGY
+	      CALL DO_GAM_ABS_APPROX_V2(RADIOACTIVE_DECAY_ENERGY,WRK,KINETIC_DECAY_ENERGY,ND)
+	   END IF
 !
 	ELSE IF (GAMRAY_TRANS .EQ. 'NONLOCAL')THEN
 !
