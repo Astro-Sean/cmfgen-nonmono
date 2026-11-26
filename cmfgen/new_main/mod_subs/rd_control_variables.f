@@ -1564,6 +1564,46 @@
 	1     'Ordered (Knop) march in the FG refresh?')
 	  CALL SET_FG_ORD_SWEEP(KN_RAY_ORDERED)
 !
+! KN_RAY_ORDER_MODE (WP-2, default -1 = follow KN_RAY_ORDERED):
+! 0 ordered march, 1 alternating sweep, 2 alternating with the
+! first pass seeded down the dominant coupling sign
+! (uniform-compressing rays start descending so the L+NFM donor
+! column is fresh on pass 1; all other rays reduce to mode 1),
+! 3 reserved SCC ordering -- CHECK_PARAM_CONSISTENCY stops it
+! until mode 2 is measured on mixed rays. An explicit value wins
+! over KN_RAY_ORDERED (the consistency check warns when both are
+! set); absent, the mode resolves from KN_RAY_ORDERED so the
+! legacy flag keeps its semantics. Presence flags are staged
+! here because CLEAN_RD_STORE runs before the checker.
+!
+	  CALL GET_KEY_STRING(TMP_STRING,'KN_RAY_ORDERED',L_FALSE,
+	1     KN_RAY_ORDERED_SET)
+	  CALL GET_KEY_STRING(TMP_STRING,'KN_RAY_ORDER_MODE',L_FALSE,
+	1     KN_ORD_MODE_SET)
+	  KN_RAY_ORDER_MODE=-1
+	  CALL RD_STORE_INT(KN_RAY_ORDER_MODE,'KN_RAY_ORDER_MODE',
+	1     L_FALSE,'KNOP refresh march order mode (0..2)')
+	  IF(KN_RAY_ORDER_MODE .EQ. -1)THEN
+	    IF(KN_RAY_ORDERED)THEN
+	      KN_RAY_ORDER_MODE=0
+	    ELSE
+	      KN_RAY_ORDER_MODE=1
+	    END IF
+	  END IF
+	  CALL SET_FG_ORD_MODE(KN_RAY_ORDER_MODE)
+!
+! KN_FRESH_DIAG (WP-2, default FALSE): diagnostic-only per-pass
+! census of the |Q| donor weight read from a not-yet-updated
+! cell in the refresh march -- the stale share the ordered
+! march's header once claimed was zero. Stored per (pass,
+! direction, ray) in KN_FRESH_FR and printed on LUER; the solve
+! is unchanged.
+!
+	  KN_FRESH_DIAG=.FALSE.
+	  CALL RD_STORE_LOG(KN_FRESH_DIAG,'KN_FRESH_DIAG',L_FALSE,
+	1     'Per-pass stale donor census in the KNOP refresh?')
+	  CALL SET_FG_FRESH_DIAG(KN_FRESH_DIAG)
+!
 ! KN_FREEZE_COEF (default FALSE): diagnostic-only fixed-coefficient
 ! mode for the KNOP refresh (failure isolation, P1-T1c arm R). T
 ! pins the KN_CHI_EXT/KN_ETA_EXT snapshots captured on the first
