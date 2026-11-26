@@ -1640,6 +1640,17 @@
 	1     'Certify KNOP commits on the independent residual?')
 	  CALL SET_FG_CERT_CONV(KN_CERT_CONV)
 !
+! KN_GATE_COMMIT_RES (WP-3, 26-Nov-2026, default TRUE): gate the
+! maturity metrics on the committed field. T runs one
+! non-committing L_QP pass on the store each commit wrote and
+! feeds that residual plus its bad-cell census into
+! GS_MAX_ALL/GS_NBAD_EFF; F keeps the legacy pre-commit metrics.
+!
+	  KN_GATE_COMMIT_RES=.TRUE.
+	  CALL RD_STORE_LOG(KN_GATE_COMMIT_RES,'KN_GATE_COMMIT_RES',
+	1     L_FALSE,'Gate maturity on the committed KNOP field?')
+	  CALL SET_FG_GATE_COMMIT_RES(KN_GATE_COMMIT_RES)
+!
 ! KN_CERT_DIAG (default FALSE): one machine-readable KN-CS
 ! certification record per ray per refresh.
 !
