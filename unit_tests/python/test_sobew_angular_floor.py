@@ -27,7 +27,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, TREE, WORKDIR, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, TREE, WORKDIR, Report, compile_and_link_prod, run
 from test_sob_tau_floor import (
     ND,
     NP,
@@ -39,10 +39,10 @@ from test_sob_tau_floor import (
 )
 
 SIGMA_TRUE_SRC = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "new_main" / "mod_subs" / "control_variable_mod.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "new_main" / "subs" / "recompute_sigma_true.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "new_main" / "mod_subs" / "control_variable_mod.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "new_main" / "subs" / "recompute_sigma_true.f",
 ]
 
 
@@ -172,7 +172,7 @@ def main():
         n_undef == 1 and st[-1] == 0.0,
         f"N_UNDEF={n_undef} st[-1]={st[-1]}",
     )
-    src = (TREE / "obs" / "cmf_flux_sub_v5.f").read_text()
+    src = (SRC / "obs" / "cmf_flux_sub_v5.f").read_text()
     ungated = re.search(
         r"IF\(\s*\.NOT\.\s*ALLOW_SIGMA_UNDEF\s*\)\s*THEN", src
     )
