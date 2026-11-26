@@ -13,7 +13,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, TREE, compile_and_link_prod
+from common import SRC, F90DIR, TREE, compile_and_link_prod
 from phase227_capture import sha256
 from run_knop_replay import HELPERS
 
@@ -36,7 +36,7 @@ def main():
     spec.loader.exec_module(deck_parser)
     exe = compile_and_link_prod(
         f"knray_sweep_{args.destination.name}_o3",
-        [TREE / name for name in HELPERS] + [F90DIR / "drv_knop_replay.f90"],
+        [SRC / name for name in HELPERS] + [F90DIR / "drv_knop_replay.f90"],
         extra_flags=["-O3"],
     )
     results = {
