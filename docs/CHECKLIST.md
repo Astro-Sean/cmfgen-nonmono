@@ -608,6 +608,31 @@ The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
 
+## Knop remediation WP-2: freshness contract and order modes (26-Nov-2026, task-directed)
+
+WP-2 makes the ordered march's freshness claim measurable and
+adds the per-ray order-mode selector. `KN_RAY_ORDER_MODE` (0
+ordered / 1 alternating / 2 alternating seeded down the dominant
+coupling sign; 3 reserved SCC, stops) resolves a -1 sentinel from
+`KN_RAY_ORDERED`, so driver pokes keep their semantics while an
+explicit key wins with a warning on conflict. `KN_FRESH_DIAG`
+arms a per-pass census of the |Q| donor weight read from a
+not-yet-updated cell, stored per (pass,dir,ray) in `KN_FRESH_FR`;
+the false "never waits a pass" header comment is corrected -- the
+off-row JPR share is a full pass stale.
+
+Fixture: `ord` reads ~0.943 (=WINX) of its compressing donor
+weight stale on every I_M pass and ~0 on I_P; `uno` alternates
+1.0/0.0; `m2u` opens fresh and converges in 2 passes (mode 1
+wastes its first pass on a fully stale read); `m2m` is bitwise
+identical to `unom` -- mode 2 reduces to mode 1 on mixed rays.
+
+Deliverables: `docs/audits/KNOP_REMEDIATION_WP2_2026-11-26.md`;
+`test_knop_ordering` 50/0 (+11 WP-2 checks); `test_vadat_keys`
+120/0 (+6 WP-2 checks); `test_knop_ray` 50/1 (T18 pre-existing),
+`test_knop_spv` 93/0, `test_iter_conv_gate` 18/0,
+`test_conv_exit` 53/0, `test_fg_gs` 36/0, `test_knop_oneway` 8/0.
+
 ## Knop remediation WP-1: defaults, tolerance-ladder invariants, domain census (26-Nov-2026, task-directed)
 
 WP-1 of the Knop convergence remediation: config-level changes
