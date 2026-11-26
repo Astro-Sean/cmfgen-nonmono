@@ -18,13 +18,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import F90DIR, TREE, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, TREE, Report, compile_and_link_prod, run
 
 SOURCES = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "mon_interp.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "pgplt" / "set_upper_axis.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "mon_interp.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "pgplt" / "set_upper_axis.f",
     F90DIR / "drv_set_upper_axis.f90",
 ]
 
