@@ -1329,15 +1329,20 @@
 !
 	REAL(KIND=LDP) MOM_TRIAL_LAM
 !
-! KN_RAY_ORDERED (default TRUE): ordered (i,l) march inside
-! FG_KNOP_REFRESH_V1 -- rows are marched along the characteristic
-! and the per-row wavelength direction follows sign(GAM), the
-! physically ordered Gauss-Seidel of Knop et al. (2009, Paper II
-! Sec. 2). Only the lagged slope corner and the downwind half of
-! the compressing interpolant stay lagged, replacing the
-! alternating-direction passes that leave half of each strong
-! coupling stale every pass. F restores them for A/B tests.
-! Requires the refresh coefficient pack and NI>=3 per ray; the
+! KN_RAY_ORDERED (default FALSE, WP-1 26-Nov-2026): ordered (i,l)
+! march inside FG_KNOP_REFRESH_V1 -- rows are marched along the
+! characteristic and the per-row wavelength direction follows
+! sign(GAM), the ordered Gauss-Seidel of Knop et al. (2009, Paper
+! II Sec. 2). The WP-0 fixture measured the claimed freshness
+! broken on inserted ray points (audit
+! KNOP_REMEDIATION_WP0_2026-11-26.md): when WINX>0 the compressing
+! donor read INEXT_V pulls a WINX share from the deeper,
+! not-yet-marched row, so the |Q|~1 coupling arrives a full pass
+! stale and the march plateaus at the pass cap; the alternating
+! SWEEP_FLD passes update the whole donor column at once and the
+! same fixture solves exactly (T4-B measured the same on the
+! model). T re-arms the ordered march for A/B tests. Requires
+! the refresh coefficient pack and NI>=3 per ray; the
 ! alternating scheme is the automatic fallback otherwise. VADAT
 ! keyword [KN_RAY_ORDERED].
 !
@@ -1541,14 +1546,43 @@
 	INTEGER KN_ORD_P2N
 	INTEGER KN_ORD_P2REL
 !
-! KN_NI1_FULL (default FALSE): certify a production NI=1 ray
-! KN_CS_FULL with reason 0 in KNOP_RAY_SOLVE_V1 instead of leaving
-! it KN_CS_INV. A single-point ray has no marchable transfer
-! domain, so there is nothing to converge -- vacuous FULL is the
-! honest class. With F the ray keeps the legacy INV status and
-! holds FG_RF_ALL_CONV FALSE. VADAT [KN_NI1_FULL].
+! KN_NI1_FULL (default TRUE, WP-1 26-Nov-2026): certify a
+! production NI=1 ray KN_CS_FULL with reason 0 in
+! KNOP_RAY_SOLVE_V1 instead of leaving it KN_CS_INV. A
+! single-point ray has no marchable transfer domain, so there is
+! nothing to converge -- vacuous FULL is the honest class. With
+! F the ray keeps the legacy INV status and holds
+! FG_RF_ALL_CONV FALSE -- the permanent ninth-conjunct deadlock,
+! so CHECK_PARAM_CONSISTENCY stops the combination on the
+! FG-census routes (invariant I4). VADAT [KN_NI1_FULL].
 !
 	LOGICAL KN_NI1_FULL
+!
+! WP-1 (26-Nov-2026): VADAT-staged copies of the FG refresh
+! tolerance ladder, promoted from RD_CONTROL_VARIABLES locals so
+! CHECK_PARAM_CONSISTENCY can enforce the invariants against the
+! user's actual configuration rather than hidden values.
+! KN_RAY_TOL_V / KN_RAY_BULK_TOL_V / FG_COMMIT_NC_V reach the
+! solver through SET_FG_KN_OPTS / SET_FG_COMMIT.
+! GS_MATURE_TOL is the population maturity gate, hoisted here
+! from a SOLVE_FOR_POPS local PARAMETER (unchanged value) so the
+! VADAT default and the invariant check read the same constant.
+! GS_MATURE_TOL_V is its read-only VADAT exposure: any
+! non-default value stops in CHECK_PARAM_CONSISTENCY -- the gate
+! itself never moves.
+!
+	REAL(KIND=LDP) KN_RAY_TOL_V
+	REAL(KIND=LDP) KN_RAY_BULK_TOL_V
+	REAL(KIND=LDP) FG_COMMIT_NC_V
+	REAL(KIND=LDP), PARAMETER :: GS_MATURE_TOL=5.0E-2_LDP
+	REAL(KIND=LDP) GS_MATURE_TOL_V
+! FG_COMMIT_NC_SET records whether the FG_COMMIT_NC key was
+! explicitly present in VADAT: the RD store is cleaned before
+! CHECK_PARAM_CONSISTENCY runs, so the presence flag is staged
+! here at read time. The I3 knife-edge stop fires only on an
+! explicit equality -- the absent-key legacy default is exempt.
+!
+	LOGICAL FG_COMMIT_NC_SET
 !
 ! KN_LAM_PARTIAL_HANDOFF (default FALSE): split the KNOP
 ! lagged-field verdict the LAMBDA-to-full handoff reads from the
