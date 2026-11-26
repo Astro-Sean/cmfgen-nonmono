@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, REF, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, REF, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 MODEL = (Path("/ptmp/sbrennan/SN2024pba/cmfgen_validation")
@@ -50,7 +50,7 @@ def build(prod=True):
     md = BINDIR / f"obj_{tag}_mods"
     md.mkdir(parents=True, exist_ok=True)
     if prod:
-        objs = [prod_obj(TREE / "new_main" / "subs" / "auto_add_ion.f")]
+        objs = [prod_obj(SRC / "new_main" / "subs" / "auto_add_ion.f")]
     else:
         objs = compile_objs(
             f"{tag}_src", [REF / "new_main" / "subs" / "auto_add_ion.f"],
