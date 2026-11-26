@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, REF, TREE, Report,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, REF, TREE, Report,
                     compile_objs, link_prod, prod_obj, run)
 
 OPTS = "UNIFORM   [GRID_TYPE]\n"
@@ -36,10 +36,10 @@ def build(tag, tau_src):
     else:
         objs = []
         drv_srcs = [tau_src, F90DIR / "drv_tau_regrid.f90"]
-    objs += [prod_obj(TREE / "newsubs" / "rd_store_log.f"),
-             prod_obj(TREE / "subs" / "mon_interp.f"),
-             prod_obj(TREE / "subs" / "nordtau.f"),
-             prod_obj(TREE / "unix" / "term_io.f")]
+    objs += [prod_obj(SRC / "newsubs" / "rd_store_log.f"),
+             prod_obj(SRC / "subs" / "mon_interp.f"),
+             prod_obj(SRC / "subs" / "nordtau.f"),
+             prod_obj(SRC / "unix" / "term_io.f")]
     objs += compile_objs(
         f"tau_{tag}_drv", drv_srcs,
         moddir=md, extra_flags=PROD_MOD_INC)
@@ -54,7 +54,7 @@ def rvec(out):
 
 def main():
     rep = Report("DO_TAU_REGRID_V2 floored-opacity head")
-    prod = build("prod", TREE / "new_main" / "subs" /
+    prod = build("prod", SRC / "new_main" / "subs" /
                  "do_tau_regrid_v2.f")
     ref = build("ref", REF / "new_main" / "subs" /
                 "do_tau_regrid_v2.f")
