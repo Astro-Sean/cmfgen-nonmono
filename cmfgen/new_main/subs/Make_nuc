@@ -19,7 +19,7 @@ OBJ = $(LIB)(do_lev_pop_decays.o)\
       $(LIB)(rd_nuc_decay_data_v2.o)
 
 all : $(LIB) 
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 	rm -f *.o
 
