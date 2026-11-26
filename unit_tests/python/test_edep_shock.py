@@ -25,7 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PLOTDIR,
@@ -66,8 +66,8 @@ def build():
         if tag == "new":
             # New side links the production objects themselves.
             objs = prod_objs(
-                [TREE / h for h in HELPERS]
-                + [TREE / "new_main" / "subs" / "get_edep_shock_power.f"]
+                [SRC / h for h in HELPERS]
+                + [SRC / "new_main" / "subs" / "get_edep_shock_power.f"]
             )
             objs += compile_objs(
                 f"edep_{tag}_drv",
