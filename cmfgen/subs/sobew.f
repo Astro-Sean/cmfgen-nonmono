@@ -95,7 +95,8 @@ C regularisation, motivated by the transfer problems in Dessart,
 C Audit & Hillier (2015, arXiv:1503.05463). The extra 1D-4 minimum
 C is a CMFGEN-specific numerical safeguard for the sigma=-1 case;
 C it is not part of the published DAH15 expression.
-C Inactive for sigma >= -1, so monotonic flows are unchanged.
+C Inactive for sigma >= -1 + 1e-4, so monotonic flows away from the
+C floor window are unchanged.
 C
 	      T1=1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I)
 	      IF(SIGMA(I) .LT. 0.0_LDP)THEN
