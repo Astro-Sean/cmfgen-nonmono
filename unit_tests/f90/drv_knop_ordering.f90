@@ -47,14 +47,25 @@
 !   capok WP-3 [KN_GATE_COMMIT_RES] on a converging ray: the
 !         certified commit stores the fixed-point field, so the
 !         post-commit verify reads ~tol and the census is clean.
-!   nccm  flag on, ordered march: the stalled exit is not
-!         certified, so FG_COMMIT_NC writes a bounded provisional
-!         step from the 1e-6 seed -- the store parks far off the
-!         fixed point and the committed verify reads >>tol while
-!         the solve's own bad census can read clean.
-!   nclg  same provisional commit with the flag off: no verify,
-!         no census -- the legacy gate sees only the solve's
-!         reported metrics.
+!   nccm  WP-3 flag on, ordered march, KN_STORE_LS off: the
+!         stalled exit is not certified, so FG_COMMIT_NC writes a
+!         bounded provisional step from the 1e-6 seed -- the store
+!         parks far off the fixed point and the committed verify
+!         reads >>tol while the solve's own bad census reads clean.
+!   nclg  same provisional commit with the WP-3 flag off: no
+!         verify, no census -- the legacy gate sees only the
+!         solve's reported metrics.
+!   lsok  WP-4 [KN_STORE_LS] on the same stall: the search's
+!         baseline (1e-6 seed) reads ~1e5, alpha=1 hands the store
+!         the fresh field in one step and its committed residual
+!         drops to the solve's own level -- the case the fixed NC
+!         bound would ratchet over O(100) refreshes.
+!   lsrj  rejection on a manufactured expansive step: solve 1
+!         stalls and the LS parks fresh1 (~4e-2); solve 2 then
+!         over-relaxes (KN_RAY_OMEGA=1.36) and is capped after one
+!         march, so its iterate exits non-certified away from the
+!         fixed point. No blend descends below fresh1's residual,
+!         the search rejects, and the store keeps fresh1.
 !
 ! FG_FRESH_DIAG is armed on ord/uno/m2u/m2m; KN_FRESH_FR(p,d,r)
 ! prints as FRESH lines after the solve (dir 1=I_M, 2=I_P, -1
@@ -98,6 +109,8 @@
       IF(CNAME .EQ. 'capok')NCASE=13
       IF(CNAME .EQ. 'nccm') NCASE=14
       IF(CNAME .EQ. 'nclg') NCASE=15
+      IF(CNAME .EQ. 'lsok') NCASE=16
+      IF(CNAME .EQ. 'lsrj') NCASE=17
       IF(NCASE .EQ. 0)THEN
         WRITE(*,'(A)')'RESULT_FAIL unknown_case'
         GOTO 999
@@ -270,7 +283,8 @@
         NCASE .NE. 9 .AND. NCASE .NE. 10)
       FG_ORD_SWEEP=(NCASE .EQ. 1 .OR. NCASE .EQ. 3 .OR. &
         NCASE .EQ. 5 .OR. NCASE .EQ. 7 .OR. &
-        NCASE .EQ. 14 .OR. NCASE .EQ. 15)
+        NCASE .EQ. 14 .OR. NCASE .EQ. 15 .OR. &
+        NCASE .EQ. 16 .OR. NCASE .EQ. 17)
 ! WP-2: cases 11/12 push the concrete order mode; every other
 ! case keeps the -1 sentinel so the solve resolves it from
 ! FG_ORD_SWEEP exactly as before. m2m on a mixed ray resolves
@@ -307,8 +321,12 @@
       NONMONO_INEXT_CAP=1.0E+20_LDP
 ! WP-3: nclg disarms the committed-state verify entirely -- the
 ! census slots then stay at -1 and the gate falls back to the
-! pre-commit metrics.
+! pre-commit metrics. nccm/nclg also hold KN_STORE_LS off so the
+! provisional commit keeps the legacy NC bound they measure;
+! lsok/lsrj leave it at its T default.
       IF(NCASE .EQ. 15)CALL SET_FG_GATE_COMMIT_RES(.FALSE.)
+      IF(NCASE .EQ. 14 .OR. NCASE .EQ. 15) &
+      CALL SET_FG_STORE_LS(.FALSE.)
       FG_COMMIT_CONV=.TRUE.
       FG_COMMIT_NC=0.05_LDP
       CALL SET_FG_CERT_CONV(.TRUE.)
@@ -354,6 +372,10 @@
         ALLOCATE(FG_RAY_VC(KNP),STAT=IOS)
         IF(IOS .NE. 0)GOTO 999
         FG_RAY_VC=-1
+        IF(ALLOCATED(FG_RAY_LSA))DEALLOCATE(FG_RAY_LSA)
+        ALLOCATE(FG_RAY_LSA(KNP),STAT=IOS)
+        IF(IOS .NE. 0)GOTO 999
+        FG_RAY_LSA=-1.0_LDP
       END IF
 !
       IF(ALLOCATED(JMP_SIB_M))DEALLOCATE(JMP_SIB_M)
@@ -365,6 +387,22 @@
       END IF
       CALL KN_JMP_SIBREF_V1(I_M_DEPTH_NEXT,JMP_SIB_M,IOS)
       CALL KN_JMP_SIBREF_V1(I_P_DEPTH_NEXT,JMP_SIB_P,IOS)
+!
+! lsrj: solve 1 stalls non-certified and the LS parks fresh1
+! (committed residual ~4e-2). Solve 2 then over-relaxes
+! (KN_RAY_OMEGA=1.36) and is pass-capped after one march, so its
+! iterate exits non-certified kicked away from the fixed point --
+! the manufactured expansive step. Every blend toward that field
+! raises the committed residual over the retained store's, so the
+! search rejects and the store keeps the fresh1 generation.
+!
+      IF(NCASE .EQ. 17)THEN
+        CALL KNOP_RAY_SOLVE_V1(1,RESID,NSTORE,NPASS,NCAP,NNEG, &
+        NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK, &
+        RHO_M,RHO_P,NCAP_LST,NNG_LST)
+        KN_RAY_OMEGA=1.36_LDP
+        KN_RAY_MAXPASS=1
+      END IF
 !
       CALL KNOP_RAY_SOLVE_V1(1,RESID,NSTORE,NPASS,NCAP,NNEG, &
       NBAD,NTOT,NDIV,NMATCH,NCOMP,NMAX,NXIT,NP2,NBBLK,NTBLK, &
@@ -448,6 +486,13 @@
         WRITE(*,'(A,I14)')'CM_NT=',FG_NTOT_CM_RAY(1)
         IF(ALLOCATED(FG_RAY_VC))THEN
           WRITE(*,'(A,I4)')'VC=',FG_RAY_VC(1)
+        END IF
+        IF(ALLOCATED(FG_RAY_LSA)) &
+      WRITE(*,'(A,ES16.8)')'LSA=',FG_RAY_LSA(1)
+        IF(NCASE .GE. 16)THEN
+          WRITE(*,'(A,I6)')'LSN=',FG_LS_N
+          WRITE(*,'(A,I6)')'LSR=',FG_LS_REJ
+          WRITE(*,'(A,5I6)')'LSH=',FG_LS_HIST
         END IF
       END IF
       DO K=1,N_COMP
