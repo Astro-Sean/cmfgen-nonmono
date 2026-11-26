@@ -55,7 +55,7 @@ not signal; freezing its members at the old iterate returns those
 modes to the sweep's damped Jacobi update, while non-marginal rings
 and chains still get the exact solve.
 
-- Location: `plane/mom_j_cmf_nonmono_v1.f`, `MOM_NU_CHAIN_SOLVE`
+- Location: `cmfgen/plane/mom_j_cmf_nonmono_v1.f`, `MOM_NU_CHAIN_SOLVE`
   ring branch (~:7428). The `ST=2` resolved-with-old-value path is
   unchanged - downwind chain members still back-substitute from the
   frozen ring value.
