@@ -776,6 +776,31 @@ The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
 
+## Knop remediation WP-9: release trust seed (27-Nov-2026, checklist-driven)
+
+The release-controller overshoot defect: the first BA step after a
+freeze release demanded ~1E7, committed at the MAX_LIN_COR 400%
+cap and re-poisoned the field the freeze had just converged, so
+the run reverted FULL->LAMBDA. LAMBDA release steps were already
+damped at GS_LAM_CAP; BA releases relied on the resacc net with
+whatever radius the pre-freeze ratchet left (~1E4 on the stall).
+
+New flag `BA_REL_TRUST` (default F): a saved seed arms on the
+frozen->live transition, survives LAMBDA calls, clears on
+refreeze or GS_PRECOND_ACT, and is consumed by the first
+non-LAMBDA call at the SOLVEBA_V13 site (MOM_TRIAL excluded).
+The consume sets `BA_TRUST_CUR=MAX(1.0,MIN(BA_TRUST,
+GS_COMMIT_RES))` -- the trusted correction scale equals the
+committed field residual the release was judged on. The step
+still passes the DO_BA_RES_ACC acceptance test and the strict
+all-ray-FULL release gate is untouched.
+
+Verdict: PASS WITH LIMITATIONS -- flag-off path is byte-identical
+and all unit coverage is green (test_lam_handoff 66/0 +6 pins,
+test_vadat_keys 138/0 +2, flag-off battery identical), but the
+armed arm (BA_REL_TRUST=T on the m15 stall model) is the human
+measurement. Audit: `docs/audits/KNOP_REMEDIATION_WP9_2026-11-27.md`.
+
 ## Knop remediation WP-7: trace levels and the ill-conditioned SE block (27-Nov-2026, task-directed)
 
 WP-7 closes three independent defects in the SE/BA solve path:
