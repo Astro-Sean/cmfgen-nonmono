@@ -48,6 +48,7 @@ from common import (SRC,
     TREE,
     WORKDIR,
     Report,
+    compile_and_link_prod,
     compile_objs,
     link_prod,
     prod_objs,
@@ -77,6 +78,39 @@ def build():
         extra_flags=PROD_MOD_INC,
     )
     return link_prod("snhyd", objs, moddir=md)
+
+
+SIGTRUE_SRC = [
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "new_main" / "mod_subs" / "control_variable_mod.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "new_main" / "subs" / "recompute_sigma_true.f",
+]
+
+
+def build_sigtrue():
+    """drv_sigma_true for the WP5 chain checks (snhyd grid -> core)."""
+    return compile_and_link_prod(
+        "drv_sigma_true", SIGTRUE_SRC + [F90DIR / "drv_sigma_true.f90"]
+    )
+
+
+def sigma_true_on(bin_, r, v, name):
+    """Run SIGMA_TRUE_CORE on an (R,V) grid; return (sigma_true, n_undef)."""
+    p = WORKDIR / name
+    with open(p, "w") as f:
+        f.write(f"{len(r)}\n")
+        for a, b in zip(r, v):
+            f.write(f"{a:.16e} {b:.16e} 0.0\n")
+    out = run(bin_, "core", p).stdout
+    rows, nun = {}, 0
+    for ln in out.splitlines():
+        t = ln.split()
+        if t and t[0] == "N_UNDEF":
+            nun = int(t[1])
+        elif t and t[0].isdigit():
+            rows[int(t[0]) - 1] = float(t[3])
+    return np.array([rows[i] for i in sorted(rows)]), nun
 
 
 def write_snhyd(
@@ -121,6 +155,9 @@ def profiles(kind):
     elif kind == "reversal":
         v = 3000.0 + 6000.0 * r / r[0]
         v = v + 8000.0 * np.exp(-(((r - 0.18 * r[0]) / (0.05 * r[0])) ** 2))
+    elif kind.startswith("power"):
+        b = float(kind[5:])
+        v = 5000.0 * (r / r[0]) ** b
     else:
         raise ValueError(kind)
     # analytic sigma column: dlnV/dlnR - 1 (for the expansion factor)
@@ -617,6 +654,118 @@ def main():
                 "max rel diff="
                 f"{np.abs(a0[:, 0] - a1[:, 0]).max() / a0[:, 0].min():.2e}",
             )
+
+    # ---------------- WP5 regression checks (SOB_check) -----------
+    # (a) power-law exactness of the sigma_true path: SIGMA_TRUE_CORE
+    # differentiates in lnR space, so sigma = b-1 to roundoff for
+    # V ~ R^b on any grid.  Checked directly on an exact power-law
+    # grid AND on the drv_snhyd output grid (where the Steffen cubic
+    # supplies V - interpolant error of order 1e-3..1e-2, so the
+    # chained bound is an interpolation-accuracy check, not
+    # roundoff).
+    st_bin = build_sigtrue()
+    for b in (0.5, 1.0, 2.0):
+        rex = np.geomspace(1.0e5, 1.0e3, 200)
+        vex = 5000.0 * (rex / rex[0]) ** b
+        st, nun = sigma_true_on(st_bin, rex, vex, f"rvst_plaw{b}.txt")
+        err = np.abs(st - (b - 1.0)).max()
+        rep.check(
+            f"WP5(a) direct: V~R^{b} -> sigma_true = {b-1} to roundoff",
+            nun == 0 and err < 1e-10,
+            f"max|err|={err:.2e} N_UNDEF={nun}",
+        )
+
+        d = WORKDIR / f"snhyd_power{b}"
+        r, v, sig, dens, kap = profiles(f"power{b}")
+        write_snhyd(d, r, v, sig, dens, kap)
+        p = run_case(exe, d, OLD_AGE, tau_opt=1)
+        ok = "RESULT_OK" in p.stdout
+        rep.check(
+            f"WP5(a) chained power{b}: completes",
+            ok,
+            p.stdout[-200:] if not ok else "",
+        )
+        if ok:
+            _, _, a = parse(p.stdout)
+            st, nun = sigma_true_on(
+                st_bin, a[:, 0], a[:, 1], f"rvst_plaw{b}_out.txt"
+            )
+            err = np.abs(st - (b - 1.0)).max()
+            rep.check(
+                f"WP5(a) chained power{b}: sigma_true ~ {b-1} (cubic error)",
+                nun == 0 and err < 5.0e-2,
+                f"max|err|={err:.3e} N_UNDEF={nun}",
+            )
+
+    # (b) reversal profile keeps sigma_true < -1 after the whole
+    # chain (MON_INT_FUNS_V2 interpolation inside the routine, then
+    # SIGMA_TRUE_CORE on the returned grid).
+    for opt in (0, 1):
+        if opt in sig_rev:
+            a = sig_rev[opt]
+            st, nun = sigma_true_on(
+                st_bin, a[:, 0], a[:, 1], f"rvst_rev{opt}_out.txt"
+            )
+            rep.check(
+                f"WP5(b) reversal TAU_OPT={opt}: sigma_true < -1 survives",
+                nun == 0 and st.min() < -1.0,
+                f"min={st.min():.3f} N_UNDEF={nun}",
+            )
+
+    # (c) monotonic input -> grid identical to the insertion-free
+    # baseline: for a smooth beta profile no feature can fire, so the
+    # output must equal the pure uniform-U target map.
+    d = WORKDIR / "snhyd_mono_base"
+    r, v, sig, dens, kap = profiles("beta")
+    write_snhyd(d, r, v, sig, dens, kap)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    ok = "RESULT_OK" in p.stdout
+    rep.check("WP5(c) monotonic TAU_OPT=1: completes", ok)
+    if ok:
+        _, _, a = parse(p.stdout)
+        rrep, _, _ = _predict_ugrid(r, v, sig, dens, kap)
+        rep.check(
+            "WP5(c) monotonic grid matches baseline replica",
+            np.allclose(a[:, 0], rrep, rtol=1e-9, atol=0.0)
+            and np.all(a[:, 2] > -1.0),
+            f"maxrel={np.abs(a[:, 0] - rrep).max() / rrep.min():.2e} "
+            f"minsig={a[:, 2].min():.3f}",
+        )
+
+    # (d) pre-expansion SIGMA_HYDRO drives feature detection
+    # (SOB_check WP5-d).  Beta V is monotonic: the sigma recomputed
+    # from V stays > -1 everywhere, before AND after expansion
+    # (expansion preserves the sign of sigma+1: sigma'+1 =
+    # (1+t1*V/R)*(sigma+1)/(1+t1*(V/R)(sigma+1))).  The file's Sigma
+    # column carries a synthetic dip below -1: if insertion fires at
+    # the dip, detection must be reading the input column (the
+    # pre-expansion sigma), not a recomputed post-expansion sigma.
+    # A uniform-U grid means the file column was ignored.
+    d = WORKDIR / "snhyd_presig"
+    r, v, sig, dens, kap = profiles("beta")
+    sig_dip = sig.copy()
+    sig_dip[NX // 5 : NX // 5 + 6] = [-0.4, -1.4, -1.6, -1.4, -0.6, -0.4]
+    write_snhyd(d, r, v, sig_dip, dens, kap)
+    dtx = 5.0
+    p = run_case(exe, d, OLD_AGE + dtx, tau_opt=1)
+    ok = "RESULT_OK" in p.stdout
+    rep.check(
+        "WP5(d) file-column dip + expansion: completes",
+        ok,
+        p.stdout[-200:] if not ok else "",
+    )
+    if ok:
+        _, _, a = parse(p.stdout)
+        rex, dex = expand(r, v, sig_dip, dens, dtx)
+        rrep, _, _ = _predict_ugrid(rex, v, sig_dip, dex, kap)
+        runif, _, _ = _predict_ugrid(rex, v, sig, dex, kap)
+        rep.check(
+            "WP5(d) insertion follows the file sigma column",
+            np.allclose(a[:, 0], rrep, rtol=1e-9, atol=0.0)
+            and not np.allclose(a[:, 0], runif, rtol=1e-9, atol=0.0),
+            f"vs dip replica={np.abs(a[:,0]-rrep).max()/rrep.min():.2e} "
+            f"vs uniform={np.abs(a[:,0]-runif).max()/runif.min():.2e}",
+        )
 
     # ---------------- pinned audit defects (22-Nov-2026) ----------
     # Desired behaviour is a clean abort; the current code either
