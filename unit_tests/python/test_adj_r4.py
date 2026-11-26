@@ -20,13 +20,13 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 
 def build():
     md = BINDIR / "obj_adjr4"
-    objs = [prod_obj(TREE / "new_main" / "mod_subs" /
+    objs = [prod_obj(SRC / "new_main" / "mod_subs" /
                      "adjust_r_grid_v4.f")]
     objs += compile_objs(
         "adjr4", [F90DIR / "drv_adj_r4.f90"],
