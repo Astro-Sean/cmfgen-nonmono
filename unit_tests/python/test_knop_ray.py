@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import (
+from common import (SRC, 
     F90DIR,
     TREE,
     WORKDIR,
@@ -56,13 +56,12 @@ HELPERS = [
     "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
-    "unit_tests/f90/stub_vadat.f",
 ]
 
 
 def build():
     return compile_and_link_prod(
-        "knray", [TREE / h for h in HELPERS] + [F90DIR / "drv_knop_ray.f90"]
+        "knray", [SRC / h for h in HELPERS] + [F90DIR / "stub_vadat.f", F90DIR / "drv_knop_ray.f90"]
     )
 
 
@@ -1490,7 +1489,7 @@ def main():
     #    early exit and before eval mode arms; the POP must come
     #    later in the shared epilogue. Guards the ordering a source
     #    restructure could silently break.
-    _sub = (TREE / "new_main" / "cmfgen_sub.f").read_text()
+    _sub = (SRC / "new_main" / "cmfgen_sub.f").read_text()
     _body = _sub.split("SUBROUTINE JFNK_RAD_SWEEP_V1")[1]
     _p_push = _body.find("CALL FG_EVAL_STATE_PUSH_V1")
     _p_eval = _body.find("JFNK_IN_EVAL=.TRUE.")
