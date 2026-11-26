@@ -449,6 +449,26 @@ which stamps the same value in the initial VADAT.
     while the armed arm is measured. `test_knop_osgn` 14/0.
   - `KN_OSGN_MIN` (default 5.0D-2), `KN_OSGN_MAX` (default
     2.0D0): clamp range for the signed-Aitken omega.
+  - `KN_FORCING_TOL` (default F): Eisenstat & Walker 1996
+    Choice-2 forcing term on the refresh's inner stopping
+    tolerance (WP-6). The refresh is the inner solve; the outer
+    residual is the population demand MAXCH handed in before
+    each refresh call. eta_k = GAM*(F_k/F_{k-1})^ALP, floored at
+    GAM*eta_{k-1}^ALP when that exceeds 0.1, capped at 0.9; the
+    effective tolerance KN_RAY_TOL_EFF =
+    clamp(eta*TMAX/0.9, TMIN, min(TMAX, 0.1*GS_MATURE_TOL)) --
+    the I2 bound means the field tolerance can never loosen past
+    a tenth of the population gate. KN_RAY_TOL_EFF replaces
+    KN_RAY_TOL inside the refresh machinery (certification,
+    sweep exits, MARCH census, hot-run thresholds); F keeps the
+    fixed KN_RAY_TOL everywhere. eta, the raw ratio, the
+    safeguard flag and the effective tolerance land in the
+    ITER_LEDGER frc_* columns. `test_knop_frc` 35/0.
+  - `KN_FRC_GAM` (default 0.9), `KN_FRC_ALP` (default 2.0):
+    the E-W forcing coefficient and exponent.
+  - `KN_FRC_TMIN` (default 1.0D-4), `KN_FRC_TMAX` (default
+    1.0D-2): clamp band on the priced tolerance; the I2 cap
+    min(TMAX, 0.1*GS_MATURE_TOL) still applies.
 - `GS_FREEZE` and the freeze/maturity/watchdog stack are
   KNOP-scoped: forced F outside `DO_NONMONO_KNOP`.
 - `DO_KNOP_REFRESH` - converges the lagged J_NEXT/H_NEXT map
