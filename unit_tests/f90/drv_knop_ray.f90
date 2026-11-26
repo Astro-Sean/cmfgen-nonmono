@@ -1051,7 +1051,13 @@
 ! second is pass-capped (must reset to F, not stay stale T).
         IF(NCASE .EQ. 84)KN_RAY_MAXPASS=1
         IF(NCASE .EQ. 85)NRF=2
-        IF(NCASE .EQ. 80)FG_COMMIT_NC=0.0_LDP
+! WP-4: NC=0 only retains the store when the LS is off -- the
+! default-on search backtracks and can still accept. Case 80
+! targets the legacy reject, so disarm it explicitly.
+        IF(NCASE .EQ. 80)THEN
+          FG_COMMIT_NC=0.0_LDP
+          CALL SET_FG_STORE_LS(.FALSE.)
+        END IF
         IF(NCASE .EQ. 82)NRF=2
         IF(NCASE .EQ. 83)THEN
           CALL SET_FG_NOCP_PROBE(.TRUE.,3)
