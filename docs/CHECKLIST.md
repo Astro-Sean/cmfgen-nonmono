@@ -1,5 +1,24 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [~] DO_ES_ALI=F isolation arm on the r01 deck (26-Nov-2026).
+      Declared bounded investigation. Question: how much of the m15
+      USE_LAM_ES=F pass noise is self-inflicted by the ES_ALI_MOM_ON
+      OAB update? The 26-Nov diagnosis measured ~80% of 8331 freqs
+      exceeding ES_ALI_TOL per iteration, max dJ/J to 1E84, and
+      DEN-floor amplification up to 100x feeding back into TA.
+      Evidence plan: identical r01 deck (USE_LAM_ES=F,
+      MOM_BLKGMRES=T, JNEXT_RELAX=0.1, KN_ADAPT_RELAX=F, FIX_T=T)
+      plus DO_ES_ALI=F - verified single-variable: ES_ALI_MOM_ON
+      gates only the post-solve OAB step (comp_j_blank.f:838);
+      TA = ETA + chi_s*RJ is unconditional under COHERENT_ES.
+      Compare refresh pass counts, neg-J rejections, compressing
+      contraction ratio and Conv trajectory vs r01 iterations 1-100.
+      Exit criterion: if the stall signature is unchanged the OAB
+      amplifier is not the driver and the lagged map stands alone;
+      if contraction improves, ES-ALI-MOM needs a damped or gated
+      variant ahead of FIX 4. Status: config
+      dessart_m15_2p82d_VAL_sob_lamesF_blkgmres_noali.yaml, arm
+      submitted 26-Nov-2026 as CMFGEN job 13749064 (OBS 13749065).
 - [x] USE_LAM_ES=F checklist diagnosis (26-Nov-2026, user-directed).
       Question: do the prescriptions in
       checklists/use_lam_es_eq_f.md (temp-Jacobian dominance, epsilon
