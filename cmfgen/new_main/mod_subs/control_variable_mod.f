@@ -2180,6 +2180,23 @@
 	LOGICAL BA_SYM_PIN
 	LOGICAL BA_NC_MAXPOP
 !
+! BA_REL_TRUST (VADAT, default F): checklist WP-9, edited
+! 27-Nov-2026. When armed, SOLVE_FOR_POPS re-seeds BA_TRUST_CUR
+! from the committed field residual (GS_COMMIT_RES, the WP-3
+! KN_GATE_COMMIT_RES measurement) on the first BA call after a
+! freeze release instead of letting the radius ride its
+! pre-freeze value. The known release-controller overshoot is
+! that the first post-release BA step demands ~1E7, commits at
+! the MAX_LIN_COR 400% cap and re-poisons the field the freeze
+! just converged; with the seed the trust test quarantines
+! runaway columns at a radius that reflects the measured field
+! error (floored at 1.0, capped at BA_TRUST), so the released
+! step still passes the DO_BA_RES_ACC acceptance test but at a
+! bounded correction. The all-ray-FULL release gate itself is
+! untouched. F = off (default path unchanged).
+!
+	LOGICAL BA_REL_TRUST
+!
 ! Removed 17-Oct-2026: [BA_DEM_RELFRAC] relative demand floor. It
 ! exempted trace rows from the MAXCH/demand metric at a populated
 ! depth, which let the SOB run report ~0.1% demand while ~700
