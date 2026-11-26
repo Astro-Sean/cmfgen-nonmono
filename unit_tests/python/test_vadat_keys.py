@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import (
     F90DIR,
+    SRC,
     TREE,
     WORKDIR,
     Report,
@@ -1308,6 +1309,127 @@ def main():
         and "NUM_BNDS of at least 3" not in p_hi.stdout
         and v_hi.get("METH_SOL") == "TRI",
         p_hi.stdout[-400:] if "RESULT_OK" not in p_hi.stdout else "",
+    )
+
+    # WP-1 (26-Nov-2026): default flips and tolerance-ladder
+    # invariants. On a KNOP deck the absent-key defaults must land
+    # KN_RAY_ORDERED=F, KN_NI1_FULL=T, KN_RAY_BULK_TOL=0.
+    knop_base = {
+        "DO_NONMONO_SOB": "F",
+        "DO_NONMONO_KNOP": "T",
+        "GLOBAL_LINE": "BLANK",
+        "LAM_SET": "F",
+    }
+    d = write_vadat(WORKDIR / "vadat_wp1_def", dict(knop_base))
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-1 KNOP defaults: ORDERED=F, NI1_FULL=T, BULK_TOL=0",
+        "RESULT_OK" in p.stdout
+        and v.get("KN_RAY_ORDERED") == "F"
+        and v.get("KN_NI1_FULL") == "T"
+        and abs(float(v.get("KN_RAY_BULK_TOL", "nan").replace("D", "E")))
+        < 1e-30,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    rep.check(
+        "WP-1 GS_MATURE_TOL defaults to the 5.0E-2 gate on both stores",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("GS_MATURE_TOL_V", "nan").replace("D", "E")) - 0.05)
+        < 1e-15
+        and abs(float(v.get("GS_MATURE_TOL", "nan").replace("D", "E")) - 0.05)
+        < 1e-15,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # GS_MATURE_TOL is read-only: any non-default value aborts.
+    d = write_vadat(
+        WORKDIR / "vadat_wp1_gsmove", {"GS_MATURE_TOL": "1.0D-1"}
+    )
+    p = run_vadat(exe, d)
+    rep.check(
+        "WP-1 non-default GS_MATURE_TOL aborts (read-only)",
+        "RESULT_OK" not in p.stdout and "read-only" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # I1: KN_RAY_BULK_TOL at or above the gate aborts on KNOP.
+    d = write_vadat(
+        WORKDIR / "vadat_wp1_i1",
+        dict(knop_base, **{"KN_RAY_BULK_TOL": "6.0D-2"}),
+    )
+    p = run_vadat(exe, d)
+    rep.check(
+        "WP-1 I1: KN_RAY_BULK_TOL >= GS_MATURE_TOL aborts on KNOP",
+        "RESULT_OK" not in p.stdout and "Invariant I1" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # I1 on the other FG-census route (DO_SOB_FG_KNOP).
+    d = write_vadat(
+        WORKDIR / "vadat_wp1_i1_sobfg",
+        {
+            "DO_SOB_FG_KNOP": "T",
+            "KN_RAY_BULK_TOL": "6.0D-2",
+            "DO_JFNK": "F",
+        },
+    )
+    p = run_vadat(exe, d)
+    rep.check(
+        "WP-1 I1: bulk floor >= gate aborts on DO_SOB_FG_KNOP too",
+        "RESULT_OK" not in p.stdout and "Invariant I1" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # I2: KN_RAY_TOL must be at least 10x tighter than the gate.
+    d = write_vadat(
+        WORKDIR / "vadat_wp1_i2",
+        dict(knop_base, **{"KN_RAY_TOL": "1.0D-2"}),
+    )
+    p = run_vadat(exe, d)
+    rep.check(
+        "WP-1 I2: KN_RAY_TOL > 0.1*GS_MATURE_TOL aborts on KNOP",
+        "RESULT_OK" not in p.stdout and "Invariant I2" in p.stdout,
+        p.stdout[-300:],
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_wp1_i2_ok",
+        dict(knop_base, **{"KN_RAY_TOL": "3.0D-3"}),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-1 I2: KN_RAY_TOL below the bound parses",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("KN_RAY_TOL", "nan").replace("D", "E")) - 3.0e-3)
+        < 1e-15,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # I3: an explicitly-set FG_COMMIT_NC equal to the gate aborts;
+    # the absent-key legacy equality stays exempt until WP-4.
+    d = write_vadat(
+        WORKDIR / "vadat_wp1_i3",
+        dict(knop_base, **{"FG_COMMIT_NC": "5.0D-2"}),
+    )
+    p = run_vadat(exe, d)
+    rep.check(
+        "WP-1 I3: explicit FG_COMMIT_NC == GS_MATURE_TOL aborts",
+        "RESULT_OK" not in p.stdout and "Invariant I3" in p.stdout,
+        p.stdout[-300:],
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_wp1_i3_ok",
+        dict(knop_base, **{"FG_COMMIT_NC": "4.0D-2"}),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-1 I3: FG_COMMIT_NC below the gate parses",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("FG_COMMIT_NC", "nan").replace("D", "E")) - 0.04)
+        < 1e-15,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
     return rep.summary()
