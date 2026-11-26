@@ -9,7 +9,8 @@
       USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ptc_active, jfnk_ptc_dtau, &
            jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil, &
            jfnk_rcond_gate, jfnk_rcond_min, jfnk_itry_cap
-      USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RAY_BULK_TOL
+      USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RAY_BULK_TOL, &
+           KN_RAY_TOL, FG_COMMIT_NC
       USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_NUSOLV_SLV=>MOM_NUSOLV, &
            MOM_BLKGMRES_SLV=>MOM_BLKGMRES,MOM_AUG_RES_SLV=>MOM_AUG_RES
       IMPLICIT NONE
@@ -83,6 +84,12 @@
       WRITE(*,'(A,I5)')'GS_FREEZE_LIM=',GS_FREEZE_LIM
       WRITE(*,'(A,I5)')'GS_REL_NOPROG_LIM=',GS_REL_NOPROG_LIM
       WRITE(*,'(A,ES12.5)')'KN_RAY_BULK_TOL=',KN_RAY_BULK_TOL
+      WRITE(*,'(A,ES12.5)')'KN_RAY_TOL=',KN_RAY_TOL
+      WRITE(*,'(A,ES12.5)')'FG_COMMIT_NC=',FG_COMMIT_NC
+      WRITE(*,'(A,L2)')'KN_RAY_ORDERED=',KN_RAY_ORDERED
+      WRITE(*,'(A,L2)')'KN_NI1_FULL=',KN_NI1_FULL
+      WRITE(*,'(A,ES12.5)')'GS_MATURE_TOL_V=',GS_MATURE_TOL_V
+      WRITE(*,'(A,ES12.5)')'GS_MATURE_TOL=',GS_MATURE_TOL
       WRITE(*,'(A,L2)')'JFNK_FADAPT=',JFNK_FADAPT_V
       WRITE(*,'(A,L2)')'JFNK_FDCPLX=',JFNK_FD_COMPLEX
       WRITE(*,'(A,L2)')'JFNK_ESFR=',JFNK_ENRICH_SFR
