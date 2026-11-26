@@ -608,6 +608,31 @@ The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
 
+## Knop remediation WP-3: committed-state gate (26-Nov-2026, task-directed)
+
+WP-3 makes the maturity gate read the committed state instead of
+the solve's report. `KN_GATE_COMMIT_RES` (default T) runs one
+L_QP verify pass on the committed point after each ray's commit
+writes a store -- production field at unstored cells, committed
+store at stored cells -- exporting `FG_RF_COMMIT_RES` plus a
+per-ray committed census (`FG_NBAD_CM_RAY`/`FG_NTOT_CM_RAY` ->
+`FG_CM_NBAD`/`FG_CM_NTOT`). The `GS_MAX_ALL`/`GS_NBAD_EFF` feed
+in `solve_for_pops` reads those when the census exists, falling
+back to the pre-commit metrics only when no store was written or
+the flag is off.
+
+Fixture: `nccm` holds the gate at CRES=1.4e5 with 55552 committed
+bad cells on an NC-bounded provisional write from the 1e-6 seed
+(the store sits ~1e-6, the fixed point ~4); `capok` certifies an
+honest full commit at CRES=4.2e-16, census clean; `nclg` disarms
+to -1 sentinels.
+
+Deliverables: `docs/audits/KNOP_REMEDIATION_WP3_2026-11-26.md`;
+`test_knop_commit_gate` 10/0 (new); `test_vadat_keys` 122/0 (+2);
+`test_knop_ordering` 50/0, `test_knop_ray` 50/1 (T18
+pre-existing), `test_iter_conv_gate` 18/0, `test_conv_exit` 53/0,
+`test_fg_gs` 36/0.
+
 ## Knop remediation WP-2: freshness contract and order modes (26-Nov-2026, task-directed)
 
 WP-2 makes the ordered march's freshness claim measurable and
