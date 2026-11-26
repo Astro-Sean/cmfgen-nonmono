@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import (
     F90DIR,
+    SRC,
     TREE,
     WORKDIR,
     Report,
@@ -60,7 +61,7 @@ def main():
     rep = Report("MOM_J_CMF_NONMONO_V1 GS-sweep table")
     exe = compile_and_link_prod(
         "mom_sweep",
-        [TREE / h for h in HELPERS]
+        [SRC / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_sweep.f90"],
     )
     p = run(exe, cwd=WORKDIR)
