@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PROD_MOD_INC,
@@ -40,28 +40,28 @@ from common import (
 PROD_SRC = [
     # Module sources whose data cmf_flux_sub_v5 references; their
     # production .mod files in mod/ satisfy the fresh driver compile.
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "dust" / "dust_mod.f",
-    TREE / "new_main" / "mod_subs" / "mod_lev_dis_blk.f",
-    TREE / "new_main" / "mod_subs" / "eddfac_rec_defs_mod.f",
-    TREE / "obs" / "cmf_flux_cntrl_var_mod.f",
-    TREE / "obs" / "mod_cmf_obs.f",
-    TREE / "obs" / "mod_freq_obs.f",
-    TREE / "obs" / "cmf_flux_sub_v5.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "dust" / "dust_mod.f",
+    SRC / "new_main" / "mod_subs" / "mod_lev_dis_blk.f",
+    SRC / "new_main" / "mod_subs" / "eddfac_rec_defs_mod.f",
+    SRC / "obs" / "cmf_flux_cntrl_var_mod.f",
+    SRC / "obs" / "mod_cmf_obs.f",
+    SRC / "obs" / "mod_freq_obs.f",
+    SRC / "obs" / "cmf_flux_sub_v5.f",
     # Siblings of the host file that its unexercised paths still
     # reference at link time.
-    TREE / "obs" / "rd_cmf_flux_controls.f",
-    TREE / "obs" / "ins_line_v5.f",
-    TREE / "obs" / "ins_line_obs_v4.f",
-    TREE / "obs" / "rd_cont_j_obs.f",
-    TREE / "obs" / "revise_obs_p.f",
-    TREE / "obs" / "obs_frame_sub_v9.f",
-    TREE / "obs" / "comp_ew_abs_ew.f",
-    TREE / "obs" / "check_cmf_flux_param_consis.f",
+    SRC / "obs" / "rd_cmf_flux_controls.f",
+    SRC / "obs" / "ins_line_v5.f",
+    SRC / "obs" / "ins_line_obs_v4.f",
+    SRC / "obs" / "rd_cont_j_obs.f",
+    SRC / "obs" / "revise_obs_p.f",
+    SRC / "obs" / "obs_frame_sub_v9.f",
+    SRC / "obs" / "comp_ew_abs_ew.f",
+    SRC / "obs" / "check_cmf_flux_param_consis.f",
     # Rescue/ES-diag/gate siblings now referenced by cmf_flux_sub_v5.
-    TREE / "obs" / "jres_validity.f",
-    TREE / "obs" / "es_resid_diag.f",
-    TREE / "obs" / "knop_spec_gate.f",
+    SRC / "obs" / "jres_validity.f",
+    SRC / "obs" / "es_resid_diag.f",
+    SRC / "obs" / "knop_spec_gate.f",
 ]
 
 # Archives as positional link inputs (must follow the objects); their
