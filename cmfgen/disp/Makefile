@@ -25,7 +25,7 @@ FN5=$(LIB_DIR)lib$(LN5).a
 # 
 
 all : $(EXE_DIR)dispgen.exe
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 #
 # Give the depeedencies of dispgen.exe and how it is created.
