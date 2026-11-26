@@ -286,4 +286,48 @@ REP.check(
     in sfp,
 )
 
+# ---- WP-9 release trust seed source pins -------------------------
+# The first BA step after a freeze release demanded 1.0e7, was capped
+# at 400% and re-poisoned the field (release controller overshoot).
+# BA_REL_TRUST seeds the resacc trust radius from the committed field
+# residual so the released step is quarantined at a field-consistent
+# radius; the resacc acceptance test already arms on every BA call.
+REP.check(
+    "pin: release seed flag declared",
+    "LOGICAL, SAVE :: BA_REL_SEED=.FALSE." in sfp,
+)
+REP.check(
+    "pin: seed armed on the frozen->live transition",
+    re.search(
+        r"GS_JUST_REL=\.TRUE\.[\s\S]{0,600}?BA_REL_SEED=\.TRUE\.",
+        sfp,
+    )
+    is not None,
+)
+REP.check(
+    "pin: seed cleared with the release counter on freeze",
+    re.search(
+        r"N_REL_SINCE=0[\s\S]{0,120}?BA_REL_SEED=\.FALSE\.",
+        sfp,
+    )
+    is not None,
+)
+REP.check(
+    "pin: first post-release BA call seeds the trust radius",
+    "IF(BA_REL_SEED .AND. .NOT. LAMBDA_ITERATION" in sfp,
+)
+REP.check(
+    "pin: trust seeded from the committed residual, capped",
+    "BA_TRUST_CUR=MAX(1.0_LDP,MIN(BA_TRUST,GS_COMMIT_RES))" in sfp,
+)
+REP.check(
+    "pin: BA_REL_TRUST declared and parsed default F",
+    "LOGICAL BA_REL_TRUST" in cvm
+    and re.search(
+        r"BA_REL_TRUST=\.FALSE\.\s*\n\s*CALL RD_STORE_LOG",
+        rcv,
+    )
+    is not None,
+)
+
 sys.exit(REP.summary())
