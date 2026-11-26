@@ -1671,6 +1671,25 @@
 !
 	LOGICAL KN_STORE_LS
 !
+! KN_OMEGA_SGN (WP-5, 26-Nov-2026, default FALSE): signed
+! vector-Aitken relaxation on the lagged I_P/I_M_DEPTH_NEXT store
+! write, replacing the 1/(1+rho) pool estimate that cannot express
+! an over-relaxed step (Ramiere & Helfer 2015 eq. 36; Kuttler &
+! Wall 2008). The estimator consumes the OUTER store-map residual
+! sequence -- the per-slot (fresh - snapshot) of the sweep write
+! sites -- fixing the category error where the V2 rule pools the
+! INNER per-ray pass ratios. Guarded by a denominator collapse
+! test, a [KN_OSGN_MIN,KN_OSGN_MAX] clamp, a halve-and-retry-once
+! rule on non-decreasing residuals, and a history reset whenever
+! the coefficient fingerprint moves (populations changed). Only
+! consumes KN_ADAPT_RELAX's adaptive-relax branch; F keeps the
+! FG_ADAPT_OMEGA_V2 path as the default. VADAT [KN_OMEGA_SGN],
+! [KN_OSGN_MIN], [KN_OSGN_MAX].
+!
+	LOGICAL KN_OMEGA_SGN
+	REAL(KIND=LDP) KN_OSGN_MIN_V
+	REAL(KIND=LDP) KN_OSGN_MAX_V
+!
 ! KN_RAY_STALL (default 0.98): same-direction residual ratio above
 ! which a refresh pass counts toward the NSTALL early exit in
 ! SWEEP_FLD/SWEEP_FLD_ORD. 0.90 quit rays still contracting at up
