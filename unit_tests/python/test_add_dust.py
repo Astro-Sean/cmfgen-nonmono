@@ -29,14 +29,14 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import F90DIR, TREE, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, TREE, Report, compile_and_link_prod, run
 
 SOURCES = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "plane" / "mod_space_grid_v2.f",
-    TREE / "subs" / "mon_interp.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "plane" / "add_dust_eta.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "plane" / "mod_space_grid_v2.f",
+    SRC / "subs" / "mon_interp.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "plane" / "add_dust_eta.f",
     F90DIR / "drv_add_dust.f90",
 ]
 
