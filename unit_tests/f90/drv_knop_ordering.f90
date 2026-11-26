@@ -37,6 +37,17 @@
 !         they stay fresh under either march; compressing runs keep
 !         the stale-J+1 defect. unom must converge <=6 passes --
 !         the alternating pass direction is what handles both signs.
+!   m2u   WP-2 mode 2 (FG_ORD_MODE=2), uniform compressing: the
+!         first pass descends so the L+NFM donor column is fresh
+!         from the start -- the mode-1 pass 1 is a full stale read.
+!         KN_FRESH_DIAG arms and FRESH lines print per pass.
+!   m2m   WP-2 mode 2 on the mixed ray (arg2 as ordm/unom): the
+!         dominant-sign rule keeps the mode-1 ascending start, so
+!         the case must reproduce unom bitwise.
+!
+! FG_FRESH_DIAG is armed on ord/uno/m2u/m2m; KN_FRESH_FR(p,d,r)
+! prints as FRESH lines after the solve (dir 1=I_M, 2=I_P, -1
+! marks a pass that never ran).
 !
       PROGRAM DRV_KNOP_ORDERING
       USE, INTRINSIC :: IEEE_ARITHMETIC
@@ -71,12 +82,14 @@
       IF(CNAME .EQ. 'unom') NCASE=8
       IF(CNAME .EQ. 'ordmb')NCASE=9
       IF(CNAME .EQ. 'unomb')NCASE=10
+      IF(CNAME .EQ. 'm2u')  NCASE=11
+      IF(CNAME .EQ. 'm2m')  NCASE=12
       IF(NCASE .EQ. 0)THEN
         WRITE(*,'(A)')'RESULT_FAIL unknown_case'
         GOTO 999
       END IF
       NEXP=0
-      IF(NCASE .GE. 7)THEN
+      IF(NCASE .GE. 7 .AND. NCASE .NE. 11)THEN
         READ(CARG,*,IOSTAT=IOS)NEXP
         IF(IOS .NE. 0 .OR. (NEXP .NE. 2 .AND. NEXP .NE. 5 .AND. &
           NEXP .NE. 8))THEN
@@ -164,7 +177,8 @@
       DO LS=1,KNP
         DO I=1,NIX
           T1=-1.0_LDP
-          IF(NCASE .GE. 7 .AND. I .GE. 2 .AND. I .LE. NIX-1)THEN
+          IF(NCASE .GE. 7 .AND. NCASE .NE. 11 .AND. &
+          I .GE. 2 .AND. I .LE. NIX-1)THEN
             NPAT=10/NEXP
             IF(NEXP .EQ. 8)THEN
               IF(MOD(I-2,5) .NE. 0)T1=1.0_LDP
@@ -241,6 +255,25 @@
         NCASE .NE. 9 .AND. NCASE .NE. 10)
       FG_ORD_SWEEP=(NCASE .EQ. 1 .OR. NCASE .EQ. 3 .OR. &
         NCASE .EQ. 5 .OR. NCASE .EQ. 7)
+! WP-2: cases 11/12 push the concrete order mode; every other
+! case keeps the -1 sentinel so the solve resolves it from
+! FG_ORD_SWEEP exactly as before. m2m on a mixed ray resolves
+! to the mode-1 ascending start, so it must match unom bitwise.
+      IF(NCASE .GE. 11)FG_ORD_MODE=2
+!
+! WP-2 fresh census: arm it on the four diagnostic cases and
+! allocate the (pass,dir,ray) store the solve fills. -1 marks a
+! pass that never ran.
+!
+      FG_FRESH_DIAG=(NCASE .EQ. 1 .OR. NCASE .EQ. 2 .OR. &
+        NCASE .GE. 11)
+      IF(FG_FRESH_DIAG)THEN
+        KN_FRESH_MAXP=2*(400+120)
+        IF(ALLOCATED(KN_FRESH_FR))DEALLOCATE(KN_FRESH_FR)
+        ALLOCATE(KN_FRESH_FR(KN_FRESH_MAXP,2,KNP),STAT=IOS)
+        IF(IOS .NE. 0)GOTO 999
+        KN_FRESH_FR=-1.0_LDP
+      END IF
       FG_ORD_AITKEN=.FALSE.
       FG_ORD_AA=.FALSE.
       FG_ORD_P2DAMP=.FALSE.
@@ -316,6 +349,19 @@
         IF(KN_RES_PASS(I) .LE. 0.0_LDP)EXIT
         WRITE(*,'(A,I4,A,ES16.8)')'PASSRES ',I,' ',KN_RES_PASS(I)
       END DO
+!
+      IF(FG_FRESH_DIAG .AND. ALLOCATED(KN_FRESH_FR))THEN
+        DO I=1,KN_FRESH_MAXP
+          IF(KN_FRESH_FR(I,1,1) .LT. -0.5_LDP)EXIT
+          WRITE(*,'(A,I4,A,ES16.8)')'FRESH_M ',I,' ', &
+        KN_FRESH_FR(I,1,1)
+        END DO
+        DO I=1,KN_FRESH_MAXP
+          IF(KN_FRESH_FR(I,2,1) .LT. -0.5_LDP)EXIT
+          WRITE(*,'(A,I4,A,ES16.8)')'FRESH_P ',I,' ', &
+        KN_FRESH_FR(I,2,1)
+        END DO
+      END IF
 !
       IF(ALLOCATED(KN_HOT_CNT))THEN
         L=COUNT(KN_HOT_CNT(1:KN_NCF) .GT. 0)
