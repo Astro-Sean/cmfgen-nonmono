@@ -815,10 +815,17 @@ Deliverables: `docs/audits/KNOP_REMEDIATION_WP6_2026-11-26.md`;
 `test_vadat_keys` 134/0 (+5); `test_knop_ordering` 50/0,
 `test_knop_commit_gate` 18/0, `test_iter_conv_gate` 18/0,
 `test_conv_exit` 53/0, `test_knop_osgn` 14/0 -- flag-off
-identical. Build: `build.sh` + `build_debug.sh` clean. The
-armed-flag m15 measurement is the A/B handed to the human
-(watch frc_eta/frc_tol in ITER_LEDGER against the fixed 2E-3
-baseline).
+identical. The csut certification table caught one real hole:
+PURE `KN_CERT_CH` cannot arm the sentinel, so a direct
+`KN_CERTIFY` caller read a zero tolerance; it now resolves the
+unset state to local `LTOL` (T39 green, `test_knop_ray` 50/1
+with only the documented T18; T38b back to exact zero). Build:
+`build.sh` + `build_debug.sh` clean; the suite's ~20 mid-run
+stale-archive hits came from a parallel session touching
+`jfnk_solver_v1.f90` and reran green once the member timestamp
+was refreshed. The armed-flag m15 measurement is the A/B
+handed to the human (watch frc_eta/frc_tol in ITER_LEDGER
+against the fixed 2E-3 baseline).
 
 ## Knop remediation WP-5: signed-Aitken store relaxation (26-Nov-2026, task-directed)
 
