@@ -15,12 +15,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, Report, compile_and_link_prod, run
 
 TREE = F90DIR.parents[1]
 DRV = F90DIR / "drv_knop_replay.f90"
-PROD = TREE / "plane/fg_j_cmf_nonmono_v1.f"
-RDVADAT = TREE / "new_main/mod_subs/rd_control_variables.f"
+PROD = SRC / "plane/fg_j_cmf_nonmono_v1.f"
+RDVADAT = SRC / "new_main/mod_subs/rd_control_variables.f"
 
 HELPERS = [
     "tools/set_kind_module.f",
@@ -50,7 +50,6 @@ HELPERS = [
     "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
-    "unit_tests/f90/stub_vadat.f",
 ]
 
 
@@ -167,7 +166,7 @@ def main():
     # ---- argument-layer behaviour (no deck needed) ---------------
     exe = compile_and_link_prod(
         "knray_replay",
-        [TREE / h for h in HELPERS] + [DRV],
+        [SRC / h for h in HELPERS] + [F90DIR / "stub_vadat.f", DRV],
     )
     r = run(exe, "no_such_deck.bin", "base", "x", "p2junk", check=False)
     rep.check(
