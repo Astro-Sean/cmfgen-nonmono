@@ -1226,6 +1226,32 @@
 	4    '  dem%= ',100.0_LDP*BA_MASK_MAX
 	END IF
 !
+! edited 27-Nov-2026: [POP_TRACE_MAXFAC] Item-2 per-row
+! correction cap, moved out of the DO_BA_RES_ACC .AND.
+! .NOT. LAMBDA_IT block (checklist WP-7a) so it runs on EVERY
+! call, exactly as POP_FLOOR_STEP above does -- on the KNOP
+! stall the calls are all-LAMBDA and the cap never fired. The
+! resacc trust test quarantines a whole depth column when its
+! largest |STEQ| exceeds BA_TRUST_CUR, so a single runaway
+! trace level freezes every population at that depth. This
+! clamps each level row's demanded fractional correction to
+! POP_TRACE_MAXFAC first (sign preserved), so the offending
+! row still moves -- bounded -- while the rest of the column
+! is free to update and no longer trips the all-or-nothing
+! column mask. Level rows J=1..NT-2 only; ED/T rows are
+! untouched. 0 disables. STEQ_RAW above already holds the
+! pre-clamp demand, so the raw channels keep it visible.
+!
+	IF(POP_TRACE_MAXFAC .GT. 0.0_LDP)THEN
+	  DO I=1,ND
+	    DO J=1,NT-2
+	      IF(ABS(STEQ(J,I)) .GT. POP_TRACE_MAXFAC)THEN
+	        STEQ(J,I)=SIGN(POP_TRACE_MAXFAC,STEQ(J,I))
+	      END IF
+	    END DO
+	  END DO
+	END IF
+!
 	IF(DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT)THEN
 	  COUNT(2)=0
 	  COUNT(3)=0
@@ -1256,23 +1282,9 @@
 	      END DO
 	    END IF
 !
-! edited 09-Nov-2026: [POP_TRACE_MAXFAC] Item-2 per-row
-! correction cap. The trust test below quarantines a whole depth
-! column when its largest |STEQ| exceeds BA_TRUST_CUR, so a single
-! runaway trace level freezes every population at that depth. This
-! clamps each level row's demanded fractional correction to
-! POP_TRACE_MAXFAC first (sign preserved), so the offending row
-! still moves -- bounded -- while the rest of the column is free to
-! update and no longer trips the all-or-nothing column mask. Level
-! rows J=1..NT-2 only; ED/T rows are untouched. 0 disables.
-!
-	    IF(POP_TRACE_MAXFAC .GT. 0.0_LDP)THEN
-	      DO J=1,NT-2
-	        IF(ABS(STEQ(J,I)) .GT. POP_TRACE_MAXFAC)THEN
-	          STEQ(J,I)=SIGN(POP_TRACE_MAXFAC,STEQ(J,I))
-	        END IF
-	      END DO
-	    END IF
+! Removed 27-Nov-2026 (WP-7a): the POP_TRACE_MAXFAC per-row cap
+! moved ahead of this block so it also fires on LAMBDA calls; the
+! clamp is now unconditional, next to POP_FLOOR_STEP.
 !
 ! Masked (rolled-back) columns are held at their restored
 ! populations this call: their fresh STEQ was linearized at the
