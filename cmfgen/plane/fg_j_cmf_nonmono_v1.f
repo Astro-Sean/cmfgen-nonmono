@@ -2747,6 +2747,15 @@
 	LOGICAL, INTENT(IN) :: LCERT
 	INTEGER, INTENT(OUT) :: ISTAT,IREA
 	LOGICAL LRF,LQF
+	REAL(KIND=LDP) LTOL
+!
+! [KN_FORCING_TOL] (WP-6): KN_CERT_CH is PURE so it cannot arm the
+! module sentinel -- resolve KN_RAY_TOL_EFF's unset (<=0) state to a
+! local instead. A caller that reaches KN_CERTIFY without a preceding
+! KNOP_RAY_SOLVE_V1 pass sees the same tolerance as the armed solve.
+!
+	LTOL=KN_RAY_TOL_EFF
+	IF(LTOL .LE. 0.0_LDP)LTOL=KN_RAY_TOL
 	LRF=(RES .EQ. RES) .AND. (ABS(RES) .LT. HUGE(RES))
 	LQF=(Q .EQ. Q) .AND. (ABS(Q) .LT. HUGE(Q))
 !
@@ -2769,11 +2778,11 @@
 	IF(IXIT .EQ. 3 .OR. IXIT .EQ. 6)THEN
 	  ISTAT=KN_CS_STAG; IREA=0; RETURN
 	END IF
-	IF(RES .LE. KN_RAY_TOL_EFF)THEN
+	IF(RES .LE. LTOL)THEN
 	  IF(.NOT. LCERT)THEN
 	    ISTAT=KN_CS_FULL; IREA=0; RETURN
 	  END IF
-	  IF(LQF .AND. Q .GE. 0.0_LDP .AND. Q .LE. KN_RAY_TOL_EFF)THEN
+	  IF(LQF .AND. Q .GE. 0.0_LDP .AND. Q .LE. LTOL)THEN
 	    ISTAT=KN_CS_FULL; IREA=0
 	  ELSE IF(LQF .AND. Q .GT. 0.0_LDP)THEN
 	    ISTAT=KN_CS_STAG; IREA=1
