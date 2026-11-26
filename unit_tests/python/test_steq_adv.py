@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, Report,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, Report,
                     compile_objs, link_prod, prod_obj, run)
 
 GUARD = "the non-monotonic solver"
@@ -28,7 +28,7 @@ GUARD = "the non-monotonic solver"
 
 def build():
     md = BINDIR / "obj_steq_adv"
-    objs = [prod_obj(TREE / "new_main" / "subs" / "steq_advec_v4.f")]
+    objs = [prod_obj(SRC / "new_main" / "subs" / "steq_advec_v4.f")]
     objs += compile_objs(
         "steq_adv_drv", [F90DIR / "drv_steq_adv.f90"],
         moddir=md, extra_flags=PROD_MOD_INC)
