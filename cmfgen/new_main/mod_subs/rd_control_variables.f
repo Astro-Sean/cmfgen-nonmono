@@ -1071,6 +1071,17 @@
 	  CALL RD_STORE_LOG(BA_NC_MAXPOP,'BA_NC_MAXPOP',L_FALSE,
 	1     'Place the conservation row at the most populated level?')
 !
+! BA_REL_TRUST (default F = off): checklist WP-9 release-trust
+! seed. When armed, the first BA call after a freeze release
+! re-seeds BA_TRUST_CUR from the committed field residual
+! (GS_COMMIT_RES) so the release step is quarantined at a
+! field-consistent radius rather than riding its pre-freeze
+! value into the 400% MAX_LIN_COR cap.
+!
+	  BA_REL_TRUST=.FALSE.
+	  CALL RD_STORE_LOG(BA_REL_TRUST,'BA_REL_TRUST',L_FALSE,
+	1     'Seed the BA trust radius from the commit residual on release?')
+!
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial. With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a
