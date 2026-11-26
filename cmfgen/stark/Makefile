@@ -19,7 +19,7 @@ NEWF = strk_hei_ir.o strk_ds.o
 
 all : $(LIB) $(LIB2)
 	rm -f *.o
-	cp $(INSTALL_DIR)perm_mod_file  jnk.mod
+	cp $(INSTALL_DIR)cmfgen/perm_mod_file  jnk.mod
 	mv -f *.mod $(MOD_DIR)
 
 $(LIB) : $(LIB)($(OBJ))
