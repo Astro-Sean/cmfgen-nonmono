@@ -19,7 +19,8 @@
 	1                           DIAG_INDX,N,NION,NUM_BNDS,ND,
 	1                           BA_COMPUTED,WR_BA_INV,WR_PRT_INV)
 	USE SET_KIND_MODULE
-	USE CONTROL_VARIABLE_MOD, ONLY: POP_AUDIT,BA_DEM_PFLOOR,POP_MASK_FLOOR
+	USE CONTROL_VARIABLE_MOD, ONLY: POP_AUDIT,BA_DEM_PFLOOR,POP_MASK_FLOOR,
+	1     BA_SYM_PIN
 	IMPLICIT NONE
 !
 ! Altered 19-Oct-2026 : TRI failures now degrade like the DIAG path: a
@@ -252,7 +253,17 @@
 ! near-null column at a floor population is the H1/H2 signature the
 ! RUNAWAY channel list cannot see.
 !
-	INTEGER NFLR,JC,CN_INFO,NMASK
+	INTEGER NFLR,JC,CN_INFO,NMASK,NDFAIL
+!
+! WP-7c [BA_SYM_PIN]: mask and prescribed values for the symmetric
+! elimination of floor-pinned level unknowns on the DIAG path
+! (edited 27-Nov-2026). SYM_XBAR stays zero: a pinned level's
+! correction is prescribed as zero, the same value the post-solve
+! POP_MASK_FLOOR mask would force.
+!
+	LOGICAL SYM_PIN_MASK(N)
+	REAL(KIND=LDP) SYM_XBAR(N)
+!
 	REAL(KIND=LDP) CN_T1,CN_UMIN,CN_UMAX,CN_ANORM,CN_RCOND
 	REAL(KIND=LDP), ALLOCATABLE :: CN_WORK(:)
 	INTEGER, ALLOCATABLE :: CN_IWORK(:)
@@ -697,6 +708,16 @@ C
 	1               ROW_CND,COL_CND,MAX_VAL,IFAIL)
 	  CALL TUNE(2,'TRI_DGEEQU')
 !
+! edited 27-Nov-2026 (checklist WP-7b): DGEEQU's IFAIL was
+! ignored -- a bad equilibration result fed garbage ROW_SF/COL_SF
+! into the scaling below. Route it through the same failure
+! path as DGETRF so the TRI fallback machinery handles it.
+!
+	  IF(IFAIL .NE. 0)THEN
+	    DESC='DGEEQU_TRI'
+	    GOTO 9999
+	  END IF
+!
 	  CALL TUNE(1,'TRI_DGETRF')
 	  DO J=1,N
             DO I=1,N
@@ -885,12 +906,17 @@ C
 ! the TRI failure handler at 9999 can reuse it as a fallback. Only the
 ! diagonal blocks C[k] are factored; GENERATE_FULL_MATRIX_V3 rebuilds
 ! STEQ at each depth, so the caller does not need an intact RHS. A
-! singular depth gets a zeroed correction and the solve continues --
-! FLAG stays .TRUE. so SOLVEBA_V13 adjudicates via BAACC/BA_REJ.
+! singular depth gets a zeroed correction and the solve continues.
+! edited 27-Nov-2026 (checklist WP-7b): the solve contract is now
+! honest -- NDFAIL counts depths whose equilibration, factorisation
+! or back-substitution failed, and the routine returns FLAG=.FALSE.
+! when any depth failed (previously FLAG stayed .TRUE. with a zeroed
+! STEQ column, so ok=T could not certify a valid whole-grid solve).
 !
 	  FIRST_MATRIX=.TRUE.
 	  LAST_MATRIX=.FALSE.
 	  USE_PASSED_REP=.FALSE.
+	  NDFAIL=0
           ALLOCATE (C_MAT(N,N),STAT=IOS)
           ALLOCATE (RUB(N,N),STAT=IOS)
           IF(IOS .NE. 0)THEN
@@ -925,6 +951,35 @@ C
 	    CALL CMF_BLKBAND_PIN_NULL_V1(C_MAT,STEQ(1,K),N,N_PIN)
 	    IF(N_PIN .GT. 0)WRITE(LUER,'(A,I3,A,I4)')
 	1    ' CMF_BLKBAND: pinned',N_PIN,' uncoupled zero rows at depth ',K
+!
+! edited 27-Nov-2026 (checklist WP-7c) [BA_SYM_PIN]: eliminate each
+! floor-pinned level unknown symmetrically before equilibration --
+! zero row AND column, 1 on the diagonal, the eliminated column's
+! contribution carried into the RHS (zero here since XBAR=0). The
+! row-only form of this pin was the POP_MASK_FLOOR matrix prototype
+! that crashed the coupled block (job 12868544); removing the column
+! as well keeps the remaining equations free of the near-null
+! direction. Same floor census and J=1..N-2 row range as the
+! POP_AUDIT census below: ED/T and the conservation rows are never
+! pinned. The pinned correction solves as exactly zero, matching the
+! post-solve mask's result while leaving the mask itself in
+! SOLVEBA_V13 untouched. Default F -- off, path unchanged.
+!
+	    IF(BA_SYM_PIN)THEN
+	      SYM_PIN_MASK(1:N)=.FALSE.
+	      SYM_XBAR(1:N)=0.0_LDP
+	      N_PIN=0
+	      DO J=1,N-2
+	        IF(POPS(J,K) .LE. MAX(1.0E-30_LDP,BA_DEM_PFLOOR))THEN
+	          SYM_PIN_MASK(J)=.TRUE.
+	        END IF
+	      END DO
+	      CALL CMF_BLKBAND_PIN_SYM_V1(C_MAT,STEQ(1,K),SYM_XBAR,
+	1             SYM_PIN_MASK,N,N_PIN)
+	      IF(N_PIN .GT. 0)WRITE(LUER,'(A,I3,A,I4)')
+	1    ' CMF_BLKBAND: sym-eliminated',N_PIN,
+	2    ' floor rows at depth ',K
+	    END IF
 !
 ! Item-1 [POP_AUDIT] census, part 1 (edited 08-Nov-2026): count the
 ! floor-pinned unknowns and take the per-column max-|C_MAT| extrema
@@ -972,6 +1027,22 @@ C
 	    CALL DGEEQU(N,N,C_MAT,N,ROW_SF,COL_SF,
 	1               ROW_CND,COL_CND,MAX_VAL,IFAIL)
 	    CALL TUNE(2,'DGEEQU')
+!
+! edited 27-Nov-2026 (checklist WP-7b): DGEEQU's IFAIL was
+! ignored -- a bad equilibration result fed garbage ROW_SF/COL_SF
+! into the scaling below and the solve returned ok=T with a zeroed
+! column. Count it as a failed depth like DGETRF below.
+!
+	    IF(IFAIL .NE. 0)THEN
+	      DESC='DGEEQU_DIAG'
+	      WRITE(LUER,*)'Error in CMF_BLKBAND_V3'
+	      WRITE(LUER,*)'Unable to equilibrate at depth',K
+	      WRITE(LUER,*)'Setting fractional corrections to zero'
+	      WRITE(LUER,*)'IFAIL=',IFAIL
+	      STEQ(:,K)=0.0_LDP
+	      NDFAIL=NDFAIL+1
+	      GOTO 500
+	    END IF
 	    DO J=1,N
 	      STEQ(J,K)=STEQ(J,K)*ROW_SF(J)
               DO I=1,N
@@ -987,13 +1058,16 @@ C
 ! reciprocal estimate replace them. The RUNAWAY line is deferred until
 ! after DGETRF so it can carry rcond.
 !
-	    IF(POP_AUDIT)THEN
-	      CN_ANORM=0.0_LDP
-	      DO JC=1,N
-	        CN_T1=SUM(ABS(C_MAT(:,JC)))
-	        CN_ANORM=MAX(CN_ANORM,CN_T1)
-	      END DO
-	    END IF
+! edited 27-Nov-2026 (WP-7b): the equilibrated 1-norm is now
+! always recorded, not only under POP_AUDIT -- DGECON below runs
+! on every factored depth so the reciprocal condition estimate
+! exists as solve-contract evidence, not only as diagnostics.
+!
+	    CN_ANORM=0.0_LDP
+	    DO JC=1,N
+	      CN_T1=SUM(ABS(C_MAT(:,JC)))
+	      CN_ANORM=MAX(CN_ANORM,CN_T1)
+	    END DO
 	    CALL TUNE(1,'DGERTF')
 	    CALL DGETRF(N,N,C_MAT,N,IPIVOT,IFAIL)
 	    CALL TUNE(2,'DGERTF')
@@ -1004,26 +1078,45 @@ C
 	      WRITE(LUER,*)'Setting fractional corrections to zero'
 	      WRITE(LUER,*)'IFAIL=',IFAIL
 	      STEQ(:,K)=0.0_LDP
+	      NDFAIL=NDFAIL+1
 	      GOTO 500			!9999
 	    END IF
 !
-! Item-1 [POP_AUDIT] census, part 3 (revised 08-Nov-2026): C_MAT now
-! holds the LU factors of the equilibrated block, so DGECON gives a
-! real reciprocal 1-norm condition estimate (O(N^2), opt-in only).
-! One RUNAWAY-prefixed line per depth carries nflr, the
-! unequilibrated column extrema, the DGEEQU scaling diagnostics and
-! rcond. A colmin_u collapse or rcond -> 0 while nflr is large is the
-! floor-pinned null-column signature behind the 1E7 demand cap (H1).
+! Item-1 [POP_AUDIT] census, part 3 (revised 08-Nov-2026,
+! WP-7b 27-Nov-2026): C_MAT now holds the LU factors of the
+! equilibrated block, so DGECON gives a real reciprocal 1-norm
+! condition estimate (O(N^2), now run unconditionally). A failed
+! DGECON means the estimate cannot be trusted -- count the depth
+! as failed under the same contract as DGETRF. The RUNAWAY line
+! stays opt-in under POP_AUDIT: it carries nflr, the
+! unequilibrated column extrema, the DGEEQU scaling diagnostics
+! and rcond. A colmin_u collapse or rcond -> 0 while nflr is
+! large is the floor-pinned null-column signature (H1).
 !
-	    IF(POP_AUDIT)THEN
-	      IF(.NOT. ALLOCATED(CN_WORK))THEN
-	        ALLOCATE(CN_WORK(2*N),CN_IWORK(N),STAT=IOS)
-	      ELSE
-	        IOS=0
+	    IF(.NOT. ALLOCATED(CN_WORK))THEN
+!
+! edited 27-Nov-2026 (WP-7b): DGECON's WORK array must be 4*N by
+! the LAPACK spec; the POP_AUDIT-gated prototype allocated 2*N,
+! which overflowed into the heap once DGECON ran on every depth.
+!
+	      ALLOCATE(CN_WORK(4*N),CN_IWORK(N),STAT=IOS)
+	    ELSE
+	      IOS=0
+	    END IF
+	    IF(IOS .EQ. 0)THEN
+	      CALL DGECON('1',N,C_MAT,N,CN_ANORM,CN_RCOND,
+	1     CN_WORK,CN_IWORK,CN_INFO)
+	      IF(CN_INFO .NE. 0)THEN
+	        DESC='DGECON_DIAG'
+	        WRITE(LUER,*)'Error in CMF_BLKBAND_V3'
+	        WRITE(LUER,*)'DGECON failed at depth',K
+	        WRITE(LUER,*)'Setting fractional corrections to zero'
+	        WRITE(LUER,*)'INFO=',CN_INFO
+	        STEQ(:,K)=0.0_LDP
+	        NDFAIL=NDFAIL+1
+	        GOTO 500
 	      END IF
-	      IF(IOS .EQ. 0)THEN
-	        CALL DGECON('1',N,C_MAT,N,CN_ANORM,CN_RCOND,
-	1       CN_WORK,CN_IWORK,CN_INFO)
+	      IF(POP_AUDIT)THEN
 	        WRITE(LUER,'(A,I4,A,I6,6(A,ES11.3))')
 	1       ' RUNAWAY d=',K,' nflr=',NFLR,
 	2       '  colmin_u=',CN_UMIN,' colmax_u=',CN_UMAX,
@@ -1051,10 +1144,22 @@ C
 	      WRITE(LUER,*)'Setting fractional corrections to zero'
 	      WRITE(LUER,*)'IFAIL=',IFAIL
 	      STEQ(:,K)=0.0_LDP
+	      NDFAIL=NDFAIL+1
 	    END IF
 500	    CONTINUE
 	  END DO
-          FLAG=.TRUE.
+!
+! edited 27-Nov-2026 (checklist WP-7b): the solve contract. A
+! depth whose equilibration, factorisation, condition estimate
+! or back-substitution failed already printed its own error and
+! zeroed its correction -- FLAG now reports whether every depth
+! solved, so ok=F reaches SOLVEBA_V13's stop path instead of
+! certifying an incomplete grid.
+!
+	  FLAG=(NDFAIL .EQ. 0)
+	  IF(NDFAIL .GT. 0)WRITE(LUER,'(A,I6,A,I6)')
+	1   ' CMF_BLKBAND_V3: DIAG solve failed at',NDFAIL,
+	2   ' of',ND,' depths'
           DEALLOCATE (C_MAT,RUB)
 	  CALL WR2D_V2(STEQ_STORE,N,ND,'STEQ_ARRAY','*',L_TRUE,16)
 	  RETURN
