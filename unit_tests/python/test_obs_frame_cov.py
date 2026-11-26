@@ -25,20 +25,20 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import F90DIR, PLOTDIR, TREE, WORKDIR, Report, compile_driver, run
+from common import SRC, F90DIR, PLOTDIR, TREE, WORKDIR, Report, compile_driver, run
 
 SOURCES = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "phys_con.f",
-    TREE / "subs" / "mon_interp_fast.f",
-    TREE / "subs" / "open_dir_acc_v1.f",
-    TREE / "subs" / "write_direct_info_v3.f",
-    TREE / "tools" / "chk_little_endian.f",
-    TREE / "tools" / "get_lu.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "unix" / "dir_acc_pars_gen.f",
-    TREE / "unix" / "tune.f",
-    TREE / "obs" / "obs_frame_sub_v9.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "phys_con.f",
+    SRC / "subs" / "mon_interp_fast.f",
+    SRC / "subs" / "open_dir_acc_v1.f",
+    SRC / "subs" / "write_direct_info_v3.f",
+    SRC / "tools" / "chk_little_endian.f",
+    SRC / "tools" / "get_lu.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "unix" / "dir_acc_pars_gen.f",
+    SRC / "unix" / "tune.f",
+    SRC / "obs" / "obs_frame_sub_v9.f",
     F90DIR / "drv_obs_frame_cov.f",
 ]
 
