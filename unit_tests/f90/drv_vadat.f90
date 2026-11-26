@@ -10,7 +10,8 @@
            jfnk_pc_signed, jfnk_pc_reg_zerocol, jfnk_pc_tiny_equil, &
            jfnk_rcond_gate, jfnk_rcond_min, jfnk_itry_cap
       USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_RAY_BULK_TOL, &
-           KN_RAY_TOL, FG_COMMIT_NC
+           KN_RAY_TOL, FG_COMMIT_NC, &
+           FG_OSGN_FLG=>KN_OMEGA_SGN, KN_OSGN_MIN, KN_OSGN_MAX
       USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_NUSOLV_SLV=>MOM_NUSOLV, &
            MOM_BLKGMRES_SLV=>MOM_BLKGMRES,MOM_AUG_RES_SLV=>MOM_AUG_RES
       IMPLICIT NONE
@@ -116,6 +117,10 @@
       WRITE(*,'(A,I5)')'KN_GATE_DIV_M=',KN_GATE_DIV_M
       WRITE(*,'(A,L2)')'KN_GATE_COMMIT_RES=',KN_GATE_COMMIT_RES
       WRITE(*,'(A,L2)')'KN_STORE_LS=',KN_STORE_LS
+      WRITE(*,'(A,L2)')'KN_OMEGA_SGN=',KN_OMEGA_SGN
+      WRITE(*,'(A,L2)')'FG_OSGN_FLG=',FG_OSGN_FLG
+      WRITE(*,'(A,ES12.5)')'KN_OSGN_MIN=',KN_OSGN_MIN
+      WRITE(*,'(A,ES12.5)')'KN_OSGN_MAX=',KN_OSGN_MAX
       WRITE(*,'(A,L2)')'ACCURATE=',ACCURATE
       WRITE(*,'(A,L2)')'JFNK_PC_SIGN_DIAG=',JFNK_PC_SIGN_DIAG
       WRITE(*,'(A,L2)')'JFNK_PTC_SIGNED=',JFNK_PTC_SIGNED
