@@ -1322,12 +1322,18 @@ def main():
     )
 
     # -- T29: legitimately inactive ray is excluded (audit Issue 5,
-    #    test T32). 'ni1' gives ray 1 NI=1 -- a single-point geometry
-    #    with no marchable domain. With KN_NI1_FULL off it keeps the
-    #    unsolved verdict and INV certification, so the all-ray
-    #    verdict stays FALSE; 'ni1f' arms the flag and the ray
-    #    certifies vacuous FULL with reason 0, letting RF_ALLCONV
-    #    read the real two-ray convergence.
+    #    test T32; WP-1 invariant I4 census). 'ni1' gives ray 1 NI=1
+    #    -- a single-point geometry with no marchable domain. With
+    #    KN_NI1_FULL off it keeps the unsolved verdict and INV
+    #    certification, so the all-ray verdict stays FALSE -- under
+    #    I4 the NI=1 ray is outside the domain census (NACT counts
+    #    only NI_RAY>=2) and blocks the verdict through the explicit
+    #    no-INV conjunct. 'ni1f' arms the flag in the same 3-ray
+    #    ensemble: the ray certifies vacuous FULL with reason 0,
+    #    drops out of NACT/NFULL entirely, and RF_ALLCONV reads the
+    #    real two-ray convergence. 'ni1s' is the degenerate limit --
+    #    a single NI=1 ray, flag on: the domain census is empty
+    #    (NACT=0) and the empty census fails closed.
     d29, s29 = parse(run(bin_, "ni1", cwd=WORKDIR, check=False).stdout)
     ok = (
         "RESULT_OK" in d29
@@ -1356,11 +1362,24 @@ def main():
     )
     rep.check(
         "T29b KN_NI1_FULL armed: vacuous FULL certification, "
-        "all-conv verdict reads the converged rays",
+        "all-conv verdict reads the converged domain rays",
         ok,
         f"CLS1={s29f.get(('cls', 1), ('?', '?'))} "
         f"RF_RESID={d29f.get('RF_RESID'):.3e} "
         f"RF_ALLCONV={d29f.get('RF_ALLCONV')}",
+    )
+    d29s, s29s = parse(run(bin_, "ni1s", cwd=WORKDIR, check=False).stdout)
+    ok = (
+        "RESULT_OK" in d29s
+        and s29s.get(("cls", 1), (1, 1)) == (0, 0)
+        and not d29s.get("RF_ALLCONV", True)
+    )
+    rep.check(
+        "T29c zero-domain ensemble: single NI=1 ray under "
+        "KN_NI1_FULL leaves NACT=0, empty census fails closed",
+        ok,
+        f"CLS1={s29s.get(('cls', 1), ('?', '?'))} "
+        f"RF_ALLCONV={d29s.get('RF_ALLCONV')}",
     )
 
     # -- T30: heal census counts only real modifications (audit
