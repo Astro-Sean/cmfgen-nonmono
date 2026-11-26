@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import (
     F90DIR,
+    SRC,
     TREE,
     Report,
     compile_and_link_prod,
@@ -89,7 +90,7 @@ GATE_CASES = ["clean", "aafix", "aaimp", "neg", "nonfin", "jump",
 def build():
     return compile_and_link_prod(
         "mom_gate",
-        [TREE / h for h in HELPERS]
+        [SRC / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_gate.f"],
     )
 
