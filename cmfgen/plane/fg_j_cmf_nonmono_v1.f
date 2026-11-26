@@ -763,6 +763,41 @@
 	REAL(KIND=LDP), SAVE :: FG_OSGN_W(3)=0.0_LDP
 	INTEGER, SAVE :: FG_OSGN_WHYN=0
 !
+! KN_FORCING_TOL (WP-6, 26-Nov-2026, default FALSE): Eisenstat &
+! Walker 1996 (SIAM J. Sci. Comput. 17, 16-32) Choice-2 forcing
+! term on the refresh's inner stopping tolerance. The inner solve
+! is the lagged-field refresh; the outer residual ||F|| is the
+! population demand MAXCH, handed in by SET_FG_FRC_RES ahead of
+! each refresh call:
+!     eta_k = GAM * (||F_k|| / ||F_{k-1}||)^ALP
+!     safeguard: eta_k = max(eta_k, GAM*eta_{k-1}^ALP) whenever that
+!       floor exceeds 0.1; eta capped at KN_FRC_ETAMX=0.9.
+! KN_RAY_TOL_EFF = clamp(eta_k*KN_FRC_TMAX/KN_FRC_ETAMX,
+!   KN_FRC_TMIN, KN_FRC_TMAX), then capped at KN_FRC_CAP =
+!   0.1*GS_MATURE_TOL (invariant I2: the field tolerance may not
+!   loosen past a tenth of the population gate). The scale maps
+!   the forcing term's [0,eta_max] band onto the allowed tolerance
+!   band; the cap comes through the setter because this module
+!   cannot see CONTROL_VARIABLE_MOD. KN_RAY_TOL_EFF=0 marks "unset"
+!   so driver-direct solves fall back to KN_RAY_TOL; the flag-off
+!   path never leaves KN_RAY_TOL. KN_FRC_FNEW/FPRV carry the last
+!   two demand values, KN_FRC_ETA/RAT/SG record the last update for
+!   the ITER_LEDGER frc_* columns (-1/0 = no update yet).
+!
+	LOGICAL, SAVE :: KN_FORCING_TOL=.FALSE.
+	REAL(KIND=LDP), SAVE :: KN_FRC_GAM=0.9_LDP
+	REAL(KIND=LDP), SAVE :: KN_FRC_ALP=2.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_FRC_TMIN=1.0E-4_LDP
+	REAL(KIND=LDP), SAVE :: KN_FRC_TMAX=1.0E-2_LDP
+	REAL(KIND=LDP), SAVE :: KN_FRC_CAP=0.0_LDP
+	REAL(KIND=LDP), PARAMETER :: KN_FRC_ETAMX=0.9_LDP
+	REAL(KIND=LDP), SAVE :: KN_RAY_TOL_EFF=0.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_FRC_FNEW=-1.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_FRC_FPRV=-1.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_FRC_ETA=-1.0_LDP
+	REAL(KIND=LDP), SAVE :: KN_FRC_RAT=0.0_LDP
+	INTEGER, SAVE :: KN_FRC_SG=0
+!
 ! Boundary-closure audit counters. HBC = HNU_AT_OB/JNU_STORE(1)
 ! blows up when the boundary J hits its 1D-30 floor, and the moment
 ! solver's outer boundary row consumes the ratio directly. Track
@@ -2734,11 +2769,11 @@
 	IF(IXIT .EQ. 3 .OR. IXIT .EQ. 6)THEN
 	  ISTAT=KN_CS_STAG; IREA=0; RETURN
 	END IF
-	IF(RES .LE. KN_RAY_TOL)THEN
+	IF(RES .LE. KN_RAY_TOL_EFF)THEN
 	  IF(.NOT. LCERT)THEN
 	    ISTAT=KN_CS_FULL; IREA=0; RETURN
 	  END IF
-	  IF(LQF .AND. Q .GE. 0.0_LDP .AND. Q .LE. KN_RAY_TOL)THEN
+	  IF(LQF .AND. Q .GE. 0.0_LDP .AND. Q .LE. KN_RAY_TOL_EFF)THEN
 	    ISTAT=KN_CS_FULL; IREA=0
 	  ELSE IF(LQF .AND. Q .GT. 0.0_LDP)THEN
 	    ISTAT=KN_CS_STAG; IREA=1
@@ -3090,6 +3125,55 @@
 	FG_OSGN_ACC=0.0_LDP
 	RETURN
 	END SUBROUTINE FG_OSGN_ALLOC
+!
+! KN_FRC_UPDATE (WP-6): one Eisenstat & Walker 1996 Choice-2
+! forcing-term step (eq. 4.3) per refresh. KN_FRC_FNEW is the
+! population demand handed in by SET_FG_FRC_RES since the last
+! update; KN_FRC_FPRV the previous accepted value. On the first
+! armed call there is no ratio, so the update only seeds FPRV and
+! leaves KN_RAY_TOL_EFF at the configured KN_RAY_TOL -- the first
+! refresh under the flag always runs at the WP-1 default. A
+! residual that stalls or rises pushes eta toward the cap, so the
+! inner solve loosens when the outer map is far from convergence
+! and tightens as the demand falls (E&W Choice 2 tracks the
+! contraction, not the level). KN_FRC_CAP=0 means no I2 bound was
+! installed (drivers); production always receives
+! 0.1*GS_MATURE_TOL through the setter.
+!
+	SUBROUTINE KN_FRC_UPDATE()
+	IMPLICIT NONE
+	REAL(KIND=LDP) ETA_NEW,SFL,CAP
+!
+	KN_RAY_TOL_EFF=KN_RAY_TOL
+	IF(KN_FRC_FNEW .LE. 0.0_LDP)RETURN
+	IF(KN_FRC_FPRV .LE. 0.0_LDP)THEN
+	  KN_FRC_FPRV=KN_FRC_FNEW
+	  KN_FRC_FNEW=-1.0_LDP
+	  KN_FRC_ETA=-1.0_LDP
+	  KN_FRC_RAT=0.0_LDP
+	  KN_FRC_SG=0
+	  RETURN
+	END IF
+!
+	KN_FRC_RAT=KN_FRC_FNEW/KN_FRC_FPRV
+	ETA_NEW=KN_FRC_GAM*KN_FRC_RAT**KN_FRC_ALP
+	KN_FRC_SG=0
+	IF(KN_FRC_ETA .GT. 0.0_LDP)THEN
+	  SFL=KN_FRC_GAM*KN_FRC_ETA**KN_FRC_ALP
+	  IF(SFL .GT. 1.0E-1_LDP .AND. SFL .GT. ETA_NEW)THEN
+	    ETA_NEW=SFL
+	    KN_FRC_SG=1
+	  END IF
+	END IF
+	KN_FRC_ETA=MIN(ETA_NEW,KN_FRC_ETAMX)
+	CAP=KN_FRC_TMAX
+	IF(KN_FRC_CAP .GT. 0.0_LDP)CAP=MIN(KN_FRC_TMAX,KN_FRC_CAP)
+	KN_RAY_TOL_EFF=MIN(MAX(KN_FRC_ETA*(KN_FRC_TMAX/KN_FRC_ETAMX),
+	1    KN_FRC_TMIN),CAP)
+	KN_FRC_FPRV=KN_FRC_FNEW
+	KN_FRC_FNEW=-1.0_LDP
+	RETURN
+	END SUBROUTINE KN_FRC_UPDATE
 !
 ! FG_EVAL_STATE_PUSH_V1 / FG_EVAL_STATE_POP_V1 (audit D1):
 ! bracket a JFNK eval sweep. The eval's INIT pass clears every
@@ -9380,6 +9464,56 @@ C
 	RETURN
 	END
 !
+! WP-6 (26-Nov-2026): VADAT wiring for KN_FORCING_TOL -- the
+! Eisenstat-Walker Choice-2 forcing term on the refresh's inner
+! tolerance. SET_FG_FORCING_TOL installs the flag and the knobs;
+! CAP carries 0.1*GS_MATURE_TOL (I2 bound) because the FG module
+! cannot see CONTROL_VARIABLE_MOD. SET_FG_FRC_RES hands in the
+! last population demand ahead of each refresh call;
+! GET_FG_FRC exports the last update for the ITER_LEDGER frc_*
+! columns (ETA=-1, TOL=KN_RAY_TOL when nothing has run yet).
+!
+	SUBROUTINE SET_FG_FORCING_TOL(LARM,GAM,ALP,TMIN,TMAX,CAP)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     KN_FORCING_TOL,KN_FRC_GAM,KN_FRC_ALP,KN_FRC_TMIN,
+	2     KN_FRC_TMAX,KN_FRC_CAP
+	IMPLICIT NONE
+	LOGICAL LARM
+	REAL(KIND=LDP) GAM,ALP,TMIN,TMAX,CAP
+	KN_FORCING_TOL=LARM
+	KN_FRC_GAM=MIN(MAX(GAM,0.0_LDP),1.0_LDP)
+	KN_FRC_ALP=MIN(MAX(ALP,1.0_LDP),2.0_LDP)
+	KN_FRC_TMIN=MAX(TMIN,1.0E-12_LDP)
+	KN_FRC_TMAX=MAX(TMAX,KN_FRC_TMIN)
+	KN_FRC_CAP=MAX(CAP,0.0_LDP)
+	RETURN
+	END
+!
+	SUBROUTINE SET_FG_FRC_RES(R)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_FRC_FNEW
+	IMPLICIT NONE
+	REAL(KIND=LDP) R
+	KN_FRC_FNEW=R
+	RETURN
+	END
+!
+	SUBROUTINE GET_FG_FRC(ETA,RAT,SG,TOL)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     KN_FRC_ETA,KN_FRC_RAT,KN_FRC_SG,KN_RAY_TOL_EFF,KN_RAY_TOL
+	IMPLICIT NONE
+	REAL(KIND=LDP) ETA,RAT,TOL
+	INTEGER SG
+	ETA=KN_FRC_ETA
+	RAT=KN_FRC_RAT
+	SG=KN_FRC_SG
+	TOL=KN_RAY_TOL_EFF
+	IF(TOL .LE. 0.0_LDP)TOL=KN_RAY_TOL
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_HOTPASS(NRAY_P,NTOT_P)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
 	1     KN_RAY_HOTPASSES,KN_HOT_TOTAL_PASSES
@@ -9488,7 +9622,7 @@ C
 	! ---- real configuration (LDP) ----
 	!
 	RCF(1)=INEXT_RELAX
-	RCF(2)=KN_RAY_TOL
+	RCF(2)=KN_RAY_TOL_EFF
 	RCF(3)=KN_RAY_BULK_TOL
 	RCF(4)=KN_RAY_OMEGA
 	RCF(5)=KN_RAY_STALL
@@ -9720,6 +9854,15 @@ C
 	  END IF
 	  RETURN
 	END IF
+!
+! [KN_FORCING_TOL] (WP-6): re-price the inner stopping tolerance
+! from the outer-residual ratio before the ray loop reads it.
+! Disarmed resets KN_RAY_TOL_EFF to the configured KN_RAY_TOL, so
+! every tolerance read below is identical to the pre-WP-6 path.
+!
+	KN_RAY_TOL_EFF=KN_RAY_TOL
+	IF(KN_FORCING_TOL)CALL KN_FRC_UPDATE()
+!
         if(kn_rdump_ls.ge.0.or.kn_rdump_ls2.ge.0.or.
      1    kn_rdump_ls3.ge.0)kn_diag_refresh=kn_diag_refresh+1_8
         do ls=1,kn_np
@@ -10662,7 +10805,7 @@ C
 	WRITE(LUER,'(/,A)')' --------------------------------- KNOP FIELD ----------------------------------'
 	WRITE(LUER,'(A)')'  KNOP I_NEXT refresh (lagged coupling):'
 	WRITE(LUER,'(A,ES12.4,A,ES9.1,A)')
-	1  '    residual max=',KN_RF_RESID,'  (tol',KN_RAY_TOL,')'
+	1  '    residual max=',KN_RF_RESID,'  (tol',KN_RAY_TOL_EFF,')'
 	WRITE(LUER,'(A,I6)')'    passes<=',MAXVAL(NPS_LS)
 ! T-06 ledger: total per-ray passes this refresh fed to the
 ! ITER_LEDGER np_rf column (audit F-22/F-24).
@@ -11710,6 +11853,12 @@ C
 	REAL(KIND=LDP) JUMP
 !
 	RESID=0.0_LDP
+! [KN_FORCING_TOL] (WP-6): the refresh head sets KN_RAY_TOL_EFF
+! each call; drivers reaching this solve directly leave it unset
+! (0), in which case the configured KN_RAY_TOL is the operative
+! tolerance -- same value, no forcing state needed.
+!
+	IF(KN_RAY_TOL_EFF .LE. 0.0_LDP)KN_RAY_TOL_EFF=KN_RAY_TOL
 ! NCAP/NNEG are separate census channels (edited,
 ! 19-Oct-2026): NNEG counts only the negative/NaN floor writes,
 ! while the NONMONO_INEXT_CAP hits count into NCAP -- they were
@@ -12065,7 +12214,7 @@ C
 	IF(ALLOCATED(KN_HOT_CNT))THEN
 !$OMP CRITICAL (KN_HOT_UPD)
 	  DO L=1,NCF
-	    IF(RES_FREQ(L) .GT. KN_RAY_TOL)KN_HOT_CNT(L)=KN_HOT_CNT(L)+1
+	    IF(RES_FREQ(L) .GT. KN_RAY_TOL_EFF)KN_HOT_CNT(L)=KN_HOT_CNT(L)+1
 	  END DO
 !$OMP END CRITICAL (KN_HOT_UPD)
 	END IF
@@ -12155,7 +12304,7 @@ C
 	  IF(ALLOCATED(KN_HOT_CNT))THEN
 !$OMP CRITICAL (KN_HOT_UPD)
 	    DO L=1,NCF
-	      IF(RES_FREQ(L) .GT. KN_RAY_TOL)KN_HOT_CNT(L)=
+	      IF(RES_FREQ(L) .GT. KN_RAY_TOL_EFF)KN_HOT_CNT(L)=
 	1         KN_HOT_CNT(L)+1
 	    END DO
 !$OMP END CRITICAL (KN_HOT_UPD)
@@ -12696,7 +12845,7 @@ C
 	2    ' KN-CS ray=',LS,' cls=',ICLS,' rea=',IREA,
 	3    ' ixm=',IXIT_M,' ixp=',IXIT_P,' nx=',NXIT,
 	4    ' resm=',RES_M,' resp=',RES_P,' res=',RESID,
-	5    ' qm=',Q_M,' qp=',Q_P,' tol=',KN_RAY_TOL,
+	5    ' qm=',Q_M,' qp=',Q_P,' tol=',KN_RAY_TOL_EFF,
 	6    ' btol=',KN_RAY_BULK_TOL,' np=',NPASS,
 	7    ' nbd=',NBAD,' nt=',NTOT,' dec=',IDEC
 !$OMP END CRITICAL (KN_CS_UPD)
@@ -13003,7 +13152,7 @@ C
 	  WRITE(U)20261123,LS,NI,KN_ND,KN_ND_EXT,NCF,KN_NC,N_COMP,
 	1     ND_ADD,NC_PNT_SRCE_L,IMETH_D,KN_RAY_MAXPASS,KN_CONT_NP,
 	2     FBITS_D,KN_NP
-	  WRITE(U)KN_RAY_TOL,KN_RAY_BULK_TOL,KN_RAY_OMEGA,
+	  WRITE(U)KN_RAY_TOL_EFF,KN_RAY_BULK_TOL,KN_RAY_OMEGA,
 	1     KN_RAY_STALL,NONMONO_INEXT_CAP,FG_COMMIT_NC,
 	2     FG_COMMIT_JUMP,FG_DIV_HEAL_CAP,INEXT_RELAX,
 	3     REAL(FG_ORD_P2N,LDP),REAL(FG_ORD_P2REL,LDP),
@@ -13462,7 +13611,7 @@ C
 ! non-finite, alloc, boundary) are deliberately untouched.
 !
 	  L_CONT_READY=.NOT. L_CONT .OR. NPO .GE. KN_CONT_NP
-	  IF(RES .LT. KN_RAY_TOL .AND. L_CONT_READY)THEN
+	  IF(RES .LT. KN_RAY_TOL_EFF .AND. L_CONT_READY)THEN
 	    CLEAN_EXIT=.TRUE.
 	    IXIT=1
 	    EXIT
@@ -14330,7 +14479,7 @@ C
 	          IF(L_NOPROBE)CALL NOP_CELL(T1)
 	          KN_SGN_SUM=KN_SGN_SUM+
 	1           (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
-	          IF(T1 .GT. KN_RAY_TOL)THEN
+	          IF(T1 .GT. KN_RAY_TOL_EFF)THEN
 	            NBAD_CUR=NBAD_CUR+1
 	            IF(.NOT. L_QP)CALL BID_PUSH(J,L,INWARD)
 	          END IF
@@ -14438,7 +14587,7 @@ C
 	      IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAXF(L))THEN
 	        NTOT_CUR=NTOT_CUR+1
 	        IF(L_NOPROBE)CALL NOP_CELL(T1)
-	        IF(T1 .GT. KN_RAY_TOL)THEN
+	        IF(T1 .GT. KN_RAY_TOL_EFF)THEN
 	          NBAD_CUR=NBAD_CUR+1
 	          IF(.NOT. L_QP)CALL BID_PUSH(NI,L,INWARD)
 	        END IF
@@ -14531,7 +14680,7 @@ C
 	          IF(L_NOPROBE)CALL NOP_CELL(T1)
 	          KN_SGN_SUM=KN_SGN_SUM+
 	1           (VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAXF(L))
-	          IF(T1 .GT. KN_RAY_TOL)THEN
+	          IF(T1 .GT. KN_RAY_TOL_EFF)THEN
 	            NBAD_CUR=NBAD_CUR+1
 	            IF(.NOT. L_QP)CALL BID_PUSH(J,L,INWARD)
 	          END IF
@@ -14717,7 +14866,7 @@ C
 	1             ABS(AA_XH(J,L,2)+AA_RH(J,L,2))) .GT.
 	2             1.0E-4_LDP*VMAXF(L))THEN
 	            NTOT_CUR=NTOT_CUR+1
-	            IF(T1 .GT. KN_RAY_TOL)THEN
+	            IF(T1 .GT. KN_RAY_TOL_EFF)THEN
 	              NBAD_CUR=NBAD_CUR+1
 	              IF(.NOT. L_QP)CALL BID_PUSH(J,L,INWARD)
 	            END IF
@@ -14918,7 +15067,7 @@ C
 ! DIVERGED/non-finite exits above stay armed throughout.
 !
 	  L_CONT_READY=.NOT. L_CONT .OR. NPO .GE. KN_CONT_NP
-	  IF(RES .LT. KN_RAY_TOL .AND. L_CONT_READY)THEN
+	  IF(RES .LT. KN_RAY_TOL_EFF .AND. L_CONT_READY)THEN
 	    CLEAN_EXIT=.TRUE.
 	    IXIT=1
 	    EXIT
@@ -14984,7 +15133,7 @@ C
 	        DEL_OLD=DLT_PRV(J,L)
 	        IF(NPO .GE. 3 .AND.
 	1         ABS(FLD(J,L)) .GT. 1.0E-4_LDP*VMAXF(L) .AND.
-	2         ABS(DEL_CUR) .GT. KN_RAY_TOL*ABS(FLD(J,L)) .AND.
+	2         ABS(DEL_CUR) .GT. KN_RAY_TOL_EFF*ABS(FLD(J,L)) .AND.
 	3         ABS(DEL_CUR) .LT. ABS(DEL_OLD) .AND.
 	4         ABS(DEL_CUR-DEL_OLD) .GT.
 	5         1.0E-30_LDP*VMAXF(L))THEN
@@ -15842,7 +15991,7 @@ C
 	      SGN_ACC=SGN_ACC+(VNEW-VOLD)/
 	1       MAX(VOLD,1.0E-4_LDP*VMAX_L)
 	      IF(ABS(VNEW-VOLD)/MAX(VOLD,1.0E-4_LDP*VMAX_L)
-	1       .GT. KN_RAY_TOL)THEN
+	1       .GT. KN_RAY_TOL_EFF)THEN
 	        NBAD_CUR=NBAD_CUR+1
 	        IF(.NOT. L_QP)CALL BID_PUSH(I+1,L,INWARD)
 	      END IF
@@ -15891,7 +16040,7 @@ C
 	  IF(MAX(VOLD,ABS(VNEW)) .GT. 1.0E-4_LDP*VMAX_L)THEN
 	    NTOT_CUR=NTOT_CUR+1
 	    IF(L_NOPROBE)CALL NOP_CELL(DCELL)
-	    IF(DCELL .GT. KN_RAY_TOL)THEN
+	    IF(DCELL .GT. KN_RAY_TOL_EFF)THEN
 	      NBAD_CUR=NBAD_CUR+1
 	      IF(.NOT. L_QP)CALL BID_PUSH(NI,L,INWARD)
 	    END IF
@@ -15928,7 +16077,7 @@ C
 ! detector needs sign alternation, not magnitude.
 	      SGN_ACC=SGN_ACC+(VNEW-VOLD)/
 	1       MAX(VOLD,1.0E-4_LDP*VMAX_L)
-	      IF(DCELL .GT. KN_RAY_TOL)THEN
+	      IF(DCELL .GT. KN_RAY_TOL_EFF)THEN
 	        NBAD_CUR=NBAD_CUR+1
 	        IF(.NOT. L_QP)CALL BID_PUSH(I,L,INWARD)
 	      END IF
@@ -15951,7 +16100,7 @@ C
 !
 	SUBROUTINE NOP_CELL(T1V)
 	REAL(KIND=LDP) T1V
-	IF(T1V .GT. KN_RAY_TOL)NOP_CC(1)=NOP_CC(1)+1
+	IF(T1V .GT. KN_RAY_TOL_EFF)NOP_CC(1)=NOP_CC(1)+1
 	IF(T1V .GT. 1.0E-2_LDP)NOP_CC(2)=NOP_CC(2)+1
 	IF(T1V .GT. 1.0E-1_LDP)NOP_CC(3)=NOP_CC(3)+1
 	IF(T1V .GT. 1.0E+0_LDP)NOP_CC(4)=NOP_CC(4)+1
@@ -16815,7 +16964,7 @@ C
 	W_LO=NCF
 	W_HI=1
 	DO L_H=1,NCF
-	  IF(RES_FREQ(L_H) .GT. KN_RAY_TOL)THEN
+	  IF(RES_FREQ(L_H) .GT. KN_RAY_TOL_EFF)THEN
 	    W_LO=MIN(W_LO,L_H)
 	    W_HI=MAX(W_HI,L_H)
 	  END IF
