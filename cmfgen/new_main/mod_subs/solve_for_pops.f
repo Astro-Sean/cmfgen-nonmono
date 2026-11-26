@@ -220,7 +220,10 @@
 	INTEGER*8 MOM_RF_N5,MOM_RF_N50
 	LOGICAL MOM_UNSAFE_B,MOM_FREEZE_B
 	LOGICAL MOM_TRIAL,MOM_BROAD
-	REAL(KIND=LDP), PARAMETER :: GS_MATURE_TOL=0.05_LDP
+! GS_MATURE_TOL (0.05) moved 26-Nov-2026 to a PARAMETER in
+! CONTROL_VARIABLE_MOD (arrives via USE at line 12): the WP-1
+! VADAT read-only key and the CHECK_PARAM_CONSISTENCY invariants
+! need the same constant, so it can no longer be local here.
 !
 ! GS_UNSAFE_TOL: in-run discriminator.
 ! If the last sweep's lagged coupling field is still moving by more
