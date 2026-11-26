@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
-from common import (
+from common import (SRC, 
     F90DIR,
     PROD_MOD_INC,
     TREE,
@@ -78,8 +78,8 @@ def main():
         "drv_mat5pen",
         prod_objs(
             [
-                TREE / "tools" / "set_kind_module.f",
-                TREE / "subs" / "mat5pen.f",
+                SRC / "tools" / "set_kind_module.f",
+                SRC / "subs" / "mat5pen.f",
             ]
         )
         + drv_obj,
