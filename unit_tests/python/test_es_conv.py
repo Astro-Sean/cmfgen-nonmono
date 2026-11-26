@@ -112,7 +112,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (
+from common import (SRC, 
     F90DIR,
     PROD_MOD_INC,
     TREE,
@@ -127,56 +127,56 @@ from common import (
 )
 
 CONV_SRCS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "comp_j_conv_v2.f",
-    TREE / "subs" / "thomas_rh.f",
-    TREE / "subs" / "mon_interp.f",
-    TREE / "subs" / "write_direct_info_v3.f",
-    TREE / "tools" / "chk_little_endian.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "unix" / "dir_acc_pars_gen.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "comp_j_conv_v2.f",
+    SRC / "subs" / "thomas_rh.f",
+    SRC / "subs" / "mon_interp.f",
+    SRC / "subs" / "write_direct_info_v3.f",
+    SRC / "tools" / "chk_little_endian.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "unix" / "dir_acc_pars_gen.f",
     F90DIR / "drv_es_conv.f",
 ]
 
 SEQ_SRCS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "comp_j_conv_v2.f",
-    TREE / "subs" / "thomas_rh.f",
-    TREE / "subs" / "mon_interp.f",
-    TREE / "subs" / "write_direct_info_v3.f",
-    TREE / "tools" / "chk_little_endian.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "unix" / "dir_acc_pars_gen.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "comp_j_conv_v2.f",
+    SRC / "subs" / "thomas_rh.f",
+    SRC / "subs" / "mon_interp.f",
+    SRC / "subs" / "write_direct_info_v3.f",
+    SRC / "tools" / "chk_little_endian.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "unix" / "dir_acc_pars_gen.f",
     F90DIR / "drv_es_seq.f",
 ]
 
 GUARD_SRCS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "obs" / "mod_cmf_obs.f",
-    TREE / "obs" / "cmf_flux_cntrl_var_mod.f",
-    TREE / "newsubs" / "rd_store_log.f",
-    TREE / "subs" / "set_case.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "obs" / "check_cmf_flux_param_consis.f",
-    TREE / "obs" / "rd_cmf_flux_controls.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "obs" / "mod_cmf_obs.f",
+    SRC / "obs" / "cmf_flux_cntrl_var_mod.f",
+    SRC / "newsubs" / "rd_store_log.f",
+    SRC / "subs" / "set_case.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "obs" / "check_cmf_flux_param_consis.f",
+    SRC / "obs" / "rd_cmf_flux_controls.f",
     F90DIR / "drv_knop_guard.f",
 ]
 
 RENDER_SRCS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "phys_con.f",
-    TREE / "subs" / "mon_interp_fast.f",
-    TREE / "subs" / "open_dir_acc_v1.f",
-    TREE / "subs" / "write_direct_info_v3.f",
-    TREE / "subs" / "hweight_v2.f",
-    TREE / "subs" / "set_acc_dmu.f",
-    TREE / "tools" / "chk_little_endian.f",
-    TREE / "tools" / "get_lu.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "unix" / "dir_acc_pars_gen.f",
-    TREE / "unix" / "tune.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "phys_con.f",
+    SRC / "subs" / "mon_interp_fast.f",
+    SRC / "subs" / "open_dir_acc_v1.f",
+    SRC / "subs" / "write_direct_info_v3.f",
+    SRC / "subs" / "hweight_v2.f",
+    SRC / "subs" / "set_acc_dmu.f",
+    SRC / "tools" / "chk_little_endian.f",
+    SRC / "tools" / "get_lu.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "unix" / "dir_acc_pars_gen.f",
+    SRC / "unix" / "tune.f",
     F90DIR / "obs_v9_adapter.f",
-    TREE / "obs" / "obs_frame_sub_v9.f",
+    SRC / "obs" / "obs_frame_sub_v9.f",
     F90DIR / "drv_es_render.f",
 ]
 
@@ -184,7 +184,7 @@ MODES = ["planck", "const", "edge", "pos"]
 SWP_NU0 = ["299.5", "296", "290", "280", "260", "200"]
 TEMPU = ["0.5", "1.0", "5.0"]
 QRAY_AMPS = ["0.1", "0.5", "1.0"]
-VADAT_TEMPLATE = TREE / "lte_hydro" / "lte_tst1" / "VADAT"
+VADAT_TEMPLATE = SRC / "lte_hydro" / "lte_tst1" / "VADAT"
 
 COL_I, COL_ML, COL_NU, COL_RJ, COL_RJES = 0, 1, 2, 3, 4
 
@@ -322,7 +322,7 @@ def main():
     # the helpers, so any out-of-range index or non-validated
     # arithmetic aborts this binary outright.
     bnd_flags = ["-check", "bounds", "-fpe0"]
-    bnd_fresh = [TREE / "subs" / "comp_j_conv_v2.f", F90DIR / "drv_es_conv.f"]
+    bnd_fresh = [SRC / "subs" / "comp_j_conv_v2.f", F90DIR / "drv_es_conv.f"]
     bnd_objs = compile_objs(
         "drv_es_conv_bnd",
         bnd_fresh,
