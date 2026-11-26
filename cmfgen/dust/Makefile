@@ -29,13 +29,13 @@ DUST = $(LIB_MOD)libmod.a(dust_mod.o)
 $(LIB)(%.o) : %.f $(DUST)
 	$(F90) -c  $(OPTION) $< 
 	ar $(AR_OPTION) $(LIB) $*.o
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 
 $(DUST): 
 	$(F90) -c  $(OPTION) dust_mod.f 
 	ar $(AR_OPTION) $(LIB_MOD) dust_mod.o
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 
 # Specific dependency of source files which uses external 
