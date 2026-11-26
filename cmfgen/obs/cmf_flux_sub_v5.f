@@ -16,6 +16,7 @@
 	USE MOD_LEV_DIS_BLK
 	USE EDDFAC_REC_DEFS_MOD
 	USE ES_RESID_DIAG_MOD
+	USE SOB_T1_CENSUS_MOD
 	IMPLICIT NONE
 !
 ! Altered: 15-Nov-2026 : P8.2 ES convergence diagnostics [ES_RESID_DIAG,
@@ -3229,6 +3230,12 @@
 !
 	END DO		!Line loop
 	END IF		!SOB_PHASE .EQ. 1
+!
+! Diagnostic only [SOB_check WP6]: emits the T1/GAM census once per
+! render when armed via CMF_SOB_T1_CENSUS; returns immediately
+! otherwise, so the default path is unchanged.
+!
+	CALL SOB_T1_CENSUS_REPORT(LUER)
 !
 ! Phase 2 (DO_SOB_FLUX_OBS): the ES iteration above re-ran on the
 ! line-bearing ETA_CMF_ST/CHI_CMF_ST, so the converged J and its
