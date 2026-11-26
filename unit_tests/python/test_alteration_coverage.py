@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import TREE, Report
+from common import SRC, TREE, Report
 
 REF = TREE.parent / "cmfgen_reference" / "cur_cmf"
 
@@ -394,7 +394,7 @@ def altered_files():
     """Repo-relative paths of build inputs differing from the reference."""
     cmd = ["diff", "-rq"] + DIFF_EXCLUDES + [str(REF), "."]
     out = subprocess.run(cmd, capture_output=True, text=True,
-                         cwd=TREE).stdout
+                         cwd=SRC).stdout
     found = set()
     for ln in out.splitlines():
         if ln.startswith("Files ") and ln.endswith(" differ"):
@@ -406,7 +406,7 @@ def altered_files():
             d, _, name = rest.partition(": ")
             found.add(f"{d}/{name}" if d else name)
         elif ln.startswith("Only in ") and "cmfgen_reference" in ln:
-            rest = ln.split("cur_cmf/", 1)[1]
+            rest = ln.split("cur_cmf", 1)[1].lstrip("/")
             d, _, name = rest.partition(": ")
             found.add(f"{d}/{name}" if d else name)
     return {p for p in found
