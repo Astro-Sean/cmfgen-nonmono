@@ -30,7 +30,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import (
+from common import (SRC, 
     F90DIR,
     PLOTDIR,
     TREE,
@@ -41,10 +41,10 @@ from common import (
 )
 
 HELPERS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "exponx.f",
-    TREE / "new_main" / "mod_subs" / "control_variable_mod.f",
-    TREE / "subs" / "sob_rh_couple.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "exponx.f",
+    SRC / "new_main" / "mod_subs" / "control_variable_mod.f",
+    SRC / "subs" / "sob_rh_couple.f",
 ]
 
 ND, NSIM = 30, 2
