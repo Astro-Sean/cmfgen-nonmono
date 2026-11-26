@@ -44,6 +44,17 @@
 !   m2m   WP-2 mode 2 on the mixed ray (arg2 as ordm/unom): the
 !         dominant-sign rule keeps the mode-1 ascending start, so
 !         the case must reproduce unom bitwise.
+!   capok WP-3 [KN_GATE_COMMIT_RES] on a converging ray: the
+!         certified commit stores the fixed-point field, so the
+!         post-commit verify reads ~tol and the census is clean.
+!   nccm  flag on, ordered march: the stalled exit is not
+!         certified, so FG_COMMIT_NC writes a bounded provisional
+!         step from the 1e-6 seed -- the store parks far off the
+!         fixed point and the committed verify reads >>tol while
+!         the solve's own bad census can read clean.
+!   nclg  same provisional commit with the flag off: no verify,
+!         no census -- the legacy gate sees only the solve's
+!         reported metrics.
 !
 ! FG_FRESH_DIAG is armed on ord/uno/m2u/m2m; KN_FRESH_FR(p,d,r)
 ! prints as FRESH lines after the solve (dir 1=I_M, 2=I_P, -1
@@ -84,12 +95,15 @@
       IF(CNAME .EQ. 'unomb')NCASE=10
       IF(CNAME .EQ. 'm2u')  NCASE=11
       IF(CNAME .EQ. 'm2m')  NCASE=12
+      IF(CNAME .EQ. 'capok')NCASE=13
+      IF(CNAME .EQ. 'nccm') NCASE=14
+      IF(CNAME .EQ. 'nclg') NCASE=15
       IF(NCASE .EQ. 0)THEN
         WRITE(*,'(A)')'RESULT_FAIL unknown_case'
         GOTO 999
       END IF
       NEXP=0
-      IF(NCASE .GE. 7 .AND. NCASE .NE. 11)THEN
+      IF(NCASE .GE. 7 .AND. NCASE .NE. 11 .AND. NCASE .LT. 13)THEN
         READ(CARG,*,IOSTAT=IOS)NEXP
         IF(IOS .NE. 0 .OR. (NEXP .NE. 2 .AND. NEXP .NE. 5 .AND. &
           NEXP .NE. 8))THEN
@@ -178,6 +192,7 @@
         DO I=1,NIX
           T1=-1.0_LDP
           IF(NCASE .GE. 7 .AND. NCASE .NE. 11 .AND. &
+          NCASE .LT. 13 .AND. &
           I .GE. 2 .AND. I .LE. NIX-1)THEN
             NPAT=10/NEXP
             IF(NEXP .EQ. 8)THEN
@@ -254,12 +269,13 @@
       FG_FREQ_MATCH=(NCASE .NE. 5 .AND. NCASE .NE. 6 .AND. &
         NCASE .NE. 9 .AND. NCASE .NE. 10)
       FG_ORD_SWEEP=(NCASE .EQ. 1 .OR. NCASE .EQ. 3 .OR. &
-        NCASE .EQ. 5 .OR. NCASE .EQ. 7)
+        NCASE .EQ. 5 .OR. NCASE .EQ. 7 .OR. &
+        NCASE .EQ. 14 .OR. NCASE .EQ. 15)
 ! WP-2: cases 11/12 push the concrete order mode; every other
 ! case keeps the -1 sentinel so the solve resolves it from
 ! FG_ORD_SWEEP exactly as before. m2m on a mixed ray resolves
 ! to the mode-1 ascending start, so it must match unom bitwise.
-      IF(NCASE .GE. 11)FG_ORD_MODE=2
+      IF(NCASE .GE. 11 .AND. NCASE .LT. 13)FG_ORD_MODE=2
 !
 ! WP-2 fresh census: arm it on the four diagnostic cases and
 ! allocate the (pass,dir,ray) store the solve fills. -1 marks a
@@ -289,6 +305,10 @@
       INEXT_RELAX=0.5_LDP
       KN_RAY_PACK_MB=2048.0_LDP
       NONMONO_INEXT_CAP=1.0E+20_LDP
+! WP-3: nclg disarms the committed-state verify entirely -- the
+! census slots then stay at -1 and the gate falls back to the
+! pre-commit metrics.
+      IF(NCASE .EQ. 15)CALL SET_FG_GATE_COMMIT_RES(.FALSE.)
       FG_COMMIT_CONV=.TRUE.
       FG_COMMIT_NC=0.05_LDP
       CALL SET_FG_CERT_CONV(.TRUE.)
@@ -311,7 +331,30 @@
 !
       I_P_DEPTH_NEXT=1.0E-6_LDP
       I_M_DEPTH_NEXT=1.0E-6_LDP
+! WP-3: the commit-gate cases drop the seeded mark so the
+! first-commit waiver lets the provisional or certified write
+! through without the jump veto reading the 1e-6 seed delta as
+! a runaway.
       FG_RAY_SEEDED=1
+      IF(NCASE .GE. 13)FG_RAY_SEEDED=0
+!
+! WP-3: on a bare solve call the refresh-level allocs never ran,
+! so the driver arms the committed-census slots and the residual
+! scalar itself. -1 marks a verify that never ran.
+!
+      IF(NCASE .GE. 13)THEN
+        IF(ALLOCATED(FG_NBAD_CM_RAY))DEALLOCATE(FG_NBAD_CM_RAY)
+        IF(ALLOCATED(FG_NTOT_CM_RAY))DEALLOCATE(FG_NTOT_CM_RAY)
+        ALLOCATE(FG_NBAD_CM_RAY(KNP),FG_NTOT_CM_RAY(KNP),STAT=IOS)
+        IF(IOS .NE. 0)GOTO 999
+        FG_NBAD_CM_RAY=-1_8
+        FG_NTOT_CM_RAY=-1_8
+        FG_RF_COMMIT_RES=-1.0_LDP
+        IF(ALLOCATED(FG_RAY_VC))DEALLOCATE(FG_RAY_VC)
+        ALLOCATE(FG_RAY_VC(KNP),STAT=IOS)
+        IF(IOS .NE. 0)GOTO 999
+        FG_RAY_VC=-1
+      END IF
 !
       IF(ALLOCATED(JMP_SIB_M))DEALLOCATE(JMP_SIB_M)
       IF(ALLOCATED(JMP_SIB_P))DEALLOCATE(JMP_SIB_P)
@@ -392,6 +435,20 @@
       IF(ALLOCATED(KN_CS_LS))THEN
         WRITE(*,'(A,I3,A,I3)')'CLS_R=',KN_CS_LS(1), &
       ' ',KN_CS_REA(1)
+      END IF
+!
+! WP-3 committed-state exports: the post-commit verify max-norm,
+! the per-ray bad census, and the commit verdict the chain
+! reached. -1 marks a verify that never ran (flag off, veto, or
+! a ray with no compressing cells).
+!
+      IF(NCASE .GE. 13)THEN
+        WRITE(*,'(A,ES16.8)')'CRES=',FG_RF_COMMIT_RES
+        WRITE(*,'(A,I14)')'CM_NB=',FG_NBAD_CM_RAY(1)
+        WRITE(*,'(A,I14)')'CM_NT=',FG_NTOT_CM_RAY(1)
+        IF(ALLOCATED(FG_RAY_VC))THEN
+          WRITE(*,'(A,I4)')'VC=',FG_RAY_VC(1)
+        END IF
       END IF
       DO K=1,N_COMP
         IF(K .GT. 4 .AND. K .LT. N_COMP-1)CYCLE
