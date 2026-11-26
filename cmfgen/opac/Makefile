@@ -46,8 +46,8 @@ $(EXE_DIR)par_opac.exe :  $(OBJ1) $(FN1) $(FN2) $(FN3) $(FN4) $(FN5)
 %.o : %.f
 	$(F90) -c $(FG)  $<
 
-USR = ../lib/libtools.a(usr_option.o)
-GEN = ../lib/libsubs.a(mod_lev_dis_blk.o)
+USR = $(LIB_DIR)libtools.a(usr_option.o)
+GEN = $(LIB_DIR)libsubs.a(mod_lev_dis_blk.o)
 
 par_opac.o     : par_opac.f      mod_par_opac.o   $(USR)
 par_opac_sub.o : par_opac_sub.f  mod_par_opac.o   $(GEN) \
