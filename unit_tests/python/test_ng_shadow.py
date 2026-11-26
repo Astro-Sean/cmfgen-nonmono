@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PROD_MOD_INC,
@@ -37,12 +37,12 @@ from common import (
 )
 
 HELPERS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "subs" / "ngaccel.f",
-    TREE / "subs" / "equal.f",
-    TREE / "subs" / "x02ajf.f",
-    TREE / "new_main" / "mod_subs" / "control_variable_mod.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "subs" / "ngaccel.f",
+    SRC / "subs" / "equal.f",
+    SRC / "subs" / "x02ajf.f",
+    SRC / "new_main" / "mod_subs" / "control_variable_mod.f",
 ]
 
 NT, ND = 4, 8
@@ -52,7 +52,7 @@ def build():
     md = BINDIR / "obj_ng_shd"
     objs = prod_objs([h for h in HELPERS if is_prod_source(h)])
     objs += prod_objs(
-        [TREE / "new_main" / "subs" / "do_ng_accel_band_v4.f"]
+        [SRC / "new_main" / "subs" / "do_ng_accel_band_v4.f"]
     )
     objs += compile_objs(
         "ng_shd",
