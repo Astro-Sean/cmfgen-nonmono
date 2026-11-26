@@ -45,7 +45,7 @@ all: $(EXE_DIR)cmf_flux.exe $(EXE_DIR)obs_frame.exe
 # 
 
 $(EXE_DIR)cmf_flux.exe :  $(OBJ1) $(FN1) $(FN2) $(FN6) $(FN7) $(INC)
-	ar -xo ../lib/libsubs.a griem_stark_mod.o
+	ar -xo $(LIB_DIR)libsubs.a griem_stark_mod.o
 	# Publish atomically: KEEP_EXE=1 leaves the previous binary live while
 	# build.sh rebuilds, so a queued OBS job must not see a truncated exe.
 	$(F90) $(OBJ1) griem_stark_mod.o \
@@ -87,8 +87,8 @@ cmf_flux_sub_v5.o : cmf_flux_sub_v5.f  mod_cmf_obs.o  mod_freq_obs.o cmf_flux_cn
 
 
 
-USR = ../lib/libtools.a(usr_option.o)
-GEN = ../lib/libmod.a(mod_lev_dis_blk.o)
+USR = $(LIB_DIR)libtools.a(usr_option.o)
+GEN = $(LIB_DIR)libmod.a(mod_lev_dis_blk.o)
 
 rd_cmf_flux_controls.o : cmf_flux_cntrl_var_mod.o
 check_cmf_flux_param_consis.o : cmf_flux_cntrl_var_mod.o
@@ -127,5 +127,5 @@ clean :
 mod_freq_obs.o : mod_freq_obs.f
 mod_freq:
 	$(F90) -c $(OPTION) mod_freq_obs.f
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR) 
