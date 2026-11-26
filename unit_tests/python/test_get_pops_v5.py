@@ -32,16 +32,16 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 
 def build():
     md = BINDIR / "obj_get_pops_v5"
     objs = [
-        prod_obj(TREE / "new_main" / "subs"
+        prod_obj(SRC / "new_main" / "subs"
                  / "get_pops_at_prev_time_step_v5.f"),
-        prod_obj(TREE / "new_main" / "subs"
+        prod_obj(SRC / "new_main" / "subs"
                  / "read_seq_time_file_v1.f"),
     ]
     objs += compile_objs(
