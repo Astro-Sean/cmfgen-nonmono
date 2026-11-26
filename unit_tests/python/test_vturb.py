@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 VMIN, VMAX, VPOW, VEND = 5.0, 25.0, 0.5, 15.0
@@ -42,7 +42,7 @@ V_MO = [40.0, 30.0, 20.0, 15.0, 10.0]
 
 def build():
     md = BINDIR / "obj_vturb"
-    objs = [prod_obj(TREE / "new_main" / "mod_subs"
+    objs = [prod_obj(SRC / "new_main" / "mod_subs"
                      / "set_abund_clump.f")]
     objs += compile_objs(
         "vt_drv", [F90DIR / "drv_vturb.f90"],
