@@ -24,7 +24,7 @@ OBJ = $(LIB)(electron_density_calc_v2.o)\
       $(LIB)(write_array_v2_ISO.o)
 
 all : $(LIB) 
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 	rm -f *.o
 
