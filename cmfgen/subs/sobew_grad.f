@@ -84,7 +84,8 @@ C regularisation, motivated by the transfer problems in Dessart,
 C Audit & Hillier (2015, arXiv:1503.05463). The extra 1D-4 minimum
 C is a CMFGEN-specific numerical safeguard for the sigma=-1 case;
 C it is not part of the published DAH15 expression.
-C Inactive for sigma >= -1, so monotonic flows are unchanged.
+C Inactive for sigma >= -1 + 1e-4, so monotonic flows away from the
+C floor window are unchanged.
 C Matches the guard already in SOBEW_GRAD_V2/V3 (this routine is not
 C currently called, but should not carry the unguarded form).
 C
