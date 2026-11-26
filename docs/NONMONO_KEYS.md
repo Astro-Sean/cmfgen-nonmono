@@ -40,7 +40,10 @@ explicit input and print a banner.
 - Tau floor in `sobjbar_sim.f`, `sobew.f`, `sobew_grad_v2.f`,
   `sobew_grad_v3.f`: for sigma < 0, `|1+sigma*mu^2|` is replaced
   by `max(|1+sigma*mu^2|, -0.2*(1+sigma), 1e-4)`. Bit-identical
-  to upstream for sigma >= -1.
+  to upstream for sigma >= -1 + 1e-4; in the window
+  -1 < sigma < -1 + 1e-4 the 1e-4 arm can bind along near-radial
+  rays (where |1+sigma*mu^2| < 1e-4) even though the flow there is
+  still monotonic.
 - `SUB_SOB_LINE_V3` and the dielectronic `SOBEW` call in
   `cmfgen_sub.f` pass `SIGMA_TRUE` when the flag is set.
   `SUB_SOB_LINE_V3` carries transient-iterate guards on the
@@ -425,6 +428,27 @@ which stamps the same value in the initial VADAT.
     one refresh (alpha=1); `lsrj` rejects an over-relaxed
     expansive step and keeps the prior store
     (test_knop_commit_gate, 18/0).
+- WP-5 signed-Aitken store relaxation (26-Nov-2026):
+  - `KN_OMEGA_SGN` (default F): replaces the FG_ADAPT_OMEGA_V2
+    pool estimate inside the KN_ADAPT_RELAX adaptive branch
+    with a signed vector-Aitken omega priced on the OUTER
+    store-map residual sequence -- the per-slot
+    (fresh - snapshot) defect each sweep write commits
+    against, `x <- snap + omega*r`. omega_{k+1} =
+    -<dx,dr>/<dr,dr> (Ramiere & Helfer 2015, JCP 283, eq. 36;
+    scalar map gives the fixed-point weight 1/(1-lambda) in
+    one step). Guards: denominator collapse holds omega, a
+    non-decreasing residual halves once then falls back to
+    the unaccelerated estimator, the raw price clamps to
+    [KN_OSGN_MIN, KN_OSGN_MAX], and a CHI/ETA_EXT fingerprint
+    move (populations changed) clears the slot history.
+    T2=0 slots are skipped -- the unrelaxed T1 write there
+    never saw omega. The V2 estimator keys the outer step to
+    INNER per-ray pass ratios, a category error that cannot
+    express an over-relaxed step; F keeps it as the default
+    while the armed arm is measured. `test_knop_osgn` 14/0.
+  - `KN_OSGN_MIN` (default 5.0D-2), `KN_OSGN_MAX` (default
+    2.0D0): clamp range for the signed-Aitken omega.
 - `GS_FREEZE` and the freeze/maturity/watchdog stack are
   KNOP-scoped: forced F outside `DO_NONMONO_KNOP`.
 - `DO_KNOP_REFRESH` - converges the lagged J_NEXT/H_NEXT map
