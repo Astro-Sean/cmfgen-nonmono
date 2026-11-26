@@ -58,14 +58,13 @@ HELPERS = [
     "new_main/mod_subs/iter_ledger_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
-    "unit_tests/f90/stub_vadat.f",
 ]
 
 
 def build():
     return compile_and_link_prod(
         "knray_replay",
-        [TREE / h for h in HELPERS] + [F90DIR / "drv_knop_replay.f90"],
+        [SRC / h for h in HELPERS] + [F90DIR / "stub_vadat.f", F90DIR / "drv_knop_replay.f90"],
     )
 
 
