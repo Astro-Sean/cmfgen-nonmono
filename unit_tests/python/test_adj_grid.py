@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 GUARD = "OLD_V must be positive and strictly decreasing"
@@ -27,7 +27,7 @@ GUARD = "OLD_V must be positive and strictly decreasing"
 
 def build():
     md = BINDIR / "obj_adjgrid"
-    objs = [prod_obj(TREE / "misc" / "adjust_atm_r_grid.f")]
+    objs = [prod_obj(SRC / "misc" / "adjust_atm_r_grid.f")]
     objs += compile_objs(
         "adjgrid", [F90DIR / "drv_adj_grid.f90"],
         moddir=md, extra_flags=PROD_MOD_INC)
