@@ -29,21 +29,22 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CMF = (ROOT / "new_main/cmfgen_sub.f").read_text()
-CJB = (ROOT / "new_main/mod_subs/comp_j_blank.f").read_text()
-POPS = (ROOT / "new_main/mod_subs/solve_for_pops.f").read_text()
-BA = (ROOT / "new_main/subs/solveba_v13.f").read_text()
-ILF = (ROOT / "new_main/mod_subs/iter_log_fmt_mod.f90").read_text()
-MK_MOD = (ROOT / "new_main/mod_subs/Makefile").read_text()
-MK_MAIN = (ROOT / "new_main/Makefile").read_text()
-MK_SUBS = (ROOT / "new_main/subs/Makefile").read_text()
-NT_SE = (ROOT / "new_main/subs/non_therm/se_ba_non_therm_v3.f90").read_text()
+SRC = ROOT / "cmfgen"
+CMF = (SRC / "new_main/cmfgen_sub.f").read_text()
+CJB = (SRC / "new_main/mod_subs/comp_j_blank.f").read_text()
+POPS = (SRC / "new_main/mod_subs/solve_for_pops.f").read_text()
+BA = (SRC / "new_main/subs/solveba_v13.f").read_text()
+ILF = (SRC / "new_main/mod_subs/iter_log_fmt_mod.f90").read_text()
+MK_MOD = (SRC / "new_main/mod_subs/Makefile").read_text()
+MK_MAIN = (SRC / "new_main/Makefile").read_text()
+MK_SUBS = (SRC / "new_main/subs/Makefile").read_text()
+NT_SE = (SRC / "new_main/subs/non_therm/se_ba_non_therm_v3.f90").read_text()
 NT_EL = (
-    ROOT / "new_main/subs/non_therm/electron_non_therm_spec.f90"
+    SRC / "new_main/subs/non_therm/electron_non_therm_spec.f90"
 ).read_text()
-RDBA = (ROOT / "new_main/subs/read_ba_data_v3.f").read_text()
-FXP = (ROOT / "new_main/subs/fixpop_in_ba_v3.f").read_text()
-FPC = (ROOT / "new_main/subs/fiddle_pop_corrections_v2.f").read_text()
+RDBA = (SRC / "new_main/subs/read_ba_data_v3.f").read_text()
+FXP = (SRC / "new_main/subs/fixpop_in_ba_v3.f").read_text()
+FPC = (SRC / "new_main/subs/fiddle_pop_corrections_v2.f").read_text()
 
 
 def check(name, passed):
@@ -158,7 +159,7 @@ def test_round2_helpers_and_moment_table():
         "subroutine ilf_repeat_write" in ILF
         and "subroutine ilf_repeat_flush" in ILF,
     )
-    mom = Path("plane/mom_j_cmf_nonmono_v1.f").read_text()
+    mom = (SRC / "plane/mom_j_cmf_nonmono_v1.f").read_text()
     check(
         "moment refresh prints one pass-table header",
         mom.count("CALL ILF_TABLE_HEADER(LUER,TBLC,TBLW,INDENT=2)") == 1,
