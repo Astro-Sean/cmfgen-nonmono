@@ -435,6 +435,14 @@
 	INTEGER*8 GS_SW_NCONV_OBS,GS_NSTAL_OBS,GS_NPLAT_OBS
 	INTEGER*8 GS_SW_CAPPED_OBS,GS_SW_CAPTOT_OBS,GS_RF_CAPPED_OBS
 !
+! WP-3 (26-Nov-2026): committed-state verify exports on the
+! maturity getter; printed alongside the refresh census so the
+! OBS log shows the same committed residual the population gate
+! reads. Diagnostic only.
+!
+	REAL(KIND=LDP) GS_CRES_OBS
+	INTEGER*8 GS_NBAD_CM_OBS,GS_NTOT_CM_OBS
+!
 !
 !
 ! X-ray variables.
@@ -2499,7 +2507,7 @@
 	3    GS_SW_MAXCHG_OBS,GS_SW_NCONV_OBS,GS_RF_DCHG_OBS,
 	4    GS_NSTAL_OBS,GS_NPLAT_OBS,
 	5    GS_SW_CAPPED_OBS,GS_SW_CAPTOT_OBS,GS_RF_CAPPED_OBS,
-	6    GS_ALLCONV_OBS)
+	6    GS_ALLCONV_OBS,GS_CRES_OBS,GS_NBAD_CM_OBS,GS_NTOT_CM_OBS)
 	  WRITE(LUER,'(/,A)')
 	1    ' ------------- KNOP I_NEXT maturity (OBS) -------------'
 	  WRITE(LUER,'(A,L1)')'    checkpoint restored     : ',GS_OK_OBS
