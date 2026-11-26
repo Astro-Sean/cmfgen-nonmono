@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import (
     F90DIR,
+    SRC,
     TREE,
     WORKDIR,
     Report,
@@ -69,7 +70,7 @@ MOM_DLN_MIN = 1.0e-6
 def build():
     return compile_and_link_prod(
         "mom_solve",
-        [TREE / h for h in HELPERS]
+        [SRC / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_solve.f"],
     )
 
@@ -653,7 +654,7 @@ def main():
     # resolutions and the bound must keep the solve admissible.
     exe2x = compile_and_link_prod(
         "mom_solve_nd2x",
-        [TREE / h for h in HELPERS]
+        [SRC / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_solve.f"],
         extra_flags=["-DND_IN=48"],
     )
