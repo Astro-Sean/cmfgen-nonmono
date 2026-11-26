@@ -30,6 +30,7 @@ import numpy as np
 
 UT = Path(__file__).resolve().parent  # unit_tests/
 TREE = UT.parent  # cmfgen_jfnk/
+SRC = TREE / "cmfgen"  # production source tree (26-Nov-2026 reorganisation)
 REF = TREE.parent / "cmfgen_reference" / "cur_cmf"
 BINDIR = UT / "bin"
 PLOTDIR = UT / "plots"
@@ -441,22 +442,21 @@ def prod_objs(srcs):
     for s in list(srcs):
         for comp in _PROD_COMPANION_SOURCES.get(s.name, []):
             if Path(comp).name not in have:
-                srcs.append(TREE / comp)
+                srcs.append(SRC / comp)
                 have.add(Path(comp).name)
     return [prod_obj(s) for s in srcs]
 
 
 def is_prod_source(path):
     """True when `path` is a production tree source with a .o in the
-    production build - i.e. under TREE but outside unit_tests/ and
-    tests/.  Drivers, stubs, adapters (unit_tests/f90, tests/f90)
-    and reference-tree files return False and must be compiled
-    fresh."""
+    production build - i.e. under cmfgen/ (SRC).  Drivers, stubs,
+    adapters (unit_tests/f90, tests/f90) and reference-tree files
+    return False and must be compiled fresh."""
     try:
         rel = Path(path).resolve().relative_to(TREE.resolve())
     except ValueError:
         return False
-    return rel.parts[0] not in ("unit_tests", "tests")
+    return rel.parts[0] == "cmfgen"
 
 
 def _prod_mod_mtime():
@@ -520,7 +520,7 @@ def compile_and_link_prod(name, sources, moddir=None, extra_flags=None):
     for s in list(prod):
         for comp in _PROD_COMPANION_SOURCES.get(s.name, []):
             if Path(comp).name not in have:
-                prod.append(TREE / comp)
+                prod.append(SRC / comp)
                 have.add(Path(comp).name)
     objs = prod_objs(prod) if prod else []
     if test:
@@ -671,8 +671,8 @@ def prod_comp_flags(suffix):
     key = "ffree" if suffix.lower() == ".f90" else "fg"
     if key not in _prod_flag_cache:
         var = "FFREE" if key == "ffree" else "FG"
-        f90 = shlex.split(_probe_make_var("F90", TREE / "subs"))
-        opt = _strip_mod_path_flags(_probe_make_var(var, TREE / "subs"))
+        f90 = shlex.split(_probe_make_var("F90", SRC / "subs"))
+        opt = _strip_mod_path_flags(_probe_make_var(var, SRC / "subs"))
         _prod_flag_cache[key] = f90 + opt
     return list(_prod_flag_cache[key])
 
@@ -683,9 +683,9 @@ def prod_link_flags():
     global _prod_link_cache
     _require_ifort()
     if _prod_link_cache is None:
-        f90 = shlex.split(_probe_make_var("F90", TREE / "subs"))
-        lapack = shlex.split(_probe_make_var("LAPACK", TREE / "subs"))
-        blas = shlex.split(_probe_make_var("BLAS", TREE / "subs"))
+        f90 = shlex.split(_probe_make_var("F90", SRC / "subs"))
+        lapack = shlex.split(_probe_make_var("LAPACK", SRC / "subs"))
+        blas = shlex.split(_probe_make_var("BLAS", SRC / "subs"))
         _prod_link_cache = (f90, lapack + blas)
     return _prod_link_cache
 
