@@ -23,7 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PLOTDIR,
@@ -40,10 +40,10 @@ from common import (
 )
 
 HELPERS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "unix" / "gen_asci_open.f",
-    TREE / "subs" / "set_case.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "unix" / "gen_asci_open.f",
+    SRC / "subs" / "set_case.f",
 ]
 
 ND = 20
@@ -63,7 +63,7 @@ def build():
     for tag in ("new", "ref"):
         if tag == "new":
             objs = [
-                prod_obj(TREE / "newsubs" / "rd_rv_file_v2.f"),
+                prod_obj(SRC / "newsubs" / "rd_rv_file_v2.f"),
             ]
         else:
             objs = compile_objs(
