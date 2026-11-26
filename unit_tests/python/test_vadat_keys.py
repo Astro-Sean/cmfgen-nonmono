@@ -1515,6 +1515,29 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # -- WP-3 --------------------------------------------------
+    # KN_GATE_COMMIT_RES defaults T: the gate reads the committed
+    # state unless a deck explicitly disarms the verify.
+    d = write_vadat(WORKDIR / "vadat_wp3_abs", knop_base)
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-3 KN_GATE_COMMIT_RES absent defaults T",
+        "RESULT_OK" in p.stdout and v.get("KN_GATE_COMMIT_RES") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_wp3_off",
+        dict(knop_base, **{"KN_GATE_COMMIT_RES": "F"}),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-3 KN_GATE_COMMIT_RES=F parses and lands",
+        "RESULT_OK" in p.stdout and v.get("KN_GATE_COMMIT_RES") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 
