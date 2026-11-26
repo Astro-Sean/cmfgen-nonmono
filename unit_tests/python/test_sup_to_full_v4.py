@@ -26,15 +26,15 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import F90DIR, TREE, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, TREE, Report, compile_and_link_prod, run
 
 SOURCES = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "new_main" / "mod_subs" / "mod_cmfgen.f",
-    TREE / "new_main" / "mod_subs" / "mod_lev_dis_blk.f",
-    TREE / "subs" / "occupation_prob.f",
-    TREE / "subs" / "sup_to_full_v3b.f",
-    TREE / "new_main" / "mod_subs" / "sup_to_full_v4.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "new_main" / "mod_subs" / "mod_cmfgen.f",
+    SRC / "new_main" / "mod_subs" / "mod_lev_dis_blk.f",
+    SRC / "subs" / "occupation_prob.f",
+    SRC / "subs" / "sup_to_full_v3b.f",
+    SRC / "new_main" / "mod_subs" / "sup_to_full_v4.f",
     F90DIR / "drv_sup_to_full_v4.f90",
 ]
 
