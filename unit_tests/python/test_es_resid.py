@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     TREE,
@@ -42,13 +42,13 @@ from common import (
 )
 
 RESID_SRCS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "obs" / "es_resid_diag.f",
-    TREE / "subs" / "write_direct_info_v3.f",
-    TREE / "tools" / "chk_little_endian.f",
-    TREE / "tools" / "get_lu.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "unix" / "dir_acc_pars_gen.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "obs" / "es_resid_diag.f",
+    SRC / "subs" / "write_direct_info_v3.f",
+    SRC / "tools" / "chk_little_endian.f",
+    SRC / "tools" / "get_lu.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "unix" / "dir_acc_pars_gen.f",
     F90DIR / "drv_es_resid.f90",
 ]
 
