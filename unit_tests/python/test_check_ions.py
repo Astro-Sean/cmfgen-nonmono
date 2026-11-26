@@ -23,13 +23,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 
 def build():
     md = BINDIR / "obj_check_ions"
-    objs = [prod_obj(TREE / "new_main" / "subs"
+    objs = [prod_obj(SRC / "new_main" / "subs"
                      / "check_ions_present.f")]
     objs += compile_objs(
         "ci_drv", [F90DIR / "drv_check_ions.f90"],
