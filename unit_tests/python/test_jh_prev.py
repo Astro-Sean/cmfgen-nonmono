@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 STOP_CASES = [
@@ -50,8 +50,8 @@ STOP_CASES = [
 def build():
     md = BINDIR / "obj_jh"
     objs = [
-        prod_obj(TREE / "plane" / "get_jh_at_prev_time_step.f"),
-        prod_obj(TREE / "subs" / "write_direct_info_v3.f"),
+        prod_obj(SRC / "plane" / "get_jh_at_prev_time_step.f"),
+        prod_obj(SRC / "subs" / "write_direct_info_v3.f"),
     ]
     objs += compile_objs(
         "jh_drv", [F90DIR / "drv_jh_prev.f90"],
