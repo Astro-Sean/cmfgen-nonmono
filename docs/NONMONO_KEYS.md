@@ -377,6 +377,27 @@ which stamps the same value in the initial VADAT.
     claimed was zero. Stored per (pass, dir, ray) in
     `KN_FRESH_FR` (dir 1=I_M, 2=I_P, -1 = pass never ran) and
     printed on LUER; the solve is unchanged.
+- WP-3 committed-state gate (26-Nov-2026):
+  - `KN_GATE_COMMIT_RES` (default T): after each ray's commit
+    decision writes a store, run one L_QP verify pass on the
+    committed point -- the production field at unstored cells,
+    the committed store at stored cells -- and fold its max-norm
+    residual (`FG_RF_COMMIT_RES`) plus the committed bad-cell
+    census (per-ray `FG_NBAD_CM_RAY`/`FG_NTOT_CM_RAY`, summed to
+    `FG_CM_NBAD`/`FG_CM_NTOT`) into the maturity exports. The
+    `GS_MAX_ALL`/`GS_NBAD_EFF` feed in `solve_for_pops` reads
+    the committed metrics when the census exists, falling back
+    to the pre-commit residual/best-pass census only when the
+    verify never ran (flag off, or no store written that
+    refresh). Motivation: the pre-commit metrics measure the
+    solve's own iterate, not what `WRITE_STORE`/`WRITE_STORE_CAP`
+    actually kept -- a capped provisional commit can park the
+    store far off the fixed point while the best-pass census
+    reads clean. The m15-arm fixture records the contract:
+    `nccm` holds at CRES=1.4e5 with 55552 committed bad cells
+    on an NC-bounded write where the legacy census reported 0;
+    `capok` certifies at ~4e-16; `nclg` disarms
+    (test_knop_commit_gate, 10/0).
 - `GS_FREEZE` and the freeze/maturity/watchdog stack are
   KNOP-scoped: forced F outside `DO_NONMONO_KNOP`.
 - `DO_KNOP_REFRESH` - converges the lagged J_NEXT/H_NEXT map
