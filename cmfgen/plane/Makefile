@@ -88,7 +88,7 @@ OBJ = $(LIB)(add_dust_eta.o)\
       $(LIB)(velocity_law.o)
 
 all : $(LIB)
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 	rm -f *.o
 
