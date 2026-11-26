@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, TREE, Report, compile_driver, run
+from common import SRC, F90DIR, TREE, Report, compile_driver, run
 
 
 def main():
@@ -14,7 +14,7 @@ def main():
     binary = compile_driver(
         "drv_jfnk_t_fixed",
         [
-            TREE / "new_main" / "mod_subs" / "jfnk_t_fixed_mode_v1.f",
+            SRC / "new_main" / "mod_subs" / "jfnk_t_fixed_mode_v1.f",
             F90DIR / "drv_jfnk_t_fixed.f90",
         ],
     )
