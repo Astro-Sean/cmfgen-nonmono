@@ -29,29 +29,29 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (F90DIR, REF, TREE, Report, compile_and_link_prod,
+from common import (SRC, F90DIR, REF, TREE, Report, compile_and_link_prod,
                     run)
 
 SHARED = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "plane" / "mod_space_grid_v2.f",
-    TREE / "subs" / "mon_interp.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "plane" / "velocity_law.f",
-    TREE / "plane" / "derivs.f",
-    TREE / "plane" / "derivr.f",
-    TREE / "plane" / "runge_kutta.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "plane" / "mod_space_grid_v2.f",
+    SRC / "subs" / "mon_interp.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "plane" / "velocity_law.f",
+    SRC / "plane" / "derivs.f",
+    SRC / "plane" / "derivr.f",
+    SRC / "plane" / "runge_kutta.f",
 ]
 DRV = F90DIR / "drv_characteristics.f90"
 GAM_SOURCES = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "plane" / "mod_space_grid_v2_gam.f",
-    TREE / "subs" / "mon_interp.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "plane" / "velocity_law.f",
-    TREE / "plane" / "derivs.f",
-    TREE / "plane" / "derivr.f",
-    TREE / "plane" / "runge_kutta.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "plane" / "mod_space_grid_v2_gam.f",
+    SRC / "subs" / "mon_interp.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "plane" / "velocity_law.f",
+    SRC / "plane" / "derivs.f",
+    SRC / "plane" / "derivr.f",
+    SRC / "plane" / "runge_kutta.f",
 ]
 DRV_GAM = F90DIR / "drv_characteristics_gam.f90"
 
@@ -72,7 +72,7 @@ def main():
     rep = Report("CHARACTERISTICS_V2 clamp + ABS(dV)")
     prod = compile_and_link_prod(
         "drv_characteristics",
-        SHARED + [TREE / "plane" / "characteristics_v2.f", DRV])
+        SHARED + [SRC / "plane" / "characteristics_v2.f", DRV])
     ref = compile_and_link_prod(
         "drv_characteristics_ref",
         SHARED + [REF / "plane" / "characteristics_v2.f", DRV])
@@ -128,7 +128,7 @@ def main():
 
     gam_prod = compile_and_link_prod(
         "drv_characteristics_gam",
-        GAM_SOURCES + [TREE / "plane" / "characteristics_v2_gam.f",
+        GAM_SOURCES + [SRC / "plane" / "characteristics_v2_gam.f",
                        DRV_GAM])
     gam_ref = compile_and_link_prod(
         "drv_characteristics_gam_ref",
