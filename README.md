@@ -26,6 +26,18 @@ The observed-frame continuum rescue described below is enabled by default.
   `USE_LAM_ES=T` and `DO_NONMONO_FREQ_MATCH=T` so the lagged map
   stays non-expanding. Lagged `I_NEXT`/`J_NEXT` maps are checkpointed
   across restarts and refreshed before each population update.
+  Since 26-Nov-2026 the refresh marches with the alternating
+  frequency-major sweep: the ordered characteristic march reads a
+  stale donor share on inserted ray points and stalls, reproduced in
+  `unit_tests/python/test_knop_ordering.py`.
+  `CHECK_PARAM_CONSISTENCY` stops a broken tolerance ladder on the
+  formal-solver routes: `KN_RAY_BULK_TOL` (default 0, the bulk exit
+  disabled) must sit below the maturity gate `GS_MATURE_TOL` (a
+  read-only key), `KN_RAY_TOL` must be at least a factor ten tighter,
+  and an explicit `FG_COMMIT_NC` equal to the gate is rejected. The
+  all-ray census counts only rays that carry a transfer domain; a
+  single-point ray certifies vacuously under `KN_NI1_FULL`
+  (default T) and leaves the convergence verdict to the marched rays.
 - **Non-monotonic Sobolev treatment** (Dessart, Audit & Hillier
   2015): the unclamped velocity gradient drives the line opacity in
   the compression zone and the optical-depth denominator is floored
