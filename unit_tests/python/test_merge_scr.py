@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE,
                     Report, compile_objs, link_prod, prod_obj)
 
 ND = 700
@@ -28,9 +28,9 @@ NT = 4
 
 def build(name):
     md = BINDIR / ("obj_" + name)
-    src = TREE / "misc" / "merge_scr.f"
+    src = SRC / "misc" / "merge_scr.f"
     if name == "mkscr":
-        objs = [prod_obj(TREE / "subs" / "scr_read_v2.f")]
+        objs = [prod_obj(SRC / "subs" / "scr_read_v2.f")]
         objs += compile_objs(
             "mkscr", [F90DIR / "mk_scr.f90"],
             moddir=md, extra_flags=PROD_MOD_INC)
@@ -41,7 +41,7 @@ def build(name):
     # Makefile recipes use), then link like a misc exe.
     objs = compile_objs("merge_scr", [src], moddir=md, prod=True,
                         extra_flags=PROD_MOD_INC)
-    obj1 = [TREE / "misc" / o for o in (
+    obj1 = [SRC / "misc" / o for o in (
         "set_hydro_hd_loc.o", "update_pg_filename.o",
         "adjust_atm_r_grid.o", "rd_f_to_s_ids.o", "rd_ba_mat.o",
         "rd_f_to_s_ids_v2.o", "write_osc_v2.o")]
