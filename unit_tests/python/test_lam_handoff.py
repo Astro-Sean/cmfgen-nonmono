@@ -40,8 +40,8 @@ WORK.mkdir(parents=True, exist_ok=True)
 binpath = common.compile_and_link_prod(
     "drv_lam_handoff",
     [
-        common.TREE / "tools" / "set_kind_module.f",
-        common.TREE / "new_main" / "mod_subs" / "lam_handoff_mod.f90",
+        common.SRC / "tools" / "set_kind_module.f",
+        common.SRC / "new_main" / "mod_subs" / "lam_handoff_mod.f90",
         common.F90DIR / "drv_lam_handoff.f90",
     ],
 )
@@ -183,7 +183,7 @@ REP.check(
 
 # ---- Production integration source pins ---------------------------
 def src(rel):
-    return (common.TREE / rel).read_text()
+    return (common.SRC / rel).read_text()
 
 
 sfp = src("new_main/mod_subs/solve_for_pops.f")
