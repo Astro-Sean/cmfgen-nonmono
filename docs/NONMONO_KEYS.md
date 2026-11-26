@@ -1,9 +1,9 @@
 # NONMONO_KEYS.md - VADAT and OBS key reference (non-monotonic fork)
 
 Per-key reference for the control keys added or modified by this
-fork. Sources of truth: `new_main/mod_subs/control_variable_mod.f`
-(declarations), `new_main/mod_subs/rd_control_variables.f`
-(parsing + auto-sets), `new_main/mod_subs/check_param_consistency.f`
+fork. Sources of truth: `cmfgen/new_main/mod_subs/control_variable_mod.f`
+(declarations), `cmfgen/new_main/mod_subs/rd_control_variables.f`
+(parsing + auto-sets), `cmfgen/new_main/mod_subs/check_param_consistency.f`
 (rejections). `docs/CHECKLIST.md` is authoritative for current
 status; dated notes below are historical records of when/why a
 behaviour landed, not a live status board.
@@ -29,7 +29,7 @@ explicit input and print a banner.
   centred differences on R,V. `SIGMA` keeps its infrastructure
   clamp so the moment equations and continuum formal solver are
   untouched. `RECOMPUTE_SIGMA_TRUE`
-  (`new_main/subs/recompute_sigma_true.f`) fills it at model setup,
+  (`cmfgen/new_main/subs/recompute_sigma_true.f`) fills it at model setup,
   after `DO_WIND_VEL_V1`, after NG acceleration, and after
   `ADJUST_R_GRID_V4` grid revision. Under `DO_NONMONO_SOB` it also
   re-clamps `SIGMA` to `>= -0.999` (the model readers leave `SIGMA`
@@ -51,8 +51,8 @@ explicit input and print a banner.
   `U_STAR_RATIO`) that can vanish on a bad Lambda iterate.
   Identical results for valid iterates.
 - `DO_NONMONO_KNOP` - Knop comoving-frame arbitrary-velocity
-  pathway (`plane/fg_j_cmf_nonmono_v1.f`,
-  `plane/mom_j_cmf_nonmono_v1.f`). Reference/diagnostic only for
+  pathway (`cmfgen/plane/fg_j_cmf_nonmono_v1.f`,
+  `cmfgen/plane/mom_j_cmf_nonmono_v1.f`). Reference/diagnostic only for
   new configs (user directive 11-Nov-2026).
 - `DO_JFNK` - optional Newton-Krylov population solver; admission
   gated on `USE_LAM_ES=T`.
@@ -118,7 +118,7 @@ to OUTGEN; auto-sets print ` SOB auto-set:` lines.
 
 `VEL_LAW` is a stock key, but this fork modifies two of its
 readers and adds two more, so the dispatch table lives here.
-Dispatch in `new_main/cmfgen_sub.f` (VELTYPE):
+Dispatch in `cmfgen/new_main/cmfgen_sub.f` (VELTYPE):
 
 - `VEL_LAW=11` - `SET_RV_HYDRO_MODEL_V3`: reads R/V/SIGMA verbatim
   from `RDINR` when `RD_IN_R_GRID=T`. `MODEL_SPEC ND` must equal
@@ -472,7 +472,7 @@ which stamps the same value in the initial VADAT.
   flux; with the floor on, injected SOB emissivity is 3.35E17 vs
   ~2/3 of that dropped before (m15 2.82d esali OBS). Added
   28-Oct-2026.
-- `DO_KNOP_SPEC_GATE` (default T): `obs/knop_spec_gate.f`
+- `DO_KNOP_SPEC_GATE` (default T): `cmfgen/obs/knop_spec_gate.f`
   classifies GS_STATE + stall marker + manifest before the
   OBSFLUX/OBSFRAME writes; non-converged KNOP models stop under T
   or render a marked diagnostic under the F opt-out
@@ -552,7 +552,7 @@ solve.
 (KNOP-only), `USE_JFNK` (deprecated alias), `JFNK_LAG_FACTORS`,
 `JFNK_FRZ_GATE`, `JFNK_GATE_NREQ`, `JFNK_FIXT` (fixed-T lock
 honoured even on non-Lambda iterations). Implementation:
-`new_main/mod_subs/jfnk_solver_v1.f90` and the `jfnk_*` modules;
+`cmfgen/new_main/mod_subs/jfnk_solver_v1.f90` and the `jfnk_*` modules;
 semantics per `../AGENTS.md` section 8.
 
 ## 8. Historical status notes
