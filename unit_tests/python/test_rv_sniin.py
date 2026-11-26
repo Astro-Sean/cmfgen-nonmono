@@ -32,7 +32,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PLOTDIR,
@@ -49,9 +49,9 @@ from common import (
 )
 
 TREE_HELPERS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "subs" / "lin_interp.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "subs" / "lin_interp.f",
 ]
 
 ND = 20
