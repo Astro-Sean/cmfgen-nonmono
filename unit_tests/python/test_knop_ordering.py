@@ -107,6 +107,12 @@ def parse_out(text):
     m = re.search(r"CLS_R=\s*(\S+)\s+(\S+)", text)
     out["cls"] = (int(m.group(1)), int(m.group(2))) if m else None
     out["ok"] = "RESULT_OK" in text
+    out["fresh_m"] = [
+        _f(m[1]) for m in re.findall(r"FRESH_M\s+(\d+)\s+(\S+)", text)
+    ]
+    out["fresh_p"] = [
+        _f(m[1]) for m in re.findall(r"FRESH_P\s+(\d+)\s+(\S+)", text)
+    ]
     out["text"] = text
     return out
 
@@ -132,6 +138,7 @@ def main():
         ("ordm", "8"), ("unom", "8"),
         ("ordmb", "2"), ("unomb", "2"), ("ordmb", "5"), ("unomb", "5"),
         ("ordmb", "8"), ("unomb", "8"),
+        ("m2u", ""), ("m2m", "2"), ("m2m", "5"), ("m2m", "8"),
     ):
         r = run(bin_, case, arg, cwd=WORKDIR, check=False)
         d = parse_out(r.stdout)
@@ -229,6 +236,70 @@ def main():
         data[("ord", "")]["nmax"] == 3 and data[("ordb", "")]["nmax"] == 1,
         f"nmax ord={data[('ord','')]['nmax']} ordb={data[('ordb','')]['nmax']}",
     )
+
+    # -- WP-2 freshness contract. KN_FRESH_FR records, per pass,
+    #    the share of |Q| donor weight the march read from a
+    #    not-yet-updated cell. On this fixture WINX=0.95 parks the
+    #    compressing share on the deeper row J+1.
+    #
+    #    ord (mode 0): the I_M march fronts rows ascending, so
+    #    JPR2=J+1 is unmarched -- stale share ~WINX. On I_P rows
+    #    descend and J+1 is done -- stale ~0. The asymmetry is the
+    #    measured defect: the ordered march's lag lives entirely
+    #    in the I_M WINX share, not in "never waits a pass".
+    d = data[("ord", "")]
+    rep.check(
+        "ord fresh: pass1 I_M stale ~WINX, I_P ~0",
+        len(d["fresh_m"]) >= 1
+        and d["fresh_m"][0] > 0.85
+        and len(d["fresh_p"]) >= 1
+        and d["fresh_p"][0] < 0.10,
+        f"fresh_m={d['fresh_m'][:3]} fresh_p={d['fresh_p'][:3]}",
+    )
+
+    #    uno (mode 1): pass 1 ascends, so every compressing donor
+    #    column is pending -- stale ~1. Pass 2 descends and the
+    #    whole column is fresh -- stale ~0. The alternating pair
+    #    is why the frequency-major sweep converges at all here.
+    d = data[("uno", "")]
+    rep.check(
+        "uno fresh: pass1 stale ~1, pass2 fresh ~0",
+        len(d["fresh_m"]) >= 2
+        and d["fresh_m"][0] > 0.90
+        and d["fresh_m"][1] < 0.10,
+        f"fresh_m={d['fresh_m'][:4]}",
+    )
+
+    #    m2u (mode 2): uniform-compressing first pass descends, so
+    #    pass 1 reads fresh donors where mode 1 spent a full stale
+    #    pass. Pass 2 is the stale ascending half of the pair.
+    d = data[("m2u", "")]
+    rep.check(
+        "m2u: clean exit <=8 passes, resid < KN_RAY_TOL",
+        d["nxit"] == 1 and d["resid"] < KN_RAY_TOL and d["npass"] <= 8,
+        f"nxit={d['nxit']} npass={d['npass']} resid={d['resid']:.3e}",
+    )
+    rep.check(
+        "m2u fresh: pass1 (descending) ~0, pass2 stale ~1",
+        len(d["fresh_m"]) >= 2
+        and d["fresh_m"][0] < 0.10
+        and d["fresh_m"][1] > 0.90,
+        f"fresh_m={d['fresh_m'][:4]}",
+    )
+
+    #    m2m (mode 2 on the mixed ray): the dominant-sign rule
+    #    keeps the mode-1 ascending start, so the case must match
+    #    unom bitwise at every expanding fraction.
+    for f in ("2", "5", "8"):
+        dm, du = data[("m2m", f)], data[("unom", f)]
+        rep.check(
+            f"m2m{f}: bitwise identical to unom{f} (mode 1 on mixed)",
+            dm["npass"] == du["npass"]
+            and dm["nxit"] == du["nxit"]
+            and dm["resid"] == du["resid"],
+            f"m2m npass={dm['npass']} nxit={dm['nxit']} resid={dm['resid']:.3e}"
+            f" vs unom npass={du['npass']} nxit={du['nxit']} resid={du['resid']:.3e}",
+        )
 
     return rep.summary()
 
