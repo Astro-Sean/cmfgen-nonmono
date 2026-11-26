@@ -7,4 +7,4 @@ f90 -c $FFLAG hiabs.f
 f90 -c $FFLAG num_rec.f
 f90 -c $FFLAG uvabs.f
 #
-ar -ruv ../../lib/libspec.a *.o
+ar -ruv ../../../lib/libspec.a *.o
