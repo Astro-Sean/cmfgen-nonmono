@@ -1055,6 +1055,26 @@
 !
 	REAL(KIND=LDP) FG_RF_PEND
 !
+! WP-3 [KN_GATE_COMMIT_RES] (26-Nov-2026): committed-state
+! verification. After WRITE_STORE / WRITE_STORE_CAP the ray runs
+! one non-committing L_QP pass seeded from the store it just
+! wrote; the pass max-norm accumulates into FG_RF_COMMIT_RES and
+! the bad-cell census lands in the per-ray slots
+! FG_NBAD_CM_RAY/FG_NTOT_CM_RAY, summed to FG_GS_NBAD_CM/
+! FG_GS_NTOT_CM at refresh end. The maturity gate in
+! SOLVE_FOR_POPS then reads the store it actually kept rather
+! than the best-pass residual the solve reported -- a capped or
+! otherwise off-fixed-point commit holds the gate instead of
+! certifying on the solve's own residual. FG_GS_NTOT_CM=-1 means
+! no committed census exists (flag off or nothing written), so
+! the gate falls back to the legacy pre-commit metrics.
+!
+	LOGICAL KN_GATE_COMMIT_RES
+	REAL(KIND=LDP) FG_RF_COMMIT_RES
+	INTEGER*8 FG_GS_NBAD_CM,FG_GS_NTOT_CM
+	INTEGER*8, ALLOCATABLE, SAVE :: FG_NBAD_CM_RAY(:)
+	INTEGER*8, ALLOCATABLE, SAVE :: FG_NTOT_CM_RAY(:)
+!
 ! KN_RF_TOT_MB: total refresh memory budget (MB) across all OMP
 ! threads. Each thread in KNOP_RAY_SOLVE_V1 can hold ~80 B per
 ! (depth,frequency) cell (8-array coefficient pack + FLD + work), so
@@ -1248,6 +1268,13 @@
 	DATA KN_RF_RESID /0.0_LDP/
 	DATA FG_RF_DCHG /0.0_LDP/
 	DATA FG_RF_PEND /0.0_LDP/
+!
+! WP-3 committed-state gate: default T so a committed write is
+! always re-measured unless VADAT opts out (KN_GATE_COMMIT_RES).
+!
+	DATA KN_GATE_COMMIT_RES /.TRUE./
+	DATA FG_RF_COMMIT_RES /-1.0_LDP/
+	DATA FG_GS_NBAD_CM /0_8/,FG_GS_NTOT_CM /-1_8/
 !
 ! KNOP_DUMP_TOPO: diagnostic-only topology-checkpoint hook (P1-T1h).
 ! When set, FG_KNOP_REFRESH_V1 calls DUMP_KNOP_TOPO_V1 once, at the
@@ -7429,7 +7456,8 @@ C
 	3                             SW_MAXCHG,SW_NCONV,RF_DCHG,
 	4                             NBAD_STAL,NBAD_PLAT,
 	5                             SW_CAPPED,SW_CAPTOT,RF_CAPPED,
-	6                             RF_ALLCONV)
+	6                             RF_ALLCONV,COMMIT_RES,NBAD_CM,
+	7                             NTOT_CM)
 	USE SET_KIND_MODULE
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
 	1     I_NEXT_GS_OK,FG_GS_CHG_FILE,FG_GS_CAP_FILE,
@@ -7438,7 +7466,8 @@ C
 	4     FG_SW_MAXCHG,FG_SW_NCONV,FG_RF_DCHG,FG_RF_PEND,
 	5     FG_GS_NSTAL,FG_GS_NPLAT,FG_RF_FAILED,
 	6     FG_SW_CAPPED,FG_SW_CAPTOT,FG_RF_CAPPED,
-	7     FG_RF_ALL_CONV
+	7     FG_RF_ALL_CONV,FG_RF_COMMIT_RES,FG_GS_NBAD_CM,
+	8     FG_GS_NTOT_CM
 	IMPLICIT NONE
 	LOGICAL GS_OK
 	REAL(KIND=LDP) CHG_FILE,MAXCHG,SW_MAXCHG,RF_DCHG
@@ -7446,6 +7475,15 @@ C
 	INTEGER*8 NBAD,NTOT,NCONV,NBAD_BLK,SW_NCONV
 	INTEGER*8 NBAD_STAL,NBAD_PLAT
 	INTEGER*8 SW_CAPPED,SW_CAPTOT,RF_CAPPED
+!
+! WP-3 [KN_GATE_COMMIT_RES] appended fields (26-Nov-2026):
+! COMMIT_RES is the committed-state verify max-norm (-1 when no
+! ray committed or the flag is off); NBAD_CM/NTOT_CM are the
+! actually-written bad-cell census and its coverage (NTOT_CM=-1:
+! no census -- the gate falls back to the legacy metrics).
+!
+	REAL(KIND=LDP) COMMIT_RES
+	INTEGER*8 NBAD_CM,NTOT_CM
 ! RF_ALLCONV (Phase 2.17): the last completed refresh's all-ray
 ! verdict; the caller folds it into the final-acceptance gate so a
 ! provisional field can never certify as a converged solution.
@@ -7495,6 +7533,9 @@ C
 	SW_CAPTOT=FG_SW_CAPTOT
 	RF_CAPPED=FG_RF_CAPPED
 	RF_ALLCONV=FG_RF_ALL_CONV
+	COMMIT_RES=FG_RF_COMMIT_RES
+	NBAD_CM=FG_GS_NBAD_CM
+	NTOT_CM=FG_GS_NTOT_CM
 	RETURN
 	END
 !
@@ -8626,6 +8667,18 @@ C
 	RETURN
 	END
 !
+! SET_FG_GATE_COMMIT_RES: arm the WP-3 committed-state verify
+! (default T). F keeps the legacy path -- the maturity gate then
+! reads the pre-commit residual as before.
+!
+	SUBROUTINE SET_FG_GATE_COMMIT_RES(DO_G)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_GATE_COMMIT_RES
+	IMPLICIT NONE
+	LOGICAL DO_G
+	KN_GATE_COMMIT_RES=DO_G
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_FREEZE_COEF(DO_FZ)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_FREEZE_COEF
 	IMPLICIT NONE
@@ -9512,6 +9565,22 @@ C
 	  FG_RAY_VC=-1
 	  FG_RAY_DCH=0.0_LDP
 	END IF
+!
+! WP-3 committed census [KN_GATE_COMMIT_RES]: per-ray slots the
+! post-commit verify pass fills. -1 marks rays whose commit was
+! vetoed or that never reached the commit decision -- the
+! actually-written census sums only slots >= 0.
+!
+	IF(ALLOCATED(FG_NBAD_CM_RAY))DEALLOCATE(FG_NBAD_CM_RAY)
+	IF(ALLOCATED(FG_NTOT_CM_RAY))DEALLOCATE(FG_NTOT_CM_RAY)
+	ALLOCATE(FG_NBAD_CM_RAY(KN_NP),FG_NTOT_CM_RAY(KN_NP),STAT=IOS)
+	IF(IOS .EQ. 0)THEN
+	  FG_NBAD_CM_RAY=-1_8
+	  FG_NTOT_CM_RAY=-1_8
+	END IF
+	FG_RF_COMMIT_RES=-1.0_LDP
+	FG_GS_NBAD_CM=0_8
+	FG_GS_NTOT_CM=MERGE(0_8,-1_8,KN_GATE_COMMIT_RES)
 	IF(ALLOCATED(FG_RAY_WI))DEALLOCATE(FG_RAY_WI)
 	IF(ALLOCATED(FG_RAY_WL))DEALLOCATE(FG_RAY_WL)
 	IF(ALLOCATED(FG_RAY_WS))DEALLOCATE(FG_RAY_WS)
@@ -10118,6 +10187,19 @@ C
 	FG_GS_NTOT=SUM(NTT_LS,MASK=KN_PROD_MASK)
 	FG_GS_NBAD_BLK=SUM(NBB_LS,MASK=KN_PROD_MASK)
 	FG_GS_NTOT_BLK=SUM(NTB_LS,MASK=KN_PROD_MASK)
+!
+! WP-3 committed census: the post-commit verify fills
+! FG_NBAD_CM_RAY only on rays whose WRITE_STORE /
+! WRITE_STORE_CAP actually ran; vetoed or unsolved rays keep -1
+! and fall out of the sum, so the gate reads only cells the
+! refresh really wrote.
+!
+	IF(KN_GATE_COMMIT_RES .AND. ALLOCATED(FG_NBAD_CM_RAY))THEN
+	  FG_GS_NBAD_CM=SUM(FG_NBAD_CM_RAY,
+	1    MASK=FG_NBAD_CM_RAY .GE. 0_8)
+	  FG_GS_NTOT_CM=SUM(FG_NTOT_CM_RAY,
+	1    MASK=FG_NTOT_CM_RAY .GE. 0_8)
+	END IF
 	WRITE(LUER,'(/,A)')' --------------------------------- KNOP FIELD ----------------------------------'
 	WRITE(LUER,'(A)')'  KNOP I_NEXT refresh (lagged coupling):'
 	WRITE(LUER,'(A,ES12.4,A,ES9.1,A)')
@@ -11022,6 +11104,15 @@ C
 	INTEGER*8 NB_BQ,NT_BQ,NPT2_SV,NCLS_SV(4)
 	INTEGER WRC_SV(8)
 	LOGICAL LDVS_SV,LCES_SV
+!
+! WP-3 [KN_GATE_COMMIT_RES]: L_WRITTEN marks the branches that
+! actually wrote the store (capped or full commit); QM_CM/QP_CM
+! carry the committed-state verify residual, NB_CM/NT_CM its
+! bad-cell census.
+!
+	LOGICAL L_WRITTEN
+	REAL(KIND=LDP) QM_CM,QP_CM
+	INTEGER*8 NB_CM,NT_CM
 ! INVS_SV: INVR is saved across the verify scratch sweep alongside
 ! DIVERGED (Phase 2.16) -- a coefficient fault hit only on the
 ! independent re-solve must not mark the production state invalid.
@@ -11742,6 +11833,7 @@ C
 !
 	  JUMP=0.0_LDP
 	  L_UNSEED=.FALSE.
+	  L_WRITTEN=.FALSE.
 	  IF(FG_SEED_COMMIT .AND. ALLOCATED(FG_RAY_SEEDED))
 	1    L_UNSEED=(FG_RAY_SEEDED(LS) .EQ. 0)
 	  IF(.NOT. L_UNSEED)JUMP=
@@ -11838,6 +11930,9 @@ C
 	      IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
 	      IF(.NOT. L_NOPROBE)
 	1    CALL WRITE_STORE_CAP(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+! WP-3: a capped provisional commit still wrote the store, so the
+! committed-state verify below must measure it.
+	  L_WRITTEN=.NOT. L_NOPROBE
 !$OMP CRITICAL (FG_CAP_UPD)
 ! MODE 1 ([KN_NOCP_PROBE]): the probe's WRITE_STORE_CAP above is
 ! suppressed, so it must not count as a production capped commit.
@@ -11863,6 +11958,9 @@ C
 	    IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD,I_M_DEPTH_NEXT,DCH_M)
 	    IF(KN_WATCH_ON .AND. LS .EQ. KN_WATCH_LS)KN_WC_CH=2
 	    IF(.NOT. L_NOPROBE)CALL WRITE_STORE(FLD_P,I_P_DEPTH_NEXT,DCH_P)
+! WP-3: certified full commit -- the store now holds this field,
+! so the verify below measures the point the gate keeps.
+	    L_WRITTEN=.NOT. L_NOPROBE
 !
 ! First full commit of this ray -- the jump veto engages on the
 ! next refresh (seed-fill waiver, [FG_SEED_COMMIT]). A probe ray
@@ -11876,6 +11974,29 @@ C
 !$OMP END CRITICAL (FG_DCHG_UPD)
 	    IF(ALLOCATED(FG_RAY_VC))FG_RAY_VC(LS)=0
 	    IF(ALLOCATED(FG_RAY_DCH))FG_RAY_DCH(LS)=MAX(DCH_M,DCH_P)
+	  END IF
+	END IF
+!
+! WP-3 [KN_GATE_COMMIT_RES] (26-Nov-2026): re-measure the point
+! the gate actually keeps. Both commit branches above wrote the
+! store, so a certified solve can still leave a capped or
+! otherwise off-fixed-point field in the slot the next refresh
+! seeds from -- the solve's own best-pass residual cannot see
+! that. One non-committing L_QP pass seeded from the just-written
+! store returns the committed residual and bad-cell census; the
+! refresh sums the per-ray slots into the maturity export.
+! Vetoed/rejected rays (L_WRITTEN=F) wrote nothing, so they are
+! not re-measured: their gate contribution stays the retained
+! store plus FG_RF_PEND.
+!
+	IF(KN_GATE_COMMIT_RES .AND. L_WRITTEN)THEN
+	  CALL KN_COMMIT_VER(QM_CM,QP_CM,NB_CM,NT_CM)
+!$OMP CRITICAL (FG_CRES_UPD)
+	  FG_RF_COMMIT_RES=MAX(FG_RF_COMMIT_RES,QM_CM,QP_CM)
+!$OMP END CRITICAL (FG_CRES_UPD)
+	  IF(ALLOCATED(FG_NBAD_CM_RAY))THEN
+	    FG_NBAD_CM_RAY(LS)=NB_CM
+	    FG_NTOT_CM_RAY(LS)=NT_CM
 	  END IF
 	END IF
 !
@@ -12990,6 +13111,78 @@ C
 	1     (.NOT. INW .AND. JPR2(JD) .LT. JD))
 	2     FR_ST=FR_ST+QW*W2
 	END IF
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
+! KN_COMMIT_VER (WP-3, [KN_GATE_COMMIT_RES]): committed-state
+! verification. Runs one non-committing L_QP pass per direction
+! seeded from the store the commit just wrote -- the same state
+! the next refresh iterates from. The pre-commit KN_Q_RESID
+! verify above measures the SOLVED field; this one measures the
+! field the store actually kept, so a commit clipped by
+! NONMONO_INEXT_CAP or parked off the fixed point shows up as a
+! committed residual the maturity gate can hold on. Save /
+! restore covers the same host-shared sweep outputs as the
+! pre-commit block so the production residuals and counters the
+! report reads stay production values. -1 returns mark an
+! unrun verify (alloc fault), which the census mask excludes.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_COMMIT_VER(QM,QP,NB_S,NT_S)
+	REAL(KIND=LDP) QM,QP
+	INTEGER*8 NB_S,NT_S
+	INTEGER IOS_CV
+	QM=-1.0_LDP; QP=-1.0_LDP; NB_S=-1_8; NT_S=-1_8
+	LDVS_SV=DIVERGED; LCES_SV=CLEAN_EXIT; INVS_SV=INVR
+	WRC_SV(1)=WRC_I; WRC_SV(2)=WRC_L; WRC_SV(3)=WRC_PI
+	WRC_SV(4)=WRC_PL; WRC_SV(5)=WRC_SAME
+	WRC_SV(6)=WRC_IM; WRC_SV(7)=WRC_LM; WRC_SV(8)=WRC_SM
+	NCLS_SV(1)=NCL_M; NCLS_SV(2)=NNL_M
+	NCLS_SV(3)=NCL_P; NCLS_SV(4)=NNL_P
+	NPCS_SV=NCAP; NNGS_SV=NNEG; NPT2_SV=NP2_CNT
+	RHOS_SV(1)=RHO_M; RHOS_SV(2)=RHO_P
+	ALLOCATE(FLD_Q(NI,NCF),STAT=IOS_CV)
+	IF(IOS_CV .EQ. 0)THEN
+!
+! FLD_Q starts from the solved field, then store cells are
+! overwritten with the committed values -- the point the
+! retention actually kept. Cells outside the store carry no
+! committed value (the next refresh seeds them at 0 and the
+! march fills them fresh), so they keep the solve's own values
+! here: a zero seed would read ~1E30 on the floor-denominator
+! residual metric and swamp the census with cells the commit
+! never touched.
+!
+	  FLD_Q=FLD
+	  CALL SEED_FLD(FLD_Q,I_M_DEPTH_NEXT)
+	  IF(ORD_SWEEP)THEN
+	    CALL SWEEP_FLD_ORD(FLD_Q,.TRUE.,RES_Q,NP_Q,NB_Q,NT_Q,
+	1     IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
+	  ELSE
+	    CALL SWEEP_FLD(FLD_Q,.TRUE.,RES_Q,NP_Q,NB_Q,NT_Q,
+	1     IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
+	  END IF
+	  QM=RES_Q; NB_S=NB_Q; NT_S=NT_Q
+	  FLD_Q=FLD_P
+	  CALL SEED_FLD(FLD_Q,I_P_DEPTH_NEXT)
+	  IF(ORD_SWEEP)THEN
+	    CALL SWEEP_FLD_ORD(FLD_Q,.FALSE.,RES_Q,NP_Q,NB_Q,NT_Q,
+	1     IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
+	  ELSE
+	    CALL SWEEP_FLD(FLD_Q,.FALSE.,RES_Q,NP_Q,NB_Q,NT_Q,
+	1     IXQ_Q,NB_BQ,NT_BQ,.TRUE.)
+	  END IF
+	  QP=RES_Q; NB_S=NB_S+NB_Q; NT_S=NT_S+NT_Q
+	  DEALLOCATE(FLD_Q)
+	END IF
+	DIVERGED=LDVS_SV; CLEAN_EXIT=LCES_SV; INVR=INVS_SV
+	WRC_I=WRC_SV(1); WRC_L=WRC_SV(2); WRC_PI=WRC_SV(3)
+	WRC_PL=WRC_SV(4); WRC_SAME=WRC_SV(5)
+	WRC_IM=WRC_SV(6); WRC_LM=WRC_SV(7); WRC_SM=WRC_SV(8)
+	NCL_M=NCLS_SV(1); NNL_M=NCLS_SV(2)
+	NCL_P=NCLS_SV(3); NNL_P=NCLS_SV(4)
+	NCAP=NPCS_SV; NNEG=NNGS_SV; NP2_CNT=NPT2_SV
+	RHO_M=RHOS_SV(1); RHO_P=RHOS_SV(2)
 	RETURN
 	END
 !
