@@ -1140,13 +1140,15 @@
 	LOGICAL FG_ORD_P2DAMP
 	INTEGER FG_ORD_P2N,FG_ORD_P2REL
 !
-! FG_NI1_FULL: VADAT [KN_NI1_FULL] (default F, set by
-! SET_FG_NI1_FULL). Certify a production NI=1 ray KN_CS_FULL
-! with reason 0 inside KNOP_RAY_SOLVE_V1's early-return branch
-! instead of leaving it KN_CS_INV: a single-point ray has no
-! marchable transfer domain, so there is nothing to converge
-! and vacuous FULL is the honest class. With F the legacy INV
-! census entry stands and the ray holds FG_RF_ALL_CONV FALSE.
+! FG_NI1_FULL: VADAT [KN_NI1_FULL] (default T since
+! 26-Nov-2026, was F; set by SET_FG_NI1_FULL). Certify a
+! production NI=1 ray KN_CS_FULL with reason 0 inside
+! KNOP_RAY_SOLVE_V1's early-return branch instead of leaving it
+! KN_CS_INV: a single-point ray has no marchable transfer
+! domain, so there is nothing to converge and vacuous FULL is
+! the honest class. With F the legacy INV census entry stands
+! and the ray holds FG_RF_ALL_CONV FALSE through the explicit
+! no-INV conjunct.
 !
 	LOGICAL FG_NI1_FULL
 !
@@ -9100,7 +9102,7 @@ C
 	INTEGER IQ_R,IQ_C,IQ_W,IQ_N,IQ_K
 	INTEGER IQ_B1,IQ_B2,IQ_B3
 	INTEGER IQ_KM,IQ_NM,IQ_SLOT,IQ_KC2
-	INTEGER KN_NACT,KN_NFULL,KN_CCLS(0:5)
+	INTEGER KN_NACT,KN_NFULL,KN_NINV,KN_CCLS(0:5)
 	LOGICAL IQ_WRT,IQ_SAME
 	REAL(KIND=LDP) IQ_VB,IQ_VA
 	INTEGER*8 IQ_C1
@@ -10141,14 +10143,28 @@ C
 ! six-class status the commit gate consumed. Probe excluded --
 ! it never enters a production commit decision.
 !
-	KN_NACT=COUNT(KN_PROD_MASK)
-	KN_NFULL=COUNT(KN_CS_LS .EQ. KN_CS_FULL .AND. KN_PROD_MASK)
+! WP-1 invariant I4 (26-Nov-2026): the all-ray census counts only
+! rays that carry a transfer domain -- NI_RAY >= 2, a marchable
+! interval. A vacuous NI=1 ray is not work: under KN_NI1_FULL=T
+! it certifies FULL outside the denominator instead of inflating
+! NFULL past NACT, and under F its INV no longer silently sits in
+! a count it could never leave. The certification classes keep
+! the wider production mask so every solved ray's status is still
+! visible in CERT, while KN_NINV counts every production INV --
+! domain or not -- so an early return left INV (reachable only
+! for genuinely invalid geometry, or KN_NI1_FULL=F on an NI=1
+! ray) still fails the all-ray verdict closed.
+!
+	KN_NACT=COUNT(KN_PROD_MASK .AND. (NI_RAY .GE. 2))
+	KN_NFULL=COUNT(KN_CS_LS .EQ. KN_CS_FULL .AND. KN_PROD_MASK
+	1   .AND. (NI_RAY .GE. 2))
+	KN_NINV=COUNT(KN_CS_LS .EQ. KN_CS_INV .AND. KN_PROD_MASK)
 	KN_CCLS(0)=KN_NFULL
 	KN_CCLS(1)=COUNT(KN_CS_LS .EQ. KN_CS_BULK .AND. KN_PROD_MASK)
 	KN_CCLS(2)=COUNT(KN_CS_LS .EQ. KN_CS_ITLIM .AND. KN_PROD_MASK)
 	KN_CCLS(3)=COUNT(KN_CS_LS .EQ. KN_CS_STAG .AND. KN_PROD_MASK)
 	KN_CCLS(4)=COUNT(KN_CS_LS .EQ. KN_CS_DIV .AND. KN_PROD_MASK)
-	KN_CCLS(5)=COUNT(KN_CS_LS .EQ. KN_CS_INV .AND. KN_PROD_MASK)
+	KN_CCLS(5)=KN_NINV
 	CALL ILF_KVB(LUER,' CERT:',6,
 	1  (/'full ','bulk ','itlim','stag ','div  ','inv  '/),
 	2  (/ILF_VI(KN_CCLS(0)),ILF_VI(KN_CCLS(1)),
@@ -10158,12 +10174,18 @@ C
 ! All-ray verdict (Phase 2.17): TRUE only when every production
 ! ray certified FULL this refresh. An incomplete census (rays
 ! still INV) or a failed refresh stage reads FALSE.
+! WP-1 (26-Nov-2026): the no-INV conjunct is explicit. INV rays
+! without a transfer domain (NI_RAY < 2 under KN_NI1_FULL=F, or
+! NI_RAY=0/invalid geometry) fall outside NACT, so the
+! NFULL==NACT test alone cannot see them -- KN_NINV counts them
+! directly and fails the verdict closed.
 !
 	FG_RF_ALL_CONV=(.NOT. FG_RF_FAILED) .AND.
-	1   (KN_NFULL .EQ. KN_NACT) .AND. KN_NACT .GT. 0
-	WRITE(LUER,'(A,L2,A,I5,A,I5)')
+	1   (KN_NFULL .EQ. KN_NACT) .AND. KN_NACT .GT. 0 .AND.
+	2   KN_NINV .EQ. 0
+	WRITE(LUER,'(A,L2,A,I5,A,I5,A,I5)')
 	1  '    rf_all_conv=',FG_RF_ALL_CONV,' full=',KN_NFULL,
-	2  ' active=',KN_NACT
+	2  ' active=',KN_NACT,' inv=',KN_NINV
 !
 ! Phase 2.27 (diagnostic, observational only): per-ray certification
 ! table for the KN_RDUMP_LS* capture runs. The OUTGEN census prints
