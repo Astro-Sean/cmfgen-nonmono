@@ -40,11 +40,12 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SUB = (ROOT / "obs/cmf_flux_sub_v5.f").read_text()
-INC = (ROOT / "obs/COMP_JCONT_V4.INC").read_text()
-OBSF = (ROOT / "obs/obs_frame_sub_v9.f").read_text()
-RDC = (ROOT / "obs/rd_cmf_flux_controls.f").read_text()
-MODF = (ROOT / "obs/cmf_flux_cntrl_var_mod.f").read_text()
+SRC = ROOT / "cmfgen"
+SUB = (SRC / "obs/cmf_flux_sub_v5.f").read_text()
+INC = (SRC / "obs/COMP_JCONT_V4.INC").read_text()
+OBSF = (SRC / "obs/obs_frame_sub_v9.f").read_text()
+RDC = (SRC / "obs/rd_cmf_flux_controls.f").read_text()
+MODF = (SRC / "obs/cmf_flux_cntrl_var_mod.f").read_text()
 
 
 def section(source, start, end):
