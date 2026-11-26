@@ -26,6 +26,15 @@ Cases (drv_knop_ordering.f90, NI=140, NCF=200, compressing ray):
   nclg    same provisional commit with the flag off: no verify
           runs, so CRES and the census slots stay -1 -- the legacy
           gate cannot see what the store actually holds.
+  lsok    WP-4 [KN_STORE_LS] on the nccm stall: the search's
+          baseline (1e-6 seed) reads ~1e5, alpha=1 hands the store
+          the fresh field in one step, and its committed residual
+          drops to the solve's own level.
+  lsrj    WP-4 rejection: solve 1 stalls and the LS parks fresh1;
+          solve 2 over-relaxes (KN_RAY_OMEGA=1.36) and is capped
+          after one march, so its iterate exits non-certified away
+          from the fixed point. No blend descends below fresh1's
+          residual -> the search rejects and keeps fresh1.
 
 Assertions:
   * nccm: CRES > KN_RAY_TOL and CM_NB > 0 -- the committed-state
@@ -34,6 +43,10 @@ Assertions:
     commit still certifies.
   * nclg: CRES == -1 and CM_NB == -1 -- verify disarmed under
     the flag.
+  * lsok: VC=3, LSA=1.0, LSN=1, LSR=0 -- full-step accept; CRES
+    lands orders below the nccm baseline.
+  * lsrj: VC=2, LSA=-2, LSR=1 -- every rung rejected; CRES still
+    reads fresh1's committed residual (store retained).
 """
 
 import re
@@ -86,17 +99,17 @@ def _f(x):
 def parse_out(text):
     out = {"text": text}
     out["ok"] = "RESULT_OK" in text
-    for key in ("RESID", "CRES"):
+    for key in ("RESID", "CRES", "LSA"):
         m = re.search(rf"{key}=\s*(\S+)", text)
         out[key.lower()] = _f(m.group(1)) if m else None
-    for key in ("CM_NB", "CM_NT", "VC", "NXIT"):
+    for key in ("CM_NB", "CM_NT", "VC", "NXIT", "LSN", "LSR"):
         m = re.search(rf"{key}=\s*(\S+)", text)
         out[key.lower()] = int(m.group(1)) if m else None
     return out
 
 
 def main():
-    rep = Report("KNOP committed-state gate (WP-3)")
+    rep = Report("KNOP committed-state gate (WP-3) + store line search (WP-4)")
     bin_ = compile_and_link_prod(
         "kncg",
         [SRC / h for h in HELPERS]
@@ -104,7 +117,7 @@ def main():
     )
 
     data = {}
-    for case in ("capok", "nccm", "nclg"):
+    for case in ("capok", "nccm", "nclg", "lsok", "lsrj"):
         r = run(bin_, case, "", cwd=WORKDIR, check=False)
         d = parse_out(r.stdout)
         data[case] = d
@@ -170,6 +183,54 @@ def main():
         "nclg: provisional commit still wrote (VC=3)",
         d["vc"] is not None and d["vc"] == 3,
         f"vc={d['vc']}",
+    )
+
+    # -- T4: the LS hands the store the fresh field in one step
+    #    where the fixed NC bound would ratchet over O(100)
+    #    refreshes. alpha=1 descends, VC=3, one accept, no rejects.
+    d = data["lsok"]
+    rep.check(
+        "lsok: alpha=1 accepted (LSA=1, VC=3)",
+        d["lsa"] is not None and d["lsa"] == 1.0
+        and d["vc"] is not None and d["vc"] == 3,
+        f"lsa={d['lsa']} vc={d['vc']}",
+    )
+    rep.check(
+        "lsok: one LS accept, no rejections",
+        d["lsn"] is not None and d["lsn"] == 1
+        and d["lsr"] is not None and d["lsr"] == 0,
+        f"lsn={d['lsn']} lsr={d['lsr']}",
+    )
+    rep.check(
+        "lsok: committed residual descends far below nccm baseline",
+        d["cres"] is not None and data["nccm"]["cres"] is not None
+        and 0.0 < d["cres"] < data["nccm"]["cres"] / 100.0,
+        f"cres={d['cres']:.3e} nccm={data['nccm']['cres']:.3e}",
+    )
+
+    # -- T5: an expansive step cannot ratchet. Solve 1 parks fresh1;
+    #    solve 2's over-relaxed march kicks the iterate off the fixed
+    #    point, every rung reads worse than the retained store, the
+    #    search rejects (LSA=-2, VC=2), and the committed residual
+    #    still reports fresh1.
+    d = data["lsrj"]
+    rep.check(
+        "lsrj: all rungs rejected (LSA=-2, VC=2)",
+        d["lsa"] is not None and d["lsa"] == -2.0
+        and d["vc"] is not None and d["vc"] == 2,
+        f"lsa={d['lsa']} vc={d['vc']}",
+    )
+    rep.check(
+        "lsrj: one accept (solve 1) then one rejection",
+        d["lsn"] is not None and d["lsn"] == 1
+        and d["lsr"] is not None and d["lsr"] == 1,
+        f"lsn={d['lsn']} lsr={d['lsr']}",
+    )
+    rep.check(
+        "lsrj: retained store still reads fresh1 residual",
+        d["cres"] is not None and data["lsok"]["cres"] is not None
+        and abs(d["cres"] - data["lsok"]["cres"]) < 1.0e-10,
+        f"cres={d['cres']:.6e} lsok={data['lsok']['cres']:.6e}",
     )
 
     return rep.summary()
