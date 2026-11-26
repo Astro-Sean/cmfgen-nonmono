@@ -1348,6 +1348,43 @@
 !
 	LOGICAL KN_RAY_ORDERED
 !
+! KN_RAY_ORDER_MODE (default -1 = follow KN_RAY_ORDERED, WP-2
+! 26-Nov-2026): march-order selector for the refresh solve,
+! pushed to the plane module through SET_FG_ORD_MODE. 0 = legacy
+! ordered (SWEEP_FLD_ORD), 1 = frequency-major alternating
+! (SWEEP_FLD), 2 = frequency-major with the first pass marched
+! down the ray's dominant coupling sign -- a uniform-compressing
+! ray (some GAM<0, none >0) starts descending so its L+NFM donor
+! column is fresh on pass 1; every other ray keeps the mode-1
+! ascending start, which reduces mode 2 to mode 1 exactly on
+! expanding-only rays. 3 = SCC/topological ordering, reserved
+! until mode 2 is measured on mixed rays -- the consistency
+! check stops it. An explicit KN_RAY_ORDER_MODE wins over
+! KN_RAY_ORDERED (a warning is issued); absent, the mode
+! resolves from KN_RAY_ORDERED (T -> 0, F -> 1). VADAT keyword
+! [KN_RAY_ORDER_MODE].
+!
+	INTEGER KN_RAY_ORDER_MODE
+!
+! KN_ORD_MODE_SET / KN_RAY_ORDERED_SET record whether the
+! respective VADAT keys were explicitly present (staged at read
+! time because CLEAN_RD_STORE deallocates the store before
+! CHECK_PARAM_CONSISTENCY runs). The WP-2 conflict warning only
+! fires when both were set.
+!
+	LOGICAL KN_ORD_MODE_SET
+	LOGICAL KN_RAY_ORDERED_SET
+!
+! KN_FRESH_DIAG (default FALSE, WP-2): diagnostic-only per-pass
+! census of the |Q| donor weight read from a not-yet-updated
+! cell -- the stale share the ordered march's header comment
+! claimed was zero. Each refresh stores it per (pass, direction,
+! ray) in KN_FRESH_FR and prints one line per pass on LUER;
+! -1 marks a pass that never ran. The solve is unchanged. VADAT
+! keyword [KN_FRESH_DIAG].
+!
+	LOGICAL KN_FRESH_DIAG
+!
 ! KN_FREEZE_COEF (default FALSE): diagnostic-only fixed-coefficient
 ! mode for the KNOP refresh (failure isolation, P1-T1c arm R). When
 ! T, the KN_CHI_EXT/KN_ETA_EXT snapshots captured during the first
