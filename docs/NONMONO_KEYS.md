@@ -491,6 +491,18 @@ which stamps the same value in the initial VADAT.
     (EQXzV) rows are excluded from candidates because the
     ionization-conservation replacement may overwrite them. F is
     the default path unchanged. `test_gfm` ncmax/ncdef 14/0.
+  - `BA_REL_TRUST` (default F): WP-9 release trust seed in
+    SOLVE_FOR_POPS. On the first BA call after a freeze release
+    the resacc trust radius `BA_TRUST_CUR` is re-seeded from the
+    committed field residual (`GS_COMMIT_RES`, the WP-3
+    `KN_GATE_COMMIT_RES` measurement) as
+    `MAX(1.0, MIN(BA_TRUST, GS_COMMIT_RES))` instead of riding
+    its pre-freeze ratchet value, so the release-controller
+    overshoot -- a ~1E7 demand committing at the MAX_LIN_COR cap
+    and re-poisoning the released field -- is quarantined at a
+    field-consistent radius. The step still passes the
+    DO_BA_RES_ACC residual-acceptance test and the all-ray-FULL
+    release gate is untouched. F is the default path unchanged.
 - `GS_FREEZE` and the freeze/maturity/watchdog stack are
   KNOP-scoped: forced F outside `DO_NONMONO_KNOP`.
 - `DO_KNOP_REFRESH` - converges the lagged J_NEXT/H_NEXT map
