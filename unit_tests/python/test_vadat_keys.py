@@ -1635,6 +1635,68 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # KN_FORCING_TOL defaults F (WP-6): the Eisenstat-Walker
+    # forcing term on the refresh tolerance stays opt-in; the
+    # knobs default to the published E-W values and the I2 cap
+    # stages 0.1*GS_MATURE_TOL (default 5E-3). FG_FRC_FLG echoes
+    # the flag where it actually lands (the FG module var).
+    rep.check(
+        "WP-6 KN_FORCING_TOL absent defaults F",
+        "RESULT_OK" in p.stdout
+        and v.get("KN_FORCING_TOL") == "F"
+        and v.get("FG_FRC_FLG") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    rep.check(
+        "WP-6 forcing knobs default to E-W values",
+        abs(float(v.get("KN_FRC_GAM", "nan").replace("D", "E")) - 0.9)
+        < 1.0e-8
+        and abs(float(v.get("KN_FRC_ALP", "nan").replace("D", "E")) - 2.0)
+        < 1.0e-8
+        and abs(float(v.get("KN_FRC_TMIN", "nan").replace("D", "E")) - 1.0e-4)
+        < 1.0e-12
+        and abs(float(v.get("KN_FRC_TMAX", "nan").replace("D", "E")) - 1.0e-2)
+        < 1.0e-10,
+    )
+    rep.check(
+        "WP-6 I2 cap stages 0.1*GS_MATURE_TOL",
+        abs(float(v.get("KN_FRC_CAP", "nan").replace("D", "E")) - 5.0e-3)
+        < 1.0e-10,
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_wp6_arm",
+        dict(knop_base, **{"KN_FORCING_TOL": "T"}),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-6 KN_FORCING_TOL=T parses and lands on the module",
+        "RESULT_OK" in p.stdout
+        and v.get("KN_FORCING_TOL") == "T"
+        and v.get("FG_FRC_FLG") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_wp6_knob",
+        dict(
+            knop_base,
+            **{"KN_FRC_GAM": "8.0D-1", "KN_FRC_TMAX": "5.0D-3"},
+        ),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-6 explicit knobs land; cap holds at the I2 default",
+        "RESULT_OK" in p.stdout
+        and abs(float(v.get("KN_FRC_GAM", "nan").replace("D", "E")) - 0.8)
+        < 1.0e-8
+        and abs(float(v.get("KN_FRC_TMAX", "nan").replace("D", "E")) - 5.0e-3)
+        < 1.0e-10
+        and abs(float(v.get("KN_FRC_CAP", "nan").replace("D", "E")) - 5.0e-3)
+        < 1.0e-10,
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 
