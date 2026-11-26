@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import F90DIR, TREE, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, TREE, Report, compile_and_link_prod, run
 
 HELPERS = [
     "tools/set_kind_module.f",
@@ -70,7 +70,7 @@ def main():
     rep = Report("COMP_OBS_V3 NU_STORE retention")
     binary = compile_and_link_prod(
         "cobsr3",
-        [TREE / h for h in HELPERS] + [F90DIR / "drv_comp_obs_v3_retain.f90"],
+        [SRC / h for h in HELPERS] + [F90DIR / "drv_comp_obs_v3_retain.f90"],
     )
 
     r = run(binary, check=False)
