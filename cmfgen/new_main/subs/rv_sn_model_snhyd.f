@@ -304,6 +304,18 @@
 ! minimum inside a reversal, and each sharp density maximum.  A
 ! feature U always lies within half a cell of the overwritten
 ! target, so strict monotonicity is preserved.
+!
+! Detection runs on the PRE-expansion columns (WP5(d), SOB_check):
+! R_HYDRO/DENSITY_HYDRO were advanced by the expansion loop above,
+! but SIGMA_HYDRO still holds the input file's sigma column - the
+! sigma of the UNEXPANDED hydro profile.  The true sigma of the
+! expanded profile differs: dlnV/dlnR' = (dlnV/dlnR)/(1+T1*V/R*
+! (sigma+1)), which deepens sigma<-1 dips and flattens positive
+! spikes.  Detection therefore keys on the features of the profile
+! as written, evaluated at expanded U(J) positions; for the small
+! expansion shifts used in production this is the intended
+! behaviour, and it is pinned by the expanded-reversal test in
+! unit_tests/python/test_rv_snhyd.py.
 	  ALLOCATE (USED(MND)); USED=.FALSE.
 	  DO J=2,NX-1
 	    INS=.FALSE.
