@@ -46,7 +46,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import (
+from common import (SRC, 
     F90DIR,
     PLOTDIR,
     TREE,
@@ -65,10 +65,10 @@ from velocity_profiles import (
 )
 
 TREE_SRC = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "new_main" / "mod_subs" / "control_variable_mod.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "new_main" / "subs" / "recompute_sigma_true.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "new_main" / "mod_subs" / "control_variable_mod.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "new_main" / "subs" / "recompute_sigma_true.f",
 ]
 
 ND = 80
