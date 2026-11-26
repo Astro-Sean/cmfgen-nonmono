@@ -698,6 +698,71 @@
 	LOGICAL, SAVE :: FG_ADAPT_OMEGA_V2=.TRUE.
 	LOGICAL, SAVE :: FG_PLATEAU_DET=.TRUE.
 !
+! WP-5 (26-Nov-2026, [KN_OMEGA_SGN], default F): signed vector-Aitken
+! relaxation for the lagged I_P/I_M_DEPTH_NEXT store, in place of the
+! 1/(1+rho) pool rule (KN_OMEGA_POOL_V1), which can only express
+! damping (omega <= 1). Ramiere & Helfer 2015, eq (36), after Kuttler
+! & Wall 2008: with the outer-map residual r_k = G(x_k) - x_k and the
+! measured step dx_k = x_k - x_{k-1},
+!     omega_k = -<dx_k, dr_k> / <dr_k, dr_k>
+! recovers 1/(1-lam) exactly on a scalar map lam*x -- 0.526 damping
+! for lam=-0.9 and 10 over-relaxation for lam=+0.9, which the legacy
+! rule cannot produce. The residual is read at the sweep write sites
+! (fresh field minus the per-frequency snapshot, normalized by the
+! stored magnitude like the churn metric); dx is the measured store
+! motion between calls, so refresh commits count in the step instead
+! of corrupting an omega*r identity. Safeguards: keep the previous
+! omega when <dr,dr> collapses (KN_OSGN_EPSG guard), clamp to
+! [KN_OSGN_MIN, KN_OSGN_MAX] (VADAT [KN_OSGN_MIN]/[KN_OSGN_MAX]),
+! halve and retry once on a non-decreasing residual then fall back to
+! the legacy estimator (FG_OSGN_NRET counts the episode), and reset
+! the per-slot history when the captured-coefficient fingerprint
+! moves -- the map is only the same while populations are held.
+! History arrays are allocated only while the flag is armed; the
+! FG_ADAPT_OMEGA_V2 block stays as the unaccelerated fallback branch.
+!
+	LOGICAL, SAVE :: KN_OMEGA_SGN=.FALSE.
+	REAL(KIND=LDP), SAVE :: KN_OSGN_MIN=0.05_LDP
+	REAL(KIND=LDP), SAVE :: KN_OSGN_MAX=2.0_LDP
+	REAL(KIND=LDP), PARAMETER :: KN_OSGN_EPSG=1.0E-8_LDP
+!
+! Per-slot Aitken history over the store grid (N_COMP,NP,NCF):
+! FG_OSGN_XP/XM = store value at the last touched call (the x_k-1;
+! -1 marks no valid base), FG_OSGN_RP/RM = the raw residual
+! (fresh-snapshot) recorded then. FG_OSGN_C1*/C2*/CD*/T* are the
+! current column's write-time capture (fresh T1, snapshot T2,
+! normalization denominator, touched flag), folded into the history
+! by FG_OSGN_COL_FIN. FG_OSGN_ACC holds the running dot products
+! (1: <dx,dr>, 2: <dr,dr>, 3: ||r_cur||^2, 4: ||r_prev||^2) for the
+! sweep in progress; FG_OSGN_CF is the column index currently being
+! accumulated (0 = none pending). FG_OSGN_GEN counts completed sweep
+! starts so the update consumes each residual vector once;
+! FG_OSGN_FP is the captured CHI_EXT/ETA_EXT fingerprint for the
+! history-reset test. FG_OSGN_W/FG_OSGN_WHYN report the last applied
+! omega, the residual norms and the kernel exit for diagnostics.
+!
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_XP(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_XM(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_RP(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_RM(:,:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_C1P(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_C1M(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_C2P(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_C2M(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_DP(:,:)
+	REAL(KIND=LDP), ALLOCATABLE :: FG_OSGN_DM(:,:)
+	LOGICAL, ALLOCATABLE :: FG_OSGN_TP(:,:)
+	LOGICAL, ALLOCATABLE :: FG_OSGN_TM(:,:)
+	INTEGER, SAVE :: FG_OSGN_CF=0
+	INTEGER, SAVE :: FG_OSGN_NRET=0
+	REAL(KIND=LDP), SAVE :: FG_OSGN_ACC(4)=0.0_LDP
+	REAL(KIND=LDP), SAVE :: FG_OSGN_FP(2)=0.0_LDP
+	LOGICAL, SAVE :: FG_OSGN_FPSET=.FALSE.
+	INTEGER*8, SAVE :: FG_OSGN_GEN=0
+	INTEGER*8, SAVE :: FG_OSGN_GUSE=0
+	REAL(KIND=LDP), SAVE :: FG_OSGN_W(3)=0.0_LDP
+	INTEGER, SAVE :: FG_OSGN_WHYN=0
+!
 ! Boundary-closure audit counters. HBC = HNU_AT_OB/JNU_STORE(1)
 ! blows up when the boundary J hits its 1D-30 floor, and the moment
 ! solver's outer boundary row consumes the ratio directly. Track
@@ -2808,6 +2873,224 @@
 	RETURN
 	END SUBROUTINE KN_OMEGA_POOL_V1
 !
+! KN_OSGN_STEP (WP-5 kernel): one signed-Aitken omega update from the
+! accumulated dot products of a residual pair. DXDR = <dx,dr>,
+! DR2 = <dr,dr>, RC2 = ||r_cur||^2, RP2 = ||r_prev||^2 (all already
+! slot-normalized by FG_OSGN_COL_FIN). Returns the omega to apply
+! and an exit code the caller reports or falls back on:
+!   ICODE 0 = denominator guard: ||dr||^2 <= EPSG*||r_cur||^2, keep
+!             OMEGA_PREV (the residual barely moved, the formula
+!             would divide noise).
+!   ICODE 1 = residual decreased: apply -<dx,dr>/<dr,dr> clamped to
+!             [OMIN,OMAX]; NRET reset.
+!   ICODE 2 = residual did not decrease: first failure of the
+!             episode, halve the applied omega and retry once.
+!   ICODE 3 = still not decreasing after the retry: signal the
+!             caller to run the unaccelerated estimator instead.
+! On a scalar map G(x)=lam*x the formula returns 1/(1-lam)
+! regardless of OMEGA_PREV (dr = (lam-1)*dx exactly).
+!
+	SUBROUTINE KN_OSGN_STEP(DXDR,DR2,RC2,RP2,OMEGA_PREV,
+	1    OMIN,OMAX,EPSG,NRET,OMEGA_NEW,ICODE)
+	USE SET_KIND_MODULE
+	IMPLICIT NONE
+	REAL(KIND=LDP), INTENT(IN) :: DXDR,DR2,RC2,RP2
+	REAL(KIND=LDP), INTENT(IN) :: OMEGA_PREV,OMIN,OMAX,EPSG
+	INTEGER, INTENT(INOUT) :: NRET
+	REAL(KIND=LDP), INTENT(OUT) :: OMEGA_NEW
+	INTEGER, INTENT(OUT) :: ICODE
+	OMEGA_NEW=OMEGA_PREV
+	ICODE=0
+	IF(DR2 .LE. EPSG*MAX(RC2,1.0E-300_LDP))RETURN
+	IF(RC2 .LT. RP2)THEN
+	  OMEGA_NEW=MIN(MAX(-DXDR/DR2,OMIN),OMAX)
+	  NRET=0
+	  ICODE=1
+	ELSE IF(NRET .EQ. 0)THEN
+	  OMEGA_NEW=MAX(OMIN,0.5_LDP*OMEGA_PREV)
+	  NRET=1
+	  ICODE=2
+	ELSE
+	  ICODE=3
+	END IF
+	RETURN
+	END SUBROUTINE KN_OSGN_STEP
+!
+! FG_OSGN_COL_FIN (WP-5): fold the column buffers captured during
+! this call's writes into the per-slot history and the sweep
+! accumulators. For every touched slot: r_cur = (T1-T2)/DEN,
+! dx = (T2-XPRV)/DEN, dr = r_cur - RPRV/DEN with DEN the write-time
+! denominator (MAX(T2, 1E-4*VMAX), the churn metric's
+! normalization). Slots with no valid base (XPRV<0) only re-base;
+! untouched slots keep their own history so their next touch
+! resumes their own sequence. Called lazily on the column
+! transition inside the sweep write and once for the pending last
+! column inside FG_OSGN_UPDATE.
+!
+	SUBROUTINE FG_OSGN_COL_FIN(ICOL)
+	IMPLICIT NONE
+	INTEGER, INTENT(IN) :: ICOL
+	INTEGER KC,LS,NC2,NP2
+	REAL(KIND=LDP) DENV,DXV,DRV,RCV,RPV
+	IF(.NOT. ALLOCATED(FG_OSGN_XP))RETURN
+	NC2=SIZE(FG_OSGN_XP,1); NP2=SIZE(FG_OSGN_XP,2)
+	IF(ICOL .LT. 1 .OR. ICOL .GT. SIZE(FG_OSGN_XP,3))RETURN
+	DO LS=1,NP2
+	  DO KC=1,NC2
+	    IF(FG_OSGN_TP(KC,LS))THEN
+	      DENV=MAX(FG_OSGN_DP(KC,LS),1.0E-300_LDP)
+	      RCV=(FG_OSGN_C1P(KC,LS)-FG_OSGN_C2P(KC,LS))/DENV
+	      IF(FG_OSGN_XP(KC,LS,ICOL) .GE. 0.0_LDP)THEN
+	        DXV=(FG_OSGN_C2P(KC,LS)-FG_OSGN_XP(KC,LS,ICOL))/DENV
+	        RPV=FG_OSGN_RP(KC,LS,ICOL)/DENV
+	        DRV=RCV-RPV
+	        FG_OSGN_ACC(1)=FG_OSGN_ACC(1)+DXV*DRV
+	        FG_OSGN_ACC(2)=FG_OSGN_ACC(2)+DRV*DRV
+	        FG_OSGN_ACC(3)=FG_OSGN_ACC(3)+RCV*RCV
+	        FG_OSGN_ACC(4)=FG_OSGN_ACC(4)+RPV*RPV
+	      END IF
+	      FG_OSGN_XP(KC,LS,ICOL)=FG_OSGN_C2P(KC,LS)
+	      FG_OSGN_RP(KC,LS,ICOL)=
+	1        FG_OSGN_C1P(KC,LS)-FG_OSGN_C2P(KC,LS)
+	    END IF
+	    IF(FG_OSGN_TM(KC,LS))THEN
+	      DENV=MAX(FG_OSGN_DM(KC,LS),1.0E-300_LDP)
+	      RCV=(FG_OSGN_C1M(KC,LS)-FG_OSGN_C2M(KC,LS))/DENV
+	      IF(FG_OSGN_XM(KC,LS,ICOL) .GE. 0.0_LDP)THEN
+	        DXV=(FG_OSGN_C2M(KC,LS)-FG_OSGN_XM(KC,LS,ICOL))/DENV
+	        RPV=FG_OSGN_RM(KC,LS,ICOL)/DENV
+	        DRV=RCV-RPV
+	        FG_OSGN_ACC(1)=FG_OSGN_ACC(1)+DXV*DRV
+	        FG_OSGN_ACC(2)=FG_OSGN_ACC(2)+DRV*DRV
+	        FG_OSGN_ACC(3)=FG_OSGN_ACC(3)+RCV*RCV
+	        FG_OSGN_ACC(4)=FG_OSGN_ACC(4)+RPV*RPV
+	      END IF
+	      FG_OSGN_XM(KC,LS,ICOL)=FG_OSGN_C2M(KC,LS)
+	      FG_OSGN_RM(KC,LS,ICOL)=
+	1        FG_OSGN_C1M(KC,LS)-FG_OSGN_C2M(KC,LS)
+	    END IF
+	  END DO
+	END DO
+	FG_OSGN_TP=.FALSE.
+	FG_OSGN_TM=.FALSE.
+	RETURN
+	END SUBROUTINE FG_OSGN_COL_FIN
+!
+! FG_OSGN_UPDATE (WP-5): the per-sweep omega decision. Finalizes the
+! pending last column, ignores sweeps already consumed (FG_OSGN_GUSE),
+! resets the slot history when the coefficient fingerprint moves
+! (populations changed -- the map is only the same while the freeze
+! holds them), then prices the next omega through KN_OSGN_STEP.
+! LFALL=T tells the caller to run the unaccelerated estimator
+! instead (no fresh residual, or the retry budget is spent).
+!
+	SUBROUTINE FG_OSGN_UPDATE(OMEGA_IN,OMEGA_OUT,LFALL,ICODE)
+	IMPLICIT NONE
+	REAL(KIND=LDP), INTENT(IN) :: OMEGA_IN
+	REAL(KIND=LDP), INTENT(OUT) :: OMEGA_OUT
+	LOGICAL, INTENT(OUT) :: LFALL
+	INTEGER, INTENT(OUT) :: ICODE
+	REAL(KIND=LDP) FP(2)
+	LFALL=.TRUE.
+	OMEGA_OUT=OMEGA_IN
+	ICODE=-1
+	IF(.NOT. ALLOCATED(FG_OSGN_XP))RETURN
+	IF(FG_OSGN_CF .GE. 1)THEN
+	  CALL FG_OSGN_COL_FIN(FG_OSGN_CF)
+	  FG_OSGN_CF=0
+	END IF
+	IF(FG_OSGN_GEN .LE. FG_OSGN_GUSE)RETURN
+	FG_OSGN_GUSE=FG_OSGN_GEN
+	FP=0.0_LDP
+	IF(ALLOCATED(KN_CHI_EXT))THEN
+	  FP(1)=SUM(DBLE(KN_CHI_EXT(1:KN_ND_EXT,1:KN_NCF)))
+	  FP(2)=SUM(DBLE(KN_ETA_EXT(1:KN_ND_EXT,1:KN_NCF)))
+	END IF
+	IF(FG_OSGN_FPSET .AND.
+	1   (FP(1) .NE. FG_OSGN_FP(1) .OR.
+	2    FP(2) .NE. FG_OSGN_FP(2)))THEN
+	  FG_OSGN_XP=-1.0_LDP
+	  FG_OSGN_XM=-1.0_LDP
+	  FG_OSGN_RP=0.0_LDP
+	  FG_OSGN_RM=0.0_LDP
+	  FG_OSGN_NRET=0
+! The accumulated dots mixed this sweep against pre-change history
+! -- a cross-map dx -- so the update must see an empty residual.
+	  FG_OSGN_ACC=0.0_LDP
+	END IF
+	FG_OSGN_FP=FP
+	FG_OSGN_FPSET=.TRUE.
+	CALL KN_OSGN_STEP(FG_OSGN_ACC(1),FG_OSGN_ACC(2),
+	1    FG_OSGN_ACC(3),FG_OSGN_ACC(4),OMEGA_IN,
+	2    KN_OSGN_MIN,KN_OSGN_MAX,KN_OSGN_EPSG,
+	3    FG_OSGN_NRET,OMEGA_OUT,ICODE)
+! The estimator prices one sweep's (dx,dr) pair; the accumulators
+! are per-sweep, not a running window -- stale pairs would pin the
+! contraction test on old history.
+	FG_OSGN_ACC=0.0_LDP
+	FG_OSGN_WHYN=ICODE
+	FG_OSGN_W(1)=OMEGA_OUT
+	FG_OSGN_W(2)=FG_OSGN_ACC(3)
+	FG_OSGN_W(3)=FG_OSGN_ACC(4)
+	LFALL=(ICODE .EQ. 3)
+	RETURN
+	END SUBROUTINE FG_OSGN_UPDATE
+!
+! FG_OSGN_ALLOC (WP-5): allocate the Aitken history arrays to the
+! live store grid and clear the state. Called lazily from the sweep
+! write the first time an armed run reaches a compressing column;
+! the flag guards every use, so the legacy path allocates nothing.
+!
+	SUBROUTINE FG_OSGN_ALLOC(NC2,NP2,NF2)
+	IMPLICIT NONE
+	INTEGER, INTENT(IN) :: NC2,NP2,NF2
+	INTEGER IA
+	IF(ALLOCATED(FG_OSGN_XP))THEN
+	  IF(SIZE(FG_OSGN_XP,1) .EQ. NC2 .AND.
+	1     SIZE(FG_OSGN_XP,2) .EQ. NP2 .AND.
+	2     SIZE(FG_OSGN_XP,3) .EQ. NF2)RETURN
+	  DEALLOCATE(FG_OSGN_XP,FG_OSGN_XM,FG_OSGN_RP,FG_OSGN_RM,
+	1    FG_OSGN_C1P,FG_OSGN_C1M,FG_OSGN_C2P,FG_OSGN_C2M,
+	2    FG_OSGN_DP,FG_OSGN_DM,FG_OSGN_TP,FG_OSGN_TM)
+	END IF
+	ALLOCATE(FG_OSGN_XP(NC2,NP2,NF2),FG_OSGN_XM(NC2,NP2,NF2),
+	1    FG_OSGN_RP(NC2,NP2,NF2),FG_OSGN_RM(NC2,NP2,NF2),
+	2    FG_OSGN_C1P(NC2,NP2),FG_OSGN_C1M(NC2,NP2),
+	3    FG_OSGN_C2P(NC2,NP2),FG_OSGN_C2M(NC2,NP2),
+	4    FG_OSGN_DP(NC2,NP2),FG_OSGN_DM(NC2,NP2),
+	5    FG_OSGN_TP(NC2,NP2),FG_OSGN_TM(NC2,NP2),STAT=IA)
+	IF(IA .NE. 0)THEN
+	  IF(ALLOCATED(FG_OSGN_XP))DEALLOCATE(FG_OSGN_XP)
+	  IF(ALLOCATED(FG_OSGN_XM))DEALLOCATE(FG_OSGN_XM)
+	  IF(ALLOCATED(FG_OSGN_RP))DEALLOCATE(FG_OSGN_RP)
+	  IF(ALLOCATED(FG_OSGN_RM))DEALLOCATE(FG_OSGN_RM)
+	  IF(ALLOCATED(FG_OSGN_C1P))DEALLOCATE(FG_OSGN_C1P)
+	  IF(ALLOCATED(FG_OSGN_C1M))DEALLOCATE(FG_OSGN_C1M)
+	  IF(ALLOCATED(FG_OSGN_C2P))DEALLOCATE(FG_OSGN_C2P)
+	  IF(ALLOCATED(FG_OSGN_C2M))DEALLOCATE(FG_OSGN_C2M)
+	  IF(ALLOCATED(FG_OSGN_DP))DEALLOCATE(FG_OSGN_DP)
+	  IF(ALLOCATED(FG_OSGN_DM))DEALLOCATE(FG_OSGN_DM)
+	  IF(ALLOCATED(FG_OSGN_TP))DEALLOCATE(FG_OSGN_TP)
+	  IF(ALLOCATED(FG_OSGN_TM))DEALLOCATE(FG_OSGN_TM)
+	  RETURN
+	END IF
+	FG_OSGN_XP=-1.0_LDP
+	FG_OSGN_XM=-1.0_LDP
+	FG_OSGN_RP=0.0_LDP
+	FG_OSGN_RM=0.0_LDP
+	FG_OSGN_C1P=0.0_LDP
+	FG_OSGN_C1M=0.0_LDP
+	FG_OSGN_C2P=0.0_LDP
+	FG_OSGN_C2M=0.0_LDP
+	FG_OSGN_DP=1.0E-300_LDP
+	FG_OSGN_DM=1.0E-300_LDP
+	FG_OSGN_TP=.FALSE.
+	FG_OSGN_TM=.FALSE.
+	FG_OSGN_CF=0
+	FG_OSGN_ACC=0.0_LDP
+	RETURN
+	END SUBROUTINE FG_OSGN_ALLOC
+!
 ! FG_EVAL_STATE_PUSH_V1 / FG_EVAL_STATE_POP_V1 (audit D1):
 ! bracket a JFNK eval sweep. The eval's INIT pass clears every
 ! maturity census the production sweep built up, and its
@@ -3891,6 +4174,29 @@
 	    IF(ALLOCATED(KN_R))DEALLOCATE ( KN_R )
 	    IF(ALLOCATED(KN_P))DEALLOCATE ( KN_P )
 	    KN_STORE_READY=.FALSE.
+!
+! WP-5 [KN_OMEGA_SGN]: the Aitken history is grid-shaped -- drop it
+! with the store. The lazy alloc in the sweep write rebuilds it on
+! the new grid when the flag is armed.
+!
+	    IF(ALLOCATED(FG_OSGN_XP))DEALLOCATE(FG_OSGN_XP)
+	    IF(ALLOCATED(FG_OSGN_XM))DEALLOCATE(FG_OSGN_XM)
+	    IF(ALLOCATED(FG_OSGN_RP))DEALLOCATE(FG_OSGN_RP)
+	    IF(ALLOCATED(FG_OSGN_RM))DEALLOCATE(FG_OSGN_RM)
+	    IF(ALLOCATED(FG_OSGN_C1P))DEALLOCATE(FG_OSGN_C1P)
+	    IF(ALLOCATED(FG_OSGN_C1M))DEALLOCATE(FG_OSGN_C1M)
+	    IF(ALLOCATED(FG_OSGN_C2P))DEALLOCATE(FG_OSGN_C2P)
+	    IF(ALLOCATED(FG_OSGN_C2M))DEALLOCATE(FG_OSGN_C2M)
+	    IF(ALLOCATED(FG_OSGN_DP))DEALLOCATE(FG_OSGN_DP)
+	    IF(ALLOCATED(FG_OSGN_DM))DEALLOCATE(FG_OSGN_DM)
+	    IF(ALLOCATED(FG_OSGN_TP))DEALLOCATE(FG_OSGN_TP)
+	    IF(ALLOCATED(FG_OSGN_TM))DEALLOCATE(FG_OSGN_TM)
+	    FG_OSGN_CF=0
+	    FG_OSGN_ACC=0.0_LDP
+	    FG_OSGN_NRET=0
+	    FG_OSGN_FPSET=.FALSE.
+	    FG_OSGN_GEN=0
+	    FG_OSGN_GUSE=0
 ! Re-arm the I_NEXT mapping diagnostic: the ray geometry and
 ! COMP_DEPTH_IDX are about to be rebuilt for the new grid.
 	    INEXT_MAP_PRINTED=.FALSE.
@@ -6591,6 +6897,29 @@ C
 !
 	    IF(NEW_FREQ .OR. SNP_FREQ .NE. FREQ_IDX_ITER)THEN
 	      SNP_FREQ=FREQ_IDX_ITER
+!
+! WP-5 [KN_OMEGA_SGN]: a column transition closes the previous
+! column's residual capture. The wrap back to column 1 marks a new
+! sweep -- bump the generation and restart the dot accumulators
+! (the finalize above already folded the last column into the OLD
+! sweep's sums). Lazy allocation here covers drivers and regrids;
+! the flag gate keeps the legacy path allocation-free.
+!
+	      IF(KN_OMEGA_SGN)THEN
+	        IF(.NOT. ALLOCATED(FG_OSGN_XP))
+	1        CALL FG_OSGN_ALLOC(N_COMP,NP,NCF_IN)
+	        IF(ALLOCATED(FG_OSGN_XP) .AND.
+	1           FREQ_IDX_ITER .NE. FG_OSGN_CF)THEN
+	          IF(FG_OSGN_CF .GE. 1)
+	1            CALL FG_OSGN_COL_FIN(FG_OSGN_CF)
+	          IF(FREQ_IDX_ITER .LT. FG_OSGN_CF .OR.
+	1             FG_OSGN_CF .LE. 0)THEN
+	            FG_OSGN_GEN=FG_OSGN_GEN+1
+	            FG_OSGN_ACC=0.0_LDP
+	          END IF
+	          FG_OSGN_CF=FREQ_IDX_ITER
+	        END IF
+	      END IF
 	      DO LS=1,NP
 	        VMAX_IP(LS)=MAX(1.0E-25_LDP,
 	1        MAXVAL(I_P(1:NI_RAY(LS),LS),
@@ -6691,6 +7020,23 @@ C
 	            ELSE
 	              I_P_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)=T1
 	            END IF
+!
+! WP-5 [KN_OMEGA_SGN]: capture this slot's residual sample -- fresh
+! T1, snapshot T2, and the churn normalization -- for the Aitken
+! residual vector. Re-entries overwrite, so the column buffers hold
+! the last (scattering-converged) pass's sample, matching the
+! slot's committed value. T2=0 slots write T1 unrelaxed -- omega
+! never acted there, so their T1 is a map output, not a defect;
+! they are skipped.
+!
+	            IF(KN_OMEGA_SGN .AND. ALLOCATED(FG_OSGN_C1P) .AND.
+	1            T2 .GT. 0.0_LDP)THEN
+	              FG_OSGN_C1P(KC,LS)=T1
+	              FG_OSGN_C2P(KC,LS)=T2
+	              FG_OSGN_DP(KC,LS)=
+	1              MAX(T2,1.0E-4_LDP*VMAX_IP(LS))
+	              FG_OSGN_TP(KC,LS)=.TRUE.
+	            END IF
 	            IF(NEW_FREQ)FG_SW_CAPTOT=FG_SW_CAPTOT+1
 	            IF(I_M(I,LS) .EQ. I_M(I,LS) .AND.
 	1              I_M(I,LS) .GT. 0.0_LDP)THEN
@@ -6751,6 +7097,19 @@ C
 	1              T2+INEXT_RELAX*(T1-T2)
 	            ELSE
 	              I_M_DEPTH_NEXT(KC,LS,FREQ_IDX_ITER)=T1
+	            END IF
+!
+! WP-5 [KN_OMEGA_SGN]: same residual capture for the M channel --
+! the Aitken vector concatenates both directions' slots. Same T2=0
+! skip as the P channel.
+!
+	            IF(KN_OMEGA_SGN .AND. ALLOCATED(FG_OSGN_C1M) .AND.
+	1            T2 .GT. 0.0_LDP)THEN
+	              FG_OSGN_C1M(KC,LS)=T1
+	              FG_OSGN_C2M(KC,LS)=T2
+	              FG_OSGN_DM(KC,LS)=
+	1              MAX(T2,1.0E-4_LDP*VMAX_IM(LS))
+	              FG_OSGN_TM(KC,LS)=.TRUE.
 	            END IF
 	          END IF
 	        END DO
@@ -8997,6 +9356,30 @@ C
 	RETURN
 	END
 !
+! WP-5 (26-Nov-2026): VADAT wiring for KN_OMEGA_SGN -- the signed
+! vector-Aitken store relaxation. mod_subs cannot USE the FG
+! module (build order), so the flag and the clamp bounds go
+! through these external setters.
+!
+	SUBROUTINE SET_FG_OMEGA_SGN(DO_SG)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_OMEGA_SGN
+	IMPLICIT NONE
+	LOGICAL DO_SG
+	KN_OMEGA_SGN=DO_SG
+	RETURN
+	END
+!
+	SUBROUTINE SET_FG_OSGN_LIMS(OMIN,OMAX)
+	USE SET_KIND_MODULE
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
+	1     KN_OSGN_MIN,KN_OSGN_MAX
+	IMPLICIT NONE
+	REAL(KIND=LDP) OMIN,OMAX
+	KN_OSGN_MIN=MAX(OMIN,1.0E-3_LDP)
+	KN_OSGN_MAX=MAX(OMAX,KN_OSGN_MIN)
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_HOTPASS(NRAY_P,NTOT_P)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY:
 	1     KN_RAY_HOTPASSES,KN_HOT_TOTAL_PASSES
@@ -9288,6 +9671,10 @@ C
 	INTEGER U_D,IOS_D
 	LOGICAL, ALLOCATABLE :: KN_PROD_MASK(:)
 	LOGICAL, SAVE :: F1_NOSLOT_NOTE=.FALSE.
+! L_OS_FB/L_OS_IC: WP-5 KN_OMEGA_SGN update result -- fall back to
+! the unaccelerated estimator, and the kernel exit code.
+	LOGICAL L_OS_FB
+	INTEGER L_OS_IC
 !
 ! Per-exit-class census of the ray solves (-1 = unsolved early
 ! return, 0-5 as coded in KNOP_RAY_SOLVE_V1). The residual max
@@ -10176,6 +10563,26 @@ C
 !
 	IF(KN_ADAPT_RELAX .AND. KN_RF_RESID .GT. 0.0_LDP .AND.
 	1   KN_PROD_OMEGA_OK(KN_PROD_IST))THEN
+!
+! WP-5 [KN_OMEGA_SGN]: signed-Aitken omega from the outer store-map
+! residual sequence measured inside the sweep write. On LFALL the
+! retry budget is spent or no fresh sweep arrived, and control
+! drops to the unaccelerated estimator below.
+!
+	  L_OS_FB=.FALSE.
+	  IF(KN_OMEGA_SGN)THEN
+	    CALL FG_OSGN_UPDATE(INEXT_RELAX,T2,L_OS_FB,L_OS_IC)
+	    IF(.NOT. L_OS_FB)THEN
+	      INEXT_RELAX=T2
+	      IF(CONV_DIAG_LVL .GE. 2)THEN
+	        CALL ILF_KVB(LUER,' OMEGA-SGN:',4,
+	1        (/'icode','|r_cur|^2','|r_prev|^2','applied omega'/),
+	2        (/ILF_VI(FG_OSGN_WHYN),ILF_VR(FG_OSGN_W(2),3),
+	3        ILF_VR(FG_OSGN_W(3),3),ILF_VR(INEXT_RELAX,3)/))
+	      END IF
+	    END IF
+	  END IF
+	  IF(.NOT. KN_OMEGA_SGN .OR. L_OS_FB)THEN
 	  IF(FG_ADAPT_OMEGA_V2)THEN
 	    CALL KN_OMEGA_POOL_V1(RHO_M_LS,RHO_P_LS,NDV_LS,
 	1      INEXT_RELAX,T2,L,RHO_H(2),RHO_H(1),RHO_MX,
@@ -10200,6 +10607,7 @@ C
 	    T2=MIN(MAX(T2,0.0_LDP),50.0_LDP)
 	    INEXT_RELAX=0.5_LDP*INEXT_RELAX+
 	1      0.5_LDP*MIN(1.0_LDP,MAX(0.05_LDP,1.0_LDP/(1.0_LDP+T2)))
+	  END IF
 	  END IF
 	  KN_RF_RESID_PRV=KN_RF_RESID
 	END IF
