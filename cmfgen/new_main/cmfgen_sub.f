@@ -3342,6 +3342,13 @@
 !
 	IF((DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP) .AND. DO_KNOP_REFRESH)
 	1    THEN
+!
+! WP-6 [KN_FORCING_TOL]: hand the last population demand (the
+! outer fixed-point residual in the Eisenstat-Walker reading) to
+! the refresh; the update consumes it only when the flag is
+! armed, so the stock path sees no change.
+!
+	  CALL SET_FG_FRC_RES(MAXCH)
 	  TW=OMP_GET_WTIME()
 	  CALL FG_KNOP_REFRESH_V1()
 	  IF(LEDG_ACTIVE)THEN
