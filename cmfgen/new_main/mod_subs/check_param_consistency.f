@@ -298,6 +298,39 @@
 	1       ' 4.0D-2), or remove the key.'
 	    STOP
 	  END IF
+!
+! WP-2 order-mode checks. Modes 0..2 are live; 3 is the reserved
+! SCC ordering -- it lands only if mode 2 underperforms on mixed
+! rays, so an explicit 3 is a config error until then. Anything
+! outside 0..3 is rejected outright. KN_RAY_ORDER_MODE already
+! carries the resolved value here (the rd read resolves -1 to
+! the KN_RAY_ORDERED mapping), so the stops cover the absent-key
+! path too. When both keys are explicit and disagree the mode
+! wins -- warn rather than stop so a legacy ORDERED=T deck can
+! still opt into a mode override.
+!
+	  IF(KN_RAY_ORDER_MODE .LT. 0 .OR.
+	1     KN_RAY_ORDER_MODE .GT. 3)THEN
+	    WRITE(LUER,*)'Error in control parameters in VADAT'
+	    WRITE(LUER,*)'KN_RAY_ORDER_MODE must be 0, 1 or 2'//
+	1       ' (3 is reserved): got ',KN_RAY_ORDER_MODE
+	    STOP
+	  END IF
+	  IF(KN_RAY_ORDER_MODE .EQ. 3)THEN
+	    WRITE(LUER,*)'Error in control parameters in VADAT'
+	    WRITE(LUER,*)'KN_RAY_ORDER_MODE=3 (SCC ordering) is'//
+	1       ' reserved: it lands only if mode 2 underperforms'//
+	2       ' on mixed rays. Use 0, 1 or 2.'
+	    STOP
+	  END IF
+	  IF(KN_ORD_MODE_SET .AND. KN_RAY_ORDERED_SET)THEN
+	    IF((KN_RAY_ORDER_MODE .EQ. 0) .NEQV.
+	1       KN_RAY_ORDERED)THEN
+	      WRITE(LUER,*)'Warning: KN_RAY_ORDER_MODE=',
+	1       KN_RAY_ORDER_MODE,' overrides explicit KN_RAY_ORDERED=',
+	2       KN_RAY_ORDERED
+	    END IF
+	  END IF
 	END IF
 !
 	RETURN
