@@ -353,6 +353,30 @@ which stamps the same value in the initial VADAT.
       transfer domain (`NI_RAY >= 2`); `FG_RF_ALL_CONV`
       additionally requires `KN_NINV = 0` so an early return
       left `KN_CS_INV` still fails the all-ray verdict closed.
+- WP-2 freshness contract and order modes (26-Nov-2026):
+  - `KN_RAY_ORDER_MODE` (default -1 = follow `KN_RAY_ORDERED`):
+    march-order selector for the refresh solve. 0 = ordered
+    `SWEEP_FLD_ORD`, 1 = frequency-major alternating
+    `SWEEP_FLD`, 2 = frequency-major with the first pass marched
+    down the ray's dominant coupling sign -- a uniform-
+    compressing ray (some GAM<0, none >0) starts descending so
+    its L+NFM donor column is fresh on pass 1; every other ray
+    keeps the mode-1 ascending start, which reduces mode 2 to
+    mode 1 exactly on expanding-only rays. 3 is reserved for
+    the SCC/topological ordering and stops until mode 2 is
+    measured on mixed rays. An explicit value wins over
+    `KN_RAY_ORDERED` with a warning; outside 0..3 stops. The
+    WP-0 fixture records the contract: `ord` reads ~WINX=0.943
+    of its compressing donor weight stale on I_M and ~0 on
+    I_P; `uno` alternates 1.0/0.0; `m2u` opens fresh and
+    converges in 2 passes; `m2m` is bitwise identical to
+    `unom` (test_knop_ordering, 50/0).
+  - `KN_FRESH_DIAG` (default F, diagnostic-only): per-pass
+    census of the |Q| donor weight read from a not-yet-updated
+    cell -- the stale share the ordered march's header comment
+    claimed was zero. Stored per (pass, dir, ray) in
+    `KN_FRESH_FR` (dir 1=I_M, 2=I_P, -1 = pass never ran) and
+    printed on LUER; the solve is unchanged.
 - `GS_FREEZE` and the freeze/maturity/watchdog stack are
   KNOP-scoped: forced F outside `DO_NONMONO_KNOP`.
 - `DO_KNOP_REFRESH` - converges the lagged J_NEXT/H_NEXT map
