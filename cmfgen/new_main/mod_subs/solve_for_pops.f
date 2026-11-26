@@ -283,6 +283,8 @@
 	LOGICAL LEDG_RF_RAN
 	INTEGER*8 LEDG_AA_APP,LEDG_AA_SKIP,LEDG_AA_SNG,LEDG_AA_RST
 	INTEGER*8 LEDG_AAO_APP,LEDG_AAO_REJ,LEDG_AAO_SNG
+	REAL(KIND=LDP) FRC_ETA,FRC_RAT,FRC_TOL
+	INTEGER FRC_SG
 	CHARACTER NG_CH,JF_CH,RF_CH
 	CHARACTER*3 FM_CH
 	CHARACTER*32 AAI_CH,AAO_CH
@@ -4735,7 +4737,10 @@
 ! activity (zeros under USE_LAM_ES=T, where the moment solver
 ! never runs); the NG flags report this call's schedule outcome;
 ! JFNK_COMMITTED separates admitted from committed Newton calls.
+! WP-6 frc_* columns report the last KN_FORCING_TOL update
+! (eta/ratio/safeguard/effective tolerance; -1/0 when disarmed).
 !
+	    CALL GET_FG_FRC(FRC_ETA,FRC_RAT,FRC_SG,FRC_TOL)
 	    CALL LEDG_WRITE_ITER(OMP_GET_WTIME(),
 	1      MAIN_COUNTER,MODE_NOW,MODE_NEXT,BA_CH,ITER_REASON,
 	2      GS_FREEZE,GS_POPS_HELD,
@@ -4754,7 +4759,8 @@
 	6      LEDG_AAO_APP,LEDG_AAO_REJ,LEDG_AAO_SNG,
 	7      MERGE(1,0,LEDG_AA_FAIL),MERGE(1,0,LEDG_FREQM),
 	8      MERGE(1,0,LEDG_RF_RAN),MERGE(1,0,LEDG_AA_ON),
-	9      MERGE(1,0,LEDG_AA_OUT_ON))
+	9      MERGE(1,0,LEDG_AA_OUT_ON),
+	1      FRC_ETA,FRC_RAT,FRC_SG,FRC_TOL)
 	  END IF
 !
 ! Plateau detector: flag a stall only when the committed correction,
