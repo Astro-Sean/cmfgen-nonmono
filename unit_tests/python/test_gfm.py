@@ -17,14 +17,14 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 
 def build():
     md = BINDIR / "obj_gfm"
     objs = [
-        prod_obj(TREE / "new_main" / "subs"
+        prod_obj(SRC / "new_main" / "subs"
                  / "generate_full_matrix_v3.f")]
     objs += compile_objs(
         "gfm_drv", [F90DIR / "drv_gfm.f90"],
