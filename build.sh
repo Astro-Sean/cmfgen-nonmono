@@ -38,8 +38,8 @@ rm -f build_*.out build_*.err build_*.log fort.* TIMING ./*.mod ./*.o core core.
 # Makefiles never create the output dirs; a fresh clone fails without them.
 mkdir -p mod lib exe mod_dbg lib_dbg exe_dbg
 
-make KEEP_EXE=1 clean
-make DEBUG=nodebug all
+make -C cmfgen KEEP_EXE=1 clean
+make -C cmfgen DEBUG=nodebug all
 
 for exe in exe/cmfgen_dev.exe exe/cmf_flux.exe exe/obs_frame.exe exe/plt_steq.exe; do
     [[ -x "${exe}" ]] || { echo "ERROR: missing build product: ${exe}" >&2; exit 1; }
