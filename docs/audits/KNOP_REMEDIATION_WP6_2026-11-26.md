@@ -36,7 +36,11 @@ same way); a fixed 2e-3 for every iteration is not.
   then KN_FRC_UPDATE() reprices it when armed. A driver reaching
   KNOP_RAY_SOLVE_V1 directly hits the unset sentinel and falls
   back to KN_RAY_TOL -- flag-off and driver paths are identical
-  to pre-WP-6.
+  to pre-WP-6. KN_CERT_CH is PURE and cannot arm the sentinel,
+  so it resolves the unset state to a local LTOL=KN_RAY_TOL
+  instead; a direct KN_CERTIFY caller that never passed the
+  solve sees the configured tolerance (caught by the csut
+  certification table, T39, before this fallback existed).
 - SET_FG_FRC_RES(MAXCH) is called by CMFGEN_SUB ahead of each
   refresh. The MAXCH in scope there is the previous call's
   population demand, so the ratio is one outer step lagged --
@@ -86,6 +90,18 @@ same way); a fixed 2e-3 for every iteration is not.
   test_knop_commit_gate 18/0, test_iter_conv_gate 18/0,
   test_conv_exit 53/0, test_knop_osgn 14/0 -- all identical, as
   required (KN_RAY_TOL_EFF=KN_RAY_TOL when disarmed).
+- test_knop_ray 50/1: the csut certification table (T39) caught
+  the unarmed-sentinel hole on the direct KN_CERTIFY path and
+  now passes with the KN_CERT_CH local resolve; T38b's 2.2e-19
+  OMP-race store noise from WP-5 returned to exact zero under
+  this rebuild (codegen scheduling, as documented). T18 remains
+  the documented pre-existing red.
+- Full build.sh suite: stale-archive gate tripped mid-run when
+  a parallel session touched jfnk_solver_v1.f90; all ~20
+  freshness-gated tests reran green after the member timestamp
+  was refreshed (no recompile of the parallel WIP). Remaining
+  suite reds are the documented pre-existing set plus the
+  parallel session's uncommitted SOB files.
 
 ## Flag-off identity
 
