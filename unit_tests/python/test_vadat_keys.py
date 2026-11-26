@@ -1538,6 +1538,30 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # -- WP-4 --------------------------------------------------
+    # KN_STORE_LS defaults T: non-certified commits backtrack the
+    # store step on the committed residual unless a deck restores
+    # the fixed FG_COMMIT_NC cap.
+    d = write_vadat(WORKDIR / "vadat_wp4_abs", knop_base)
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-4 KN_STORE_LS absent defaults T",
+        "RESULT_OK" in p.stdout and v.get("KN_STORE_LS") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+    d = write_vadat(
+        WORKDIR / "vadat_wp4_off",
+        dict(knop_base, **{"KN_STORE_LS": "F"}),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-4 KN_STORE_LS=F parses and lands",
+        "RESULT_OK" in p.stdout and v.get("KN_STORE_LS") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 
