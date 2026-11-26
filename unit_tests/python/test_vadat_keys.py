@@ -1432,6 +1432,89 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # WP-2 (26-Nov-2026): order-mode key and fresh census. Absent
+    # KN_RAY_ORDER_MODE resolves from KN_RAY_ORDERED -- default F
+    # gives mode 1 (alternating). KN_FRESH_DIAG defaults F.
+    d = write_vadat(WORKDIR / "vadat_wp2_def", dict(knop_base))
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-2 defaults: ORDER_MODE resolves to 1, FRESH_DIAG=F",
+        "RESULT_OK" in p.stdout
+        and v.get("KN_RAY_ORDER_MODE") == "1"
+        and v.get("KN_FRESH_DIAG") == "F",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # An explicit mode wins over the resolved sentinel.
+    d = write_vadat(
+        WORKDIR / "vadat_wp2_m2",
+        dict(knop_base, **{"KN_RAY_ORDER_MODE": "2"}),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-2 KN_RAY_ORDER_MODE=2 parses and lands",
+        "RESULT_OK" in p.stdout and v.get("KN_RAY_ORDER_MODE") == "2",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # Mode 3 is reserved until the SCC ordering lands.
+    d = write_vadat(
+        WORKDIR / "vadat_wp2_m3",
+        dict(knop_base, **{"KN_RAY_ORDER_MODE": "3"}),
+    )
+    p = run_vadat(exe, d)
+    rep.check(
+        "WP-2 KN_RAY_ORDER_MODE=3 aborts (reserved)",
+        "RESULT_OK" not in p.stdout and "reserved" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # Out-of-range values abort.
+    d = write_vadat(
+        WORKDIR / "vadat_wp2_m9",
+        dict(knop_base, **{"KN_RAY_ORDER_MODE": "9"}),
+    )
+    p = run_vadat(exe, d)
+    rep.check(
+        "WP-2 KN_RAY_ORDER_MODE=9 aborts (out of range)",
+        "RESULT_OK" not in p.stdout and "KN_RAY_ORDER_MODE" in p.stdout,
+        p.stdout[-300:],
+    )
+
+    # KN_FRESH_DIAG arms and lands.
+    d = write_vadat(
+        WORKDIR / "vadat_wp2_fresh",
+        dict(knop_base, **{"KN_FRESH_DIAG": "T"}),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-2 KN_FRESH_DIAG=T parses and lands",
+        "RESULT_OK" in p.stdout and v.get("KN_FRESH_DIAG") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
+    # Explicit MODE + explicit ORDERED that disagree: the mode
+    # wins and a warning prints, no stop.
+    d = write_vadat(
+        WORKDIR / "vadat_wp2_conf",
+        dict(
+            knop_base,
+            **{"KN_RAY_ORDERED": "T", "KN_RAY_ORDER_MODE": "2"},
+        ),
+    )
+    p = run_vadat(exe, d)
+    v = parse(p.stdout)
+    rep.check(
+        "WP-2 ORDER_MODE overrides explicit ORDERED with a warning",
+        "RESULT_OK" in p.stdout
+        and "Warning" in p.stdout
+        and v.get("KN_RAY_ORDER_MODE") == "2",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 
