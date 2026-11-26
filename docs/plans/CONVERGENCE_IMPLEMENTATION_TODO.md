@@ -24,9 +24,9 @@ switches; disabled state must reproduce today's bit-path.
 - Problem: refresh residual, sweep drift, store churn, retained-
   field delta and population demand are printed through overlapping
   channels; a damped update can masquerade as convergence in logs.
-- Source: `plane/fg_j_cmf_nonmono_v1.f` (refresh prints),
-  `plane/mom_j_cmf_nonmono_v1.f` (MOM sweep/refresh prints),
-  `new_main/mod_subs/solve_for_pops.f` (GS_DRIFT_DIAG).
+- Source: `cmfgen/plane/fg_j_cmf_nonmono_v1.f` (refresh prints),
+  `cmfgen/plane/mom_j_cmf_nonmono_v1.f` (MOM sweep/refresh prints),
+  `cmfgen/new_main/mod_subs/solve_for_pops.f` (GS_DRIFT_DIAG).
 - Justification: spec 3.1/3.4; `||x_{k+1}-x_k|| = omega||r_k||` must
   never substitute for `||r_k||`.
 - Reference: Toth-Kelley (residual-based convergence), spec.
@@ -79,7 +79,7 @@ switches; disabled state must reproduce today's bit-path.
 ### 2.2 Fix MOM omega estimator metric mixing
 - Problem: `DTR = MOM_GS_MAXCHG / MOM_RF_RESID_PRV` divides sweep
   drift by refresh residual - two different metrics (Audit C1).
-- Source: `plane/mom_j_cmf_nonmono_v1.f` ~6931.
+- Source: `cmfgen/plane/mom_j_cmf_nonmono_v1.f` ~6931.
 - Justification: contraction requires same-map, same-metric ratios.
 - Reference: Toth-Kelley; Audit Sect. 4.2.
 - Proposal: use `MOM_RF_RESID / MOM_RF_RESID_PRV` (refresh/refresh),
@@ -146,7 +146,7 @@ switches; disabled state must reproduce today's bit-path.
 - Problem: near-parallel residual-difference columns
   `d_j = r_1 - r_{j+1}` enter the Gram and are only caught
   post-mix by the residual rollback (Audit Sect. 6.1 gap 1).
-- Source: `SWEEP_FLD_ORD` Gram build, `plane/fg_j_cmf_nonmono_v1.f`
+- Source: `SWEEP_FLD_ORD` Gram build, `cmfgen/plane/fg_j_cmf_nonmono_v1.f`
   8703-8752; history push 8072-8084.
 - Justification: for the implemented Type-II system the
   conditioning of `GRM = D^T W D` is what controls `||gamma||`;
