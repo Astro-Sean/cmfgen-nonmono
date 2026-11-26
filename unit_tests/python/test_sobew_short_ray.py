@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PROD_MOD_INC,
@@ -47,16 +47,16 @@ from common import (
 )
 
 HELPERS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "mod_trap_derivatives.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "subs" / "zalongp.f",
-    TREE / "subs" / "nordtau.f",
-    TREE / "subs" / "tcompd.f",
-    TREE / "subs" / "xvecd.f",
-    TREE / "subs" / "thomas.f",
-    TREE / "subs" / "thomas_rh.f",
-    TREE / "subs" / "exponx.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "mod_trap_derivatives.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "subs" / "zalongp.f",
+    SRC / "subs" / "nordtau.f",
+    SRC / "subs" / "tcompd.f",
+    SRC / "subs" / "xvecd.f",
+    SRC / "subs" / "thomas.f",
+    SRC / "subs" / "thomas_rh.f",
+    SRC / "subs" / "exponx.f",
 ]
 
 ND, NC, NP = 25, 4, 29  # NP = NC + ND -> last rays are NI=2, NI=1
@@ -498,7 +498,7 @@ def main():
         "sobew_grad_v2.f",
         "sobew_grad_v3.f",
     ]
-    new_sob = prod_objs([TREE / "subs" / f for f in SOB_FILES])
+    new_sob = prod_objs([SRC / "subs" / f for f in SOB_FILES])
     ref_sob = compile_objs(
         "sob_ref_ewsr",
         [REF / "subs" / f for f in SOB_FILES],
