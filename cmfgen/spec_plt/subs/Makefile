@@ -72,7 +72,7 @@ OBJ2    = $(LIB2)(poidev.o)\
           $(LIB2)(ran2.o)
 
 all : $(LIB)
-	cp $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 	rm -f *.o
 
