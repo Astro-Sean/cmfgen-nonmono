@@ -1,5 +1,35 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] USE_LAM_ES=F checklist diagnosis (26-Nov-2026, user-directed).
+      Question: do the prescriptions in
+      checklists/use_lam_es_eq_f.md (temp-Jacobian dominance, epsilon
+      bookkeeping, Ng enforcement, S_es smoothing at dv/dr=0, CMF
+      opacity transforms, dtau limiter, SE diagonal, J floor,
+      resonance search, SC weight normalization) map onto real
+      defects on this route? Evidence plan: per-item audit of
+      mom_j_cmf_nonmono_v1.f / comp_j_blank.f dispatch against the
+      r01 arm OUTGEN (13671873, killed at it~349, Conv 67% plateau).
+      Verdict: mechanism class confirmed, named prescriptions mostly
+      N/A or rejected. CONFIRMED: the epsilon->0 scattering
+      stiffness is real but the named location is wrong - the moment
+      diagonal already carries the exact (1-COH) absorption term; the
+      lagged chi_s*J and lagged frequency coupling are the
+      contraction-killers (nu-census amax 0.9947, every refresh
+      both-directions-stalled). The ES-ALI OAB on the mom diagonal is
+      installed (auto-set DO_ES_ALI=T) and counterproductive: ~80% of
+      8331 freqs exceed ES_ALI_TOL per iteration, max dJ/J 1E84,
+      DEN-floor amplification feeds back into TA. VERIFIED OK:
+      epsilon bookkeeping, chi_hat dtau, CMF O(v/c) coefficients, SE
+      channel (standard EDDFACTOR path). REJECTED: S_es smoothing,
+      B(Tmin) J floor (clamp policy). N/A: T Jacobian (FIX_T=T on
+      the failing decks), SC weights, resonance search. Dominant
+      defects remain the recorded ones: lagged H/EPS rho~1 map +
+      H not re-derived after MOM_BLK_SOLVE (s2H 1E14-1E56) +
+      equation-modifying guards at scale. New lead: DO_ES_ALI=F arm
+      on the r01 deck would isolate the OAB amplifier's share of the
+      pass noise. Full mapping:
+      docs/audits/USE_LAM_ES_F_CHECKLIST_DIAGNOSIS_2026-11-26.md;
+      item verdicts annotated in the checklist file. No code changed.
 - [x] Source tree moved under cmfgen/ (26-Nov-2026). All upstream
       mirror dirs, the fork source dirs (plane/, pgplot_stubs/,
       obs_template/) and the upstream root build files now live in
