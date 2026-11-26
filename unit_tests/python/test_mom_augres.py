@@ -19,7 +19,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import (
+from common import (SRC, 
     F90DIR,
     TREE,
     WORKDIR,
@@ -82,7 +82,7 @@ CASES = [
 def build():
     return compile_and_link_prod(
         "mom_augres",
-        [TREE / h for h in HELPERS]
+        [SRC / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_augres.f"],
     )
 
