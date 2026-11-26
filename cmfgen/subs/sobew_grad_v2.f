@@ -1,4 +1,141 @@
 !
+! Regression census of the floored Sobolev denominator T1, the
+! resulting GAM and its EXPONX escape factor across every
+! (depth, ray) sample of every EW call.  Diagnostic only
+! [SOB_check WP6]: armed by environment variable
+! CMF_SOB_T1_CENSUS=1 (pattern follows CMF_KN_RF_MB).  Unarmed runs
+! pay one logical test per sample and produce no output.  Report is
+! emitted by SOB_T1_CENSUS_REPORT, called once after the EW line
+! loop in CMF_FLUX_SUB_V5.
+!
+	MODULE SOB_T1_CENSUS_MOD
+	USE SET_KIND_MODULE
+	USE, INTRINSIC :: IEEE_ARITHMETIC
+	IMPLICIT NONE
+!
+	LOGICAL :: CEN_ARMED = .FALSE.
+	LOGICAL :: CEN_INIT  = .FALSE.
+	REAL(KIND=LDP) :: CEN_T1MIN  = 0.0_LDP
+	REAL(KIND=LDP) :: CEN_GAMMIN = 0.0_LDP
+	REAL(KIND=LDP) :: CEN_GAMMAX = 0.0_LDP
+	REAL(KIND=LDP) :: CEN_SIGMIN = 0.0_LDP
+	REAL(KIND=LDP) :: CEN_SIGMAX = 0.0_LDP
+	INTEGER :: CEN_T1MIN_RAY = 0,  CEN_T1MIN_DEP = 0
+	INTEGER :: CEN_GAMMIN_RAY = 0, CEN_GAMMIN_DEP = 0
+	INTEGER :: CEN_GAMMAX_RAY = 0, CEN_GAMMAX_DEP = 0
+	INTEGER(KIND=8) :: CEN_NSAMP  = 0
+	INTEGER(KIND=8) :: CEN_NNAN   = 0
+	INTEGER(KIND=8) :: CEN_NINF   = 0
+	INTEGER(KIND=8) :: CEN_NUNDEF = 0
+	INTEGER(KIND=8) :: CEN_XNAN   = 0
+	INTEGER(KIND=8) :: CEN_XINF   = 0
+!
+	CONTAINS
+!
+	SUBROUTINE SOB_T1_CEN_INIT()
+	CHARACTER(LEN=16) :: ENVVAL
+	INTEGER :: ENVLEN, ENVSTAT
+	IF(CEN_INIT)RETURN
+	CEN_INIT=.TRUE.
+	CEN_ARMED=.FALSE.
+	CALL GET_ENVIRONMENT_VARIABLE('CMF_SOB_T1_CENSUS',ENVVAL,
+	1                             ENVLEN,ENVSTAT)
+	IF(ENVSTAT .EQ. 0 .AND. ENVLEN .GT. 0)THEN
+	  IF(ENVVAL(1:1) .EQ. '1' .OR. ENVVAL(1:1) .EQ. 'T' .OR.
+	1    ENVVAL(1:1) .EQ. 't')CEN_ARMED=.TRUE.
+	END IF
+	IF(.NOT. CEN_ARMED)RETURN
+	CEN_T1MIN=HUGE(CEN_T1MIN)
+	CEN_GAMMIN=HUGE(CEN_GAMMIN)
+	CEN_GAMMAX=-HUGE(CEN_GAMMAX)
+	CEN_SIGMIN=HUGE(CEN_SIGMIN)
+	CEN_SIGMAX=-HUGE(CEN_SIGMAX)
+	RETURN
+	END SUBROUTINE SOB_T1_CEN_INIT
+!
+! Per-sample hook in the T1/GAM loop.  SIGV is the sigma array the
+! caller was handed (SIGMA_TRUE under DO_NONMONO_SOB); a cell whose
+! gradient could not be built carries the SIGMA_TRUE_CORE sentinel
+! 0.0 and is counted as undefined.
+!
+	SUBROUTINE SOB_T1_CEN_ACC(T1V,GAMV,SIGV,IRAY,IDEP)
+	REAL(KIND=LDP) T1V,GAMV,SIGV
+	INTEGER IRAY,IDEP
+	IF(.NOT. CEN_INIT)CALL SOB_T1_CEN_INIT()
+	IF(.NOT. CEN_ARMED)RETURN
+	CEN_NSAMP=CEN_NSAMP+1
+	IF(SIGV .EQ. 0.0_LDP)CEN_NUNDEF=CEN_NUNDEF+1
+	IF(IEEE_IS_NAN(T1V) .OR. IEEE_IS_NAN(GAMV))THEN
+	  CEN_NNAN=CEN_NNAN+1
+	  RETURN
+	END IF
+	IF(.NOT. IEEE_IS_FINITE(T1V) .OR.
+	1       .NOT. IEEE_IS_FINITE(GAMV))THEN
+	  CEN_NINF=CEN_NINF+1
+	  RETURN
+	END IF
+	IF(SIGV .LT. CEN_SIGMIN)CEN_SIGMIN=SIGV
+	IF(SIGV .GT. CEN_SIGMAX)CEN_SIGMAX=SIGV
+	IF(T1V .LT. CEN_T1MIN)THEN
+	  CEN_T1MIN=T1V
+	  CEN_T1MIN_RAY=IRAY
+	  CEN_T1MIN_DEP=IDEP
+	END IF
+	IF(GAMV .LT. CEN_GAMMIN)THEN
+	  CEN_GAMMIN=GAMV
+	  CEN_GAMMIN_RAY=IRAY
+	  CEN_GAMMIN_DEP=IDEP
+	END IF
+	IF(GAMV .GT. CEN_GAMMAX)THEN
+	  CEN_GAMMAX=GAMV
+	  CEN_GAMMAX_RAY=IRAY
+	  CEN_GAMMAX_DEP=IDEP
+	END IF
+	RETURN
+	END SUBROUTINE SOB_T1_CEN_ACC
+!
+! Per-sample hook at the EXPONX(GAM) evaluation; counts non-finite
+! escape factors so an upstream overflow shows up here rather than
+! silently contaminating the force multiplier.
+!
+	SUBROUTINE SOB_T1_CEN_ACC_EX(XV)
+	REAL(KIND=LDP) XV
+	IF(.NOT. CEN_INIT)CALL SOB_T1_CEN_INIT()
+	IF(.NOT. CEN_ARMED)RETURN
+	IF(IEEE_IS_NAN(XV))THEN
+	  CEN_XNAN=CEN_XNAN+1
+	ELSE IF(.NOT. IEEE_IS_FINITE(XV))THEN
+	  CEN_XINF=CEN_XINF+1
+	END IF
+	RETURN
+	END SUBROUTINE SOB_T1_CEN_ACC_EX
+!
+	SUBROUTINE SOB_T1_CENSUS_REPORT(LU)
+	INTEGER LU
+	IF(.NOT. CEN_INIT)CALL SOB_T1_CEN_INIT()
+	IF(.NOT. CEN_ARMED)RETURN
+	WRITE(LU,'(A,I12)')'SOB_T1_CENSUS: samples = ',CEN_NSAMP
+	WRITE(LU,'(A,1P,E15.6,A,I6,A,I6)')
+	1  'SOB_T1_CENSUS: min T1 = ',CEN_T1MIN,
+	2  '  at ray ',CEN_T1MIN_RAY,' depth ',CEN_T1MIN_DEP
+	WRITE(LU,'(A,1P,E15.6,A,I6,A,I6)')
+	1  'SOB_T1_CENSUS: min GAM = ',CEN_GAMMIN,
+	2  '  at ray ',CEN_GAMMIN_RAY,' depth ',CEN_GAMMIN_DEP
+	WRITE(LU,'(A,1P,E15.6,A,I6,A,I6)')
+	1  'SOB_T1_CENSUS: max GAM = ',CEN_GAMMAX,
+	2  '  at ray ',CEN_GAMMAX_RAY,' depth ',CEN_GAMMAX_DEP
+	WRITE(LU,'(A,1P,E15.6,A,E15.6)')
+	1  'SOB_T1_CENSUS: sigma range = ',CEN_SIGMIN,' .. ',CEN_SIGMAX
+	WRITE(LU,'(A,I8)')'SOB_T1_CENSUS: undefined sigma = ',CEN_NUNDEF
+	WRITE(LU,'(A,I8,A,I8)')'SOB_T1_CENSUS: GAM NaN = ',CEN_NNAN,
+	1  '  Inf = ',CEN_NINF
+	WRITE(LU,'(A,I8,A,I8)')'SOB_T1_CENSUS: EXPONX NaN = ',CEN_XNAN,
+	1  '  Inf = ',CEN_XINF
+	RETURN
+	END SUBROUTINE SOB_T1_CENSUS_REPORT
+!
+	END MODULE SOB_T1_CENSUS_MOD
+!
 ! Routine to compute the equivalent width of a line and the
 ! radiative force of a line using the SOBOLEV approximation.
 ! The radiative force is expressed as a multiple of the
@@ -9,6 +146,7 @@
 	1                 AQW,HAQW,LINE_FLUX,EW,CONT_FLUX,
 	1                 FL,INNER_BND_METH,DBB,IC,THICK,DIE,NC,NP,ND,METHOD)
 	USE SET_KIND_MODULE
+	USE SOB_T1_CENSUS_MOD
 	IMPLICIT NONE
 !
 ! Altered 26-Oct-2014 : We now write ABS(dmuV/dz) so as to handle non-monotonic velocity laws.
@@ -101,7 +239,8 @@ C regularisation, motivated by the transfer problems in Dessart,
 C Audit & Hillier (2015, arXiv:1503.05463). The extra 1D-4 minimum
 C is a CMFGEN-specific numerical safeguard for the sigma=-1 case;
 C it is not part of the published DAH15 expression.
-C Inactive for sigma >= -1, so monotonic flows are unchanged.
+C Inactive for sigma >= -1 + 1e-4, so monotonic flows away from the
+C floor window are unchanged.
 C
 	      T1=1.0_LDP+Z(I)*Z(I)/R(I)/R(I)*SIGMA(I)
 	      IF(SIGMA(I) .LT. 0.0_LDP)THEN
@@ -110,6 +249,8 @@ C
 	        T1=ABS(T1)
 	      END IF
 	      GAM(I)=GAMH(I)/T1
+	      IF(CEN_ARMED .OR. .NOT. CEN_INIT)
+	1       CALL SOB_T1_CEN_ACC(T1,GAM(I),SIGMA(I),LS,I)
 	    END DO
 !
 ! SOURCE(1) is the boundary continuum source function. NB: If THICK it is
@@ -235,6 +376,8 @@ C
 !
 	  DO I=1,NI
 	    T2=EXPONX(GAM(I))
+	    IF(CEN_ARMED .OR. .NOT. CEN_INIT)
+	1     CALL SOB_T1_CEN_ACC_EX(T2)
 !
 ! The radiative force due to a single line is
 !
