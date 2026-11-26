@@ -100,7 +100,7 @@ OBJ = $(LIB)(add_par_to_full_v2.o)\
 #cmf_sub_sonic_hydro.o
 
 all : $(LIB) XNUC XAUTO XCHG XTWO XNON
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 	rm -f *.o
 
