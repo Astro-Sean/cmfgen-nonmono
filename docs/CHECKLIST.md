@@ -1,5 +1,27 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] FIX 4 stage 2 phase 1: matrix-free augmented matvec
+      MOM_AUG_MATVEC landed and verified (26-Nov-2026). Serves the
+      FIX 4 augmented implicit (J,H) solve on the USE_LAM_ES=F
+      route (docs/plans/MOMENT_H_EPS_IMPLICIT_DERIVATION_2026-11-25.md
+      sec 8 phase 1). Implemented the interleaved z -> A z
+      operator in mom_j_cmf_nonmono_v1.f as a production-sign
+      port of the numpy oracle: captured tridiagonal plus CUP
+      upwind-J edges on the moment rows, the LAGSCL-scaled lagged
+      bracket (H edges, EPS frequency scatter) moved to the LHS,
+      and the midpoint H reconstruction rows. Verified by
+      test_mom_augmv (77/77): the Fortran matvec matches
+      assemble() to ~1E-16 across six probe vectors on the
+      exact/epsmix/lagb/him/clip/bnd/epscap/mix/offg/skip cases,
+      skipped columns return zero rows, and manufactured
+      committed fields solve A z = b. Found and fixed a latent
+      oracle sign bug in test_mom_himpl assemble(): the
+      boundary-row EPSP x-term carried +scl*2c/t1b where
+      production (XM(1) -= LAG_SCL*T5) and MOM_AUG_RESID_V1 both
+      subtract it; latent because no prior case had EPSP /= 0
+      on an OUTBC>1 boundary row. Next phase: wire the matvec
+      into the per-column block GMRES behind a flag, reading the
+      captured NU_* arrays.
 - [~] DO_ES_ALI=F isolation arm on the r01 deck (26-Nov-2026).
       Declared bounded investigation. Question: how much of the m15
       USE_LAM_ES=F pass noise is self-inflicted by the ES_ALI_MOM_ON
