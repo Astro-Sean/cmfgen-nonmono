@@ -1690,6 +1690,27 @@
 	REAL(KIND=LDP) KN_OSGN_MIN_V
 	REAL(KIND=LDP) KN_OSGN_MAX_V
 !
+! KN_FORCING_TOL (WP-6, 26-Nov-2026, default FALSE): Eisenstat &
+! Walker 1996 Choice-2 forcing term on the Knop refresh's inner
+! stopping tolerance. The refresh is the inner solve of an
+! inexact-Newton loop whose outer residual is the population
+! demand MAXCH; eta_k = gamma*(F_k/F_{k-1})^alpha prices how
+! tight the field must be this iteration (loose inner solve when
+! the outer residual is large, tightening as the demand falls --
+! Arramy et al. 2024 run inner tolerances near 1e-2 the same
+! way). The effective tolerance is clamped to
+! [KN_FRC_TMIN,KN_FRC_TMAX] and never looser than
+! 0.1*GS_MATURE_TOL (invariant I2). eta_k, the raw ratio and the
+! safeguard flag land in the ITER_LEDGER frc_* columns. F keeps
+! the fixed KN_RAY_TOL. VADAT [KN_FORCING_TOL], [KN_FRC_GAM],
+! [KN_FRC_ALP], [KN_FRC_TMIN], [KN_FRC_TMAX].
+!
+	LOGICAL KN_FORCING_TOL
+	REAL(KIND=LDP) KN_FRC_GAM_V
+	REAL(KIND=LDP) KN_FRC_ALP_V
+	REAL(KIND=LDP) KN_FRC_TMIN_V
+	REAL(KIND=LDP) KN_FRC_TMAX_V
+!
 ! KN_RAY_STALL (default 0.98): same-direction residual ratio above
 ! which a refresh pass counts toward the NSTALL early exit in
 ! SWEEP_FLD/SWEEP_FLD_ORD. 0.90 quit rays still contracting at up
