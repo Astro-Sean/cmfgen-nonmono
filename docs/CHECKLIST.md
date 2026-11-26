@@ -638,6 +638,48 @@ The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
 
+## Knop remediation WP-5: signed-Aitken store relaxation (26-Nov-2026, task-directed)
+
+WP-5 prices the lagged-store relaxation `INEXT_RELAX` on the
+OUTER store-map residual sequence instead of the INNER per-ray
+pass ratios the V2 pool estimator consumes -- the category
+error behind the m15 residual oscillation. `KN_OMEGA_SGN`
+(default F) arms the update inside the KN_ADAPT_RELAX adaptive
+branch: each sweep write site's per-slot (fresh - snapshot)
+defect forms the residual vector, consecutive sweeps give
+(dx, dr), and `KN_OSGN_STEP` returns the signed vector-Aitken
+price -<dx,dr>/<dr,dr> (Ramiere & Helfer 2015 eq. 36; scalar
+map -> 1/(1-lambda) in one step, including oscillating and
+expanding maps the pool cannot express). Guards: collapsed
+<dr,dr> holds omega, a non-decreasing residual halves once
+then falls back to the unaccelerated estimator, the price
+clamps to [KN_OSGN_MIN=5.0D-2, KN_OSGN_MAX=2.0D0], a
+CHI/ETA_EXT fingerprint move clears the slot history, T2=0
+slots are skipped (the unrelaxed write never saw omega), and
+each generation's update is consumed once. Regrid drops the
+grid-shaped history; lazy allocation keeps the legacy path
+allocation-free; flag F reproduces WP-4 exactly.
+
+Fixture: `drv_knop_osgn` + `test_knop_osgn` 14/0 -- scalar
+contracting (lam=0.3 -> omega=10/7, root <1e-12),
+oscillating (lam=-0.8 -> 5/9), expanding (halve-once then
+fall), collapse hold, both clamps; vector-level two-slot
+sweep machinery prices 10/7 on sweep 2, fingerprint reset
+holds, double-update falls back.
+
+Deliverables: `docs/audits/KNOP_REMEDIATION_WP5_2026-11-26.md`;
+`test_knop_osgn` 14/0; `test_vadat_keys` 129/0 (+5);
+`test_knop_ordering` 50/0, `test_iter_conv_gate` 18/0,
+`test_conv_exit` 53/0, `test_pop_audit` pass,
+`test_sigma_true` 16/0, `test_knop_ray` 49/2 (T18
+pre-existing; T38b replh now records a deterministic
+2.2e-19 maxabs under the OMP race -- flag-off logic
+unchanged, codegen perturbation on the added branches;
+exact-zero relaxation is a human call). `test_knop_lagged_field`
+and the other observed reds are pre-existing or harness
+gaps. Build: `build.sh` + `build_debug.sh` clean. The
+armed-flag m15 measurement is the A/B handed to the human.
+
 ## Knop remediation WP-4: store line search (26-Nov-2026, task-directed)
 
 WP-4 replaces the fixed `FG_COMMIT_NC` bound on non-certified
