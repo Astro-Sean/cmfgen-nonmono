@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common import TREE, compile_and_link_prod
+from common import SRC, TREE, compile_and_link_prod
 
 JOB1 = "99111"
 JOB2 = "99222"
@@ -168,8 +168,8 @@ def main():
         "knop_spec_gate",
         [
             Path(__file__).resolve().parents[1] / "f90" / "drv_knop_spec_gate.f",
-            TREE / "obs" / "knop_spec_gate.f",
-            TREE / "obs" / "cmf_flux_cntrl_var_mod.f",
+            SRC / "obs" / "knop_spec_gate.f",
+            SRC / "obs" / "cmf_flux_cntrl_var_mod.f",
         ],
     )
     print(f"built {drv}")
