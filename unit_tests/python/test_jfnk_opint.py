@@ -31,10 +31,11 @@ from common import TREE, Report, prod_obj
 ROOT = TREE
 SE_DIR = ROOT / "unit_tests"
 SE_BIN = SE_DIR / "bin" / "se_driver"
-PROBE_SRC = ROOT / "new_main/mod_subs/jfnk_op_probe_v1.f90"
-CORR_SRC = ROOT / "new_main/mod_subs/jfnk_solve_corr_v1.f"
-IFACE_SRC = ROOT / "new_main/mod_subs/jfnk_cmfgen_interface_v1.f"
-INTMOD_SRC = ROOT / "new_main/mod_subs/jfnk_cmfgen_int_mod.f"
+SRC = ROOT / "cmfgen"
+PROBE_SRC = SRC / "new_main/mod_subs/jfnk_op_probe_v1.f90"
+CORR_SRC = SRC / "new_main/mod_subs/jfnk_solve_corr_v1.f"
+IFACE_SRC = SRC / "new_main/mod_subs/jfnk_cmfgen_interface_v1.f"
+INTMOD_SRC = SRC / "new_main/mod_subs/jfnk_cmfgen_int_mod.f"
 EPS = "1e-6"
 SYSTEMS = ("mild", "hard", "shock")
 EXPECTED_TAGS = {
