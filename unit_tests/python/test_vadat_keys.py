@@ -1724,6 +1724,29 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # WP-9 release trust seed defaults off; parses and lands on CVM.
+    p = run_vadat(
+        exe, write_vadat(WORKDIR / "vadat_wp9_def", dict(knop_base))
+    )
+    v = parse(p.stdout)
+    rep.check(
+        "WP-9 BA_REL_TRUST absent default F",
+        "RESULT_OK" in p.stdout and v.get("BA_REL_TRUST") == "F",
+    )
+    p = run_vadat(
+        exe,
+        write_vadat(
+            WORKDIR / "vadat_wp9_arm",
+            dict(knop_base, **{"BA_REL_TRUST": "T"}),
+        ),
+    )
+    v = parse(p.stdout)
+    rep.check(
+        "WP-9 BA_REL_TRUST=T lands on the module",
+        "RESULT_OK" in p.stdout and v.get("BA_REL_TRUST") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 
