@@ -398,6 +398,33 @@ which stamps the same value in the initial VADAT.
     on an NC-bounded write where the legacy census reported 0;
     `capok` certifies at ~4e-16; `nclg` disarms
     (test_knop_commit_gate, 10/0).
+- WP-4 store line search (26-Nov-2026):
+  - `KN_STORE_LS` (default T): on a non-certified commit the
+    store step backtracks on the committed-state residual
+    (WP-3 verify) instead of taking the fixed `FG_COMMIT_NC`
+    bound. The search evaluates the committed residual at the
+    retained store, then at alpha = 1, 0.5, 0.25, 0.125 blends
+    (stored <- stored + alpha*(fresh-stored), both march
+    directions), and accepts the first rung that strictly
+    descends; `FG_COMMIT_NC` survives only as the rung floor.
+    If no rung descends the previous store is retained and a
+    rejection is counted (`FG_LS_REJ`, per-ray `FG_RAY_LSA=-2`);
+    accepted alphas histogram into `FG_LS_HIST(5)` (rung 5 =
+    the NC floor when 0 < `FG_COMMIT_NC` < 0.125) with
+    `FG_LS_R0`/`FG_LS_R1` summing residual before/after --
+    all printed in the refresh epilogue census. Certified
+    commits, the `FG_COMMIT_JUMP` veto, and the non-finite /
+    cap guards are unchanged; F restores the fixed NC cap
+    exactly (legacy `WRITE_STORE_CAP` provisional write, or
+    retain under NC=0). Motivation: the fixed NC bound
+    ratchets O(100) refreshes toward the fixed point where a
+    residual-tested full step commits in one (Eisenstat &
+    Walker inexact-Newton backtracking; Arramy et al. 2024,
+    A&A 690, A12, Sec. 2.2.2). The m15-arm fixture records
+    both directions: `lsok` descends CRES 1.4e5 -> 3.95e-2 in
+    one refresh (alpha=1); `lsrj` rejects an over-relaxed
+    expansive step and keeps the prior store
+    (test_knop_commit_gate, 18/0).
 - `GS_FREEZE` and the freeze/maturity/watchdog stack are
   KNOP-scoped: forced F outside `DO_NONMONO_KNOP`.
 - `DO_KNOP_REFRESH` - converges the lagged J_NEXT/H_NEXT map
