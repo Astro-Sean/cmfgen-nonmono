@@ -106,7 +106,10 @@ def assemble(d):
                     if c != 0.0:
                         dd, u = eps_donor(c, 0, k, nmj, ncf)
                         if 0 <= u < ncf:
-                            lag[r, xidx(dd, u)] += scl * 2.0 * c / t1b
+                            # Production subtracts LAG_SCL*T5 from
+                            # the boundary XM (sweep :3404), so the
+                            # lagged bracket carries -scl*2c/t1b.
+                            lag[r, xidx(dd, u)] -= scl * 2.0 * c / t1b
             elif i == nd - 1:
                 row[zxi(nd - 2, k)] = d["ta"][nd - 1, k]
                 row[zxi(nd - 1, k)] = d["tb"][nd - 1, k]
