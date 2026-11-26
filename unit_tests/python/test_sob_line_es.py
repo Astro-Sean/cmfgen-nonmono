@@ -17,34 +17,34 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import F90DIR, PLOTDIR, TREE, WORKDIR, Report, compile_driver, run
+from common import SRC, F90DIR, PLOTDIR, TREE, WORKDIR, Report, compile_driver, run
 
 ND = 4
 NCF = 5
 
 SOURCES = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "extend3opac.f",
-    TREE / "subs" / "ungrid.f",
-    TREE / "obs" / "sob_line_es_update.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "extend3opac.f",
+    SRC / "subs" / "ungrid.f",
+    SRC / "obs" / "sob_line_es_update.f",
     F90DIR / "stub_sob_es_fg.f",
     F90DIR / "stub_sob_es_conv.f",
     F90DIR / "drv_sob_line_es.f",
 ]
 
 CONV_SOURCES = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "extend3opac.f",
-    TREE / "subs" / "ungrid.f",
-    TREE / "obs" / "sob_line_es_update.f",
-    TREE / "subs" / "comp_j_conv_v2.f",
-    TREE / "subs" / "thomas_rh.f",
-    TREE / "new_main" / "mod_subs" / "iter_log_fmt_mod.f90",
-    TREE / "subs" / "mon_interp.f",
-    TREE / "subs" / "write_direct_info_v3.f",
-    TREE / "tools" / "chk_little_endian.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "unix" / "dir_acc_pars_gen.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "extend3opac.f",
+    SRC / "subs" / "ungrid.f",
+    SRC / "obs" / "sob_line_es_update.f",
+    SRC / "subs" / "comp_j_conv_v2.f",
+    SRC / "subs" / "thomas_rh.f",
+    SRC / "new_main" / "mod_subs" / "iter_log_fmt_mod.f90",
+    SRC / "subs" / "mon_interp.f",
+    SRC / "subs" / "write_direct_info_v3.f",
+    SRC / "tools" / "chk_little_endian.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "unix" / "dir_acc_pars_gen.f",
     F90DIR / "stub_sob_es_fg.f",
     F90DIR / "drv_sob_line_es.f",
 ]
