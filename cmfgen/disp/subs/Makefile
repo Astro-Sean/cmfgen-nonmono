@@ -74,7 +74,7 @@ OBJ = $(LIB)(betanew.o)\
       $(LIB)(xvecfeau.o)
 
 all : $(LIB)
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 	rm -f *.o
 
@@ -126,11 +126,11 @@ $(LIB)(map_plot.o) : map_plot.f $(GEN)
 	ar $(AR_OPTION) $(LIB) map_plot.o
 
 $(LIB)(plt_profs.o) : plt_profs.f ../mod_disp.o $(GEN)
-	$(F90) -c  $(FG) -I../ -I../../mod  plt_profs.f 
+	$(F90) -c  $(FG) -I../ -I$(MOD_DIR)  plt_profs.f 
 	ar $(AR_OPTION) $(LIB) plt_profs.o
 
 $(LIB)(wr_atom_sum.o) : wr_atom_sum.f ../mod_disp.o $(GEN)
-	$(F90) -c  $(FG) -I../ -I../../mod  wr_atom_sum.f 
+	$(F90) -c  $(FG) -I../ -I$(MOD_DIR)  wr_atom_sum.f 
 	ar $(AR_OPTION) $(LIB) wr_atom_sum.o
 
 $(LIB)(wr_spec_sum_v2.o) : wr_spec_sum_v2.f ../mod_disp.o $(GEN)
@@ -140,7 +140,7 @@ $(LIB)(wr_spec_sum_v2.o) : wr_spec_sum_v2.f ../mod_disp.o $(GEN)
 # Specific dependency of source files which uses external 
 # fortran moudles. (The order of compilation matters.)
 
-TRAP = ../../lib/libsubs.a(mod_trap_derivatives.o)
+TRAP = ../$(LIB_DIR)libsubs.a(mod_trap_derivatives.o)
 
 $(LIB)(get_dtaulam.o)  : get_dtaulam.f  $(TRAP)
 
