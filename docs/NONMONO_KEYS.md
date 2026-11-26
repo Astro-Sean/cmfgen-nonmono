@@ -469,6 +469,28 @@ which stamps the same value in the initial VADAT.
   - `KN_FRC_TMIN` (default 1.0D-4), `KN_FRC_TMAX` (default
     1.0D-2): clamp band on the priced tolerance; the I2 cap
     min(TMAX, 0.1*GS_MATURE_TOL) still applies.
+  - `BA_SYM_PIN` (default F): WP-7c symmetric elimination of
+    floor-pinned level unknowns in the CMF_BLKBAND_V3 DIAG block
+    solve. Each level row J with POPS(J,K) <= MAX(1E-30,
+    BA_DEM_PFLOOR) is eliminated before DGEEQU: the column's
+    contribution is carried into the RHS, row and column are
+    zeroed, the diagonal is set to 1 and the pinned correction
+    solves as exactly zero -- the same result the post-solve
+    POP_MASK_FLOOR mask forces, but without leaving a near-null
+    direction inside the factorisation (the earlier row-only pin
+    crashed the coupled block, job 12868544). ED/T and the
+    conservation rows are never pinned. DIAG path only; F is the
+    default path unchanged. `test_cmf_blkband_pin` manufactured
+    near-null block 13/0.
+  - `BA_NC_MAXPOP` (default F): WP-7c Arramy et al. 2024 (Sec.
+    2.1.1) conservation-row placement in GENERATE_FULL_MATRIX_V3.
+    Each species' number-conservation equation moves from the
+    fixed EQ_SPECIES slot to the row of its most populated level
+    at that depth; the displaced rate equation relocates to
+    EQ_SPECIES so the equation count is unchanged. Ground-state
+    (EQXzV) rows are excluded from candidates because the
+    ionization-conservation replacement may overwrite them. F is
+    the default path unchanged. `test_gfm` ncmax/ncdef 14/0.
 - `GS_FREEZE` and the freeze/maturity/watchdog stack are
   KNOP-scoped: forced F outside `DO_NONMONO_KNOP`.
 - `DO_KNOP_REFRESH` - converges the lagged J_NEXT/H_NEXT map
