@@ -15,12 +15,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MOD = (ROOT / "new_main/mod_subs/knop_status_mod.f90").read_text()
-MOM = (ROOT / "plane/mom_j_cmf_nonmono_v1.f").read_text()
-POPS = (ROOT / "new_main/mod_subs/solve_for_pops.f").read_text()
-RD_CONTROL = (ROOT / "new_main/mod_subs/rd_control_variables.f").read_text()
-CJB = (ROOT / "new_main/mod_subs/comp_j_blank.f").read_text()
-CMF = (ROOT / "new_main/cmfgen_sub.f").read_text()
+SRC = ROOT / "cmfgen"
+MOD = (SRC / "new_main/mod_subs/knop_status_mod.f90").read_text()
+MOM = (SRC / "plane/mom_j_cmf_nonmono_v1.f").read_text()
+POPS = (SRC / "new_main/mod_subs/solve_for_pops.f").read_text()
+RD_CONTROL = (SRC / "new_main/mod_subs/rd_control_variables.f").read_text()
+CJB = (SRC / "new_main/mod_subs/comp_j_blank.f").read_text()
+CMF = (SRC / "new_main/cmfgen_sub.f").read_text()
 
 
 FAILED = []
