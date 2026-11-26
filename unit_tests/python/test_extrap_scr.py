@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE,
                     Report, compile_objs, link_prod, prod_obj)
 
 EXE = TREE / "exe" / "extrap_scr.exe"
@@ -32,7 +32,7 @@ NT = 4
 
 def build():
     md = BINDIR / "obj_mkscr"
-    objs = [prod_obj(TREE / "subs" / "scr_read_v2.f")]
+    objs = [prod_obj(SRC / "subs" / "scr_read_v2.f")]
     objs += compile_objs(
         "mkscr", [F90DIR / "mk_scr.f90"],
         moddir=md, extra_flags=PROD_MOD_INC)
