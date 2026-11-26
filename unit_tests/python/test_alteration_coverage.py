@@ -101,6 +101,8 @@ COVERAGE = {
         UT + "test_sup_to_full.py", UT + "test_sob_prof.py"]),
     "new_main/subs/cmf_blkband_pin_null_v1.f": ("exec", [
         UT + "test_cmf_blkband_pin.py"]),
+    "new_main/subs/cmf_blkband_pin_sym_v1.f": ("exec", [
+        UT + "test_cmf_blkband_pin.py"]),
     "new_main/subs/cmf_blkband_v3.f": ("exec", [
         UT + "test_mat5pen.py"]),
     "new_main/subs/do_ng_accel_band_v4.f": ("exec", [
