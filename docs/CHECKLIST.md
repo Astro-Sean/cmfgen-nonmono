@@ -621,6 +621,45 @@
       This audit closes with DEFERRED effectiveness pending actual
       admissions in the existing run; no follow-on campaign submitted.
 
+## SOB_check work packages (27-Nov-2026, checklist-driven)
+
+Working the six work packages in `checklists/SOB_check.md` (review of
+`DO_NONMONO_SOB` + `VEL_LAW=14` on m15 2.82d, branch
+`knop/wp4-store-ls`, baseline `a9b0b022`).
+
+- [~] WP1 clamped-continuum A/B: config
+      `configs/dessart_m15_2p82d_VAL_sob_fgknop.yaml` = VAL_sob clone
+      + `DO_SOB_FG_KNOP=T`, cold LTE start, SN_HYDRO_DATA staged
+      byte-identical (md5 `ea6c5d5b...`). Submitted via
+      run_model_grid.py: FINAL job 13744001, OBS 13744002. Pending
+      convergence; comparison deliverables owed.
+- [x] WP2 tau-floor coefficient: clean arXiv e-print
+      (`arxiv.org/e-print/1503.05463`, ms.tex) confirms
+      `max(|1+sigma*mu^2|, -0.2(1+sigma))`; verbatim quote and the
+      tau-cap quantification recorded in
+      `docs/audits/SOBOLEV_DAH2015_EQUATION_MAP.md`. The 1e-4 arm
+      remains a code-only extension.
+- [~] WP3 EXPONX bound: `X < -700` guarded return + activation
+      counters added to `cmfgen/subs/exponx.f` (module
+      `EXPONX_GUARD_MOD`); unit test `test_exponx_guard.py` +
+      `drv_exponx.f90` + `stub_exponx_guard.f90` added. m15 render
+      bit-identity check owed after rebuild.
+- [~] WP4 wording: site comments corrected to
+      `sigma >= -1 + 1e-4` at all FIVE floor sites (sobjbar_sim,
+      sobew, sobew_grad, sobew_grad_v2, sobew_grad_v3) plus
+      NONMONO_KEYS.md and the equation-map doc; crossover test T10
+      added to test_sob_tau_floor.py.
+- [~] WP5 VEL_LAW=14 tests: power-law sigma_true exactness
+      (direct + chained), reversal sigma_true<-1 survival,
+      monotonic-baseline identity, and a pre-expansion-SIGMA_HYDRO
+      discrimination case added to test_rv_snhyd.py; production
+      comment documenting pre-expansion detection added at
+      rv_sn_model_snhyd.f insertion block.
+- [~] WP6 T1 census: env-armed `SOB_T1_CENSUS_MOD` instrumentation
+      landed in sobew_grad_v2.f + report hook in cmf_flux_sub_v5.f
+      (`CMF_SOB_T1_CENSUS=1`); regression artifact owed after a
+      rebuild + armed render on the converged m15 state.
+
 ## Coupled wavelength-depth block solve scoping (24-Nov-2026, user-directed)
 
 Question: viability + cost of replacing the lagged frequency
@@ -678,6 +717,108 @@ continuation lines after the running arm showed only the a>0.9 prefix;
 The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
+
+## Coupled wavelength-depth block solve scoping (24-Nov-2026, user-directed)
+
+Question: viability + cost of replacing the lagged frequency
+iteration with a Baron & Hauschildt coupled block solve.
+Plan: docs/plans/BLOCK_SOLVE_SCOPING.md, phases A-E.
+Exit criterion: per-phase verdicts; implementation only after
+phase-D design sign-off. Toy prototype (phase C) is the decisive
+cheap evidence.
+
+## Coupled wavelength-depth block solve implementation (24-Nov-2026, user-directed)
+
+Question: can the matrix-free, preconditioned wavelength-depth GMRES
+solve replace the lagged frequency pass in the MOM refresh without
+disturbing the default path.
+Evidence plan: E1 dense-reference manufactured-graph battery; E2
+standalone production-module tests to machine precision; E3
+VADAT-gated integration behind MOM_BLKGMRES; E4 full unit batteries
+and one bounded eps1em3 arm. Track GMRES iterations, final residual,
+rejected writes and refresh residuals.
+Exit criterion: converges, stalls bounded, or detonates; verdict
+recorded here with job id and commit. Any negative or nonfinite write
+amplification beyond existing guards stops the arm for diagnosis.
+
+Status 24-Nov-2026: E1-E3 implemented and pushed through `66cb87c7`.
+`test_mom_blk` 59/59, including dense-reference machine-precision
+solves, a signed upwind edge, and the solver-error contraction probe
+(lagged growth 1.847/iter on the marginal ring; block error ratio
+3.27e-15). `test_mom_solve` 144/144, `test_mom_nu` 53/53, and
+`test_vadat_keys` 91/91. The capture sign audit is closed analytically
+and by the signed manufactured case: capture satisfies
+`NU_X0 + NU_CUP*J(NU_KUP)=XM_SAVE`, so the implicit row is
+`tri*x - NU_CUP*xup = NU_X0`; PSI remains only in `NU_TB`. The solver
+now reports the true final preconditioned residual rather than only
+the Arnoldi estimate. The production archive and `cmfgen_dev.exe`
+were refreshed; frozen sha256
+`3763d79869ca12c48c5bd7144bb81c876fa0c0b2ecf1099975f70a2173951cd4`.
+E4 arm submitted through `run_model_grid.py`: CMFGEN `13655952`, OBS
+`13655953` (dependent), same eps1em3 seed/deck with `USE_LAM_ES=F`,
+`MOM_NUSOLV=F`, `MOM_BLKGMRES=T`. CMFGEN is running; verdict
+pending. Early runtime evidence at it670: four refresh cycles
+completed in 2.6-9.1 s; `blk-gmres` never exceeded five Krylov
+iterations, used no restarts, and held final residuals below 1E-3,
+though 33 of the first 55 lines needed zero iterations because the
+incoming iterate already satisfied the captured-system tolerance.
+The outer field response remains the open question. The full
+`run_all_tests.py` pass was stopped after the solver source changed
+mid-run; before that point all moment and VADAT batteries were green,
+while the known unrelated pre-existing reds remained `test_auto_ion`
+(missing fixture), `test_cfr4` (harness decode), `test_es_conv`
+(obs archive gap), and the documented `test_knop_lagged_map` sdab
+failure. `test_fg_sw_sym` and `test_fnv1a` pass after the companion-
+object fix. The long fixed-source `nu-census` WRITE was split onto
+continuation lines after the running arm showed only the a>0.9 prefix;
+`test_mom_solve` now pins the presence of the `rmax` and `H/X0` fields.
+The alteration manifest was also updated to register
+`plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
+is still owed.
+
+## Knop remediation WP-6: forcing-term field tolerance (26-Nov-2026, task-directed)
+
+WP-6 couples the Knop refresh's inner stopping tolerance to the
+outer population residual with the Eisenstat & Walker 1996
+Choice-2 forcing term -- the refresh is the inner solve of an
+inexact-Newton loop whose residual is the demand MAXCH.
+`KN_FORCING_TOL` (default F) prices `eta_k =
+GAM*(F_k/F_{k-1})^ALP` (recommended 0.9/2.0) with the E-W
+safeguard floor `GAM*eta_{k-1}^ALP` when that exceeds 0.1,
+eta capped at 0.9; the effective tolerance `KN_RAY_TOL_EFF =
+clamp(eta*TMAX/0.9, TMIN, min(TMAX, 0.1*GS_MATURE_TOL))` replaces
+`KN_RAY_TOL` inside the whole refresh chain (certification,
+SWEEP_FLD/ORD exits, MARCH census, hot-run thresholds, dump
+records so replays reproduce the armed state). A loose inner
+solve when the demand is large is what E-W prescribes -- the
+fixed 2E-3 could only ever sit at one end of the ladder. The I2
+cap arrives through the setter (the FG module cannot see
+CONTROL_VARIABLE_MOD); a driver-direct solve hits the unset
+sentinel and falls back to `KN_RAY_TOL`. `SET_FG_FRC_RES(MAXCH)`
+feeds the demand ahead of each refresh; the value in scope is
+the previous call's, so the ratio is one outer step lagged --
+the standard practical evaluation point. `eta`, the ratio, the
+safeguard flag and `frc_tol` land in ITER_LEDGER v4 columns.
+Flag off: `KN_RAY_TOL_EFF=KN_RAY_TOL` unconditionally, so every
+tolerance read is identical to WP-5.
+
+Fixture: `drv_knop_frc` + `test_knop_frc` 35/0 -- seed holds
+base; contracting demand tightens eta/tol monotonically
+(0.225->2.5E-3, 0.144->1.6E-3, no ladder inversion); flat
+demand caps eta at 0.9 and the tolerance lands on the I2 cap
+5E-3, not TMAX 1E-2; the 0.1 safeguard floor fires (0.324,
+SG=1); TMIN binds at 1E-4; no pending demand is a no-op;
+`GET_FG_FRC` exports verbatim.
+
+Deliverables: `docs/audits/KNOP_REMEDIATION_WP6_2026-11-26.md`;
+`test_knop_frc` 35/0; `test_iter_ledger` 33/0 (v4 columns);
+`test_vadat_keys` 134/0 (+5); `test_knop_ordering` 50/0,
+`test_knop_commit_gate` 18/0, `test_iter_conv_gate` 18/0,
+`test_conv_exit` 53/0, `test_knop_osgn` 14/0 -- flag-off
+identical. Build: `build.sh` + `build_debug.sh` clean. The
+armed-flag m15 measurement is the A/B handed to the human
+(watch frc_eta/frc_tol in ITER_LEDGER against the fixed 2E-3
+baseline).
 
 ## Knop remediation WP-5: signed-Aitken store relaxation (26-Nov-2026, task-directed)
 
