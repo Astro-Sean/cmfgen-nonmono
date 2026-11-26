@@ -608,6 +608,37 @@ The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
 
+## Knop remediation WP-4: store line search (26-Nov-2026, task-directed)
+
+WP-4 replaces the fixed `FG_COMMIT_NC` bound on non-certified
+commits with a residual-descent line search on the WP-3
+committed-state metric. `KN_STORE_LS` (default T) measures the
+committed residual at the retained store, then at alpha = 1,
+0.5, 0.25, 0.125 (+ NC floor) blends toward the fresh field, and
+commits the first rung that strictly descends; `FG_COMMIT_NC`
+survives as the rung floor only. No descent -> the previous
+store is retained and `FG_LS_REJ` counts the rejection
+(`FG_RAY_LSA=-2`). Accepted alphas histogram into `FG_LS_HIST(5)`
+with residual before/after sums in the refresh epilogue;
+certified commits, `FG_COMMIT_JUMP`, and the cap guards are
+unchanged; F restores `WRITE_STORE_CAP` exactly.
+
+Fixture: `lsok` descends CRES 1.4e5 -> 3.95e-2 in one refresh
+(alpha=1) on the stall that `nccm` parks under the 5% cap;
+`lsrj` rejects an over-relaxed expansive step (omega=1.36,
+pass-capped) and keeps fresh1 -- the expansive map cannot
+ratchet. `drv_knop_ray` case 80 disarms the LS to keep the
+legacy NC=0 retain covered.
+
+Deliverables: `docs/audits/KNOP_REMEDIATION_WP4_2026-11-26.md`;
+`test_knop_commit_gate` 18/0 (+8 WP-4 checks);
+`test_vadat_keys` 124/0 (+2); `test_knop_ray` 50/1 (T18
+pre-existing), `test_knop_ordering` 50/0, `test_knop_operator`
+32/0, `test_knop_oneway` 8/0, `test_knop_p2_state` 19/0,
+`test_knop_replay_p2` 29/0, `test_knop_spv` 93/0,
+`test_iter_conv_gate` 18/0, `test_conv_exit` 53/0,
+`test_fg_gs` 36/0.
+
 ## Knop remediation WP-3: committed-state gate (26-Nov-2026, task-directed)
 
 WP-3 makes the maturity gate read the committed state instead of
