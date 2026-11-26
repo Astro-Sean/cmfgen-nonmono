@@ -1,5 +1,18 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] Source tree moved under cmfgen/ (26-Nov-2026). All upstream
+      mirror dirs, the fork source dirs (plane/, pgplot_stubs/,
+      obs_template/) and the upstream root build files now live in
+      cmfgen/; the repo root keeps the dev tooling (unit_tests/,
+      tests/, docs/), build.sh drivers and untracked outputs.
+      cmfgen/Makefile_definitions redirects INSTALL_DIR one level
+      up, so exe/lib/mod still land at the repo root and every
+      submitted slurm script keeps its exe path. build.sh,
+      unit_tests/common.py (new SRC anchor), the test harnesses,
+      AGENTS.md, README.md and the submit_cmfgen.sh CMFDIST refs
+      (com/restart_model.sh, obs_template) were updated to match.
+      The ptmp2 worktree keeps its old layout until it pulls; a
+      rebuild there writes into the new cmfgen/-relative layout.
 - [x] DO_JFNK + FIX_X_DPTH inner-T pin: fail closed (25-Nov-2026).
       Question: does a JFNK run silently ignore the FIX_INB_T +
       FIX_X_DPTH thin-release T pin? Evidence plan: audit which
