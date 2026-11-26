@@ -28,7 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PLOTDIR,
@@ -44,8 +44,8 @@ from common import (
 )
 
 HELPERS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "unix" / "term_io.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "unix" / "term_io.f",
 ]
 
 ROUTINES = {
@@ -118,7 +118,7 @@ def build():
     for tag in ("new", "ref"):
         if tag == "new":
             objs = prod_objs(
-                [TREE / "subs" / fname for fname in ROUTINES.values()]
+                [SRC / "subs" / fname for fname in ROUTINES.values()]
             )
         else:
             objs = []
