@@ -81,7 +81,7 @@ OBJ = $(LIB)(mod_curve_data.o)\
       $(LIB)(write_line_lambdas.o)
 
 all : $(LIB)
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 	rm -f *.o
 
@@ -100,8 +100,8 @@ $(LIB)(%.o) : %.f
 # NB: change_folor.f, change_pen.f, gramon_pgplot.f, vectorpen.f
 #     depend on ../subs/gen_in
 
-GEN = ../lib/libsubs.a(gen_in.o)
-COL=  ../lib/libsubs.a(mod_color_pen_def.o)
+GEN = $(LIB_DIR)libsubs.a(gen_in.o)
+COL=  $(LIB_DIR)libsubs.a(mod_color_pen_def.o)
 
 $(LIB)(change_color.o)    : change_color.f  $(GEN)
 $(LIB)(change_pen.o)      : change_pen.f    $(GEN)
