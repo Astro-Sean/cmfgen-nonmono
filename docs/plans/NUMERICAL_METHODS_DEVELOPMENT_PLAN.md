@@ -19,7 +19,7 @@ Complete one investigation at a time. Keep the current production path as the
 comparison baseline.
 
 Code snapshot reviewed: `cmfgen_jfnk` commit `e4c8f02b` on `main`. The
-worktree had an in-flight change in `new_main/subs/cmf_blkband_v3.f`. With
+worktree had an in-flight change in `cmfgen/new_main/subs/cmf_blkband_v3.f`. With
 explicit user approval, its row and column substitution was narrowed to
 exactly uncoupled zero equations with zero RHS. The production helper has a
 focused test; the full build and the 20-file unit suite passed on
@@ -30,11 +30,11 @@ focused test; the full build and the 20-file unit suite passed on
 Several ideas from the initial review already have code or diagnostic support.
 The next work is to establish their limits and validate their effect:
 
-- `new_main/mod_subs/jfnk_solver_v1.f90` uses forward finite-difference JVPs,
+- `cmfgen/new_main/mod_subs/jfnk_solver_v1.f90` uses forward finite-difference JVPs,
   Eisenstat-Walker forcing, restarted GMRES, globalization, and true-residual
   checks. The source records cases where a Hessenberg estimate understated the
   measured linear residual.
-- `new_main/mod_subs/jfnk_cmfgen_interface_v1.f` has an experimental BA
+- `cmfgen/new_main/mod_subs/jfnk_cmfgen_interface_v1.f` has an experimental BA
   matrix-vector path and banded BA data. The BA matrix also supplies a
   preconditioner; its accuracy as the derivative of each residual mode must be
   assessed separately.
@@ -44,7 +44,7 @@ The next work is to establish their limits and validate their effect:
 - `unit_tests/python/test_jfnk_solver.py` marks several LU solve-residual
   checks as expected failures. Treat these as open diagnostic gaps, not as
   passed tests.
-- `plane/mom_j_cmf_nonmono_v1.f` contains inner and outer Anderson acceleration
+- `cmfgen/plane/mom_j_cmf_nonmono_v1.f` contains inner and outer Anderson acceleration
   in the Knop refresh code. The formal path also has an ordered-pass
   acceleration option. Measure these implementations before proposing another
   accelerator.
