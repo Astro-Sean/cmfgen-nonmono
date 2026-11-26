@@ -22,7 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import F90DIR, PLOTDIR, TREE, WORKDIR, Report, compile_driver, run
+from common import SRC, F90DIR, PLOTDIR, TREE, WORKDIR, Report, compile_driver, run
 
 ND = 4
 NCF = 81
@@ -33,10 +33,10 @@ F0 = 0.5
 VDOP = 50.0
 
 MODULE_SOURCES = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "obs" / "cmf_flux_cntrl_var_mod.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "subs" / "voigt_1p0.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "obs" / "cmf_flux_cntrl_var_mod.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "subs" / "voigt_1p0.f",
 ]
 
 
@@ -64,7 +64,7 @@ def main():
     binary = compile_driver(
         "drv_sob_prof_inc",
         MODULE_SOURCES + [F90DIR / "drv_sob_prof.f"],
-        extra_flags=[f"-I{TREE / 'obs'}"],
+        extra_flags=[f"-I{SRC / 'obs'}"],
     )
     result = run(binary, out_dir)
     run(binary, blank_dir, 1)
@@ -169,14 +169,14 @@ def main():
     # Clumping convention pin: the stored arrays are unclumped, so the
     # .INC deposit must never multiply by CLUMP_FAC, and the render
     # copies in cmf_flux_sub_v5.f must fold it in exactly once.
-    inc_src = (TREE / "obs" / "ADD_SOB_LINE_PROF.INC").read_text()
+    inc_src = (SRC / "obs" / "ADD_SOB_LINE_PROF.INC").read_text()
     rep.check(
         "INC deposit applies CLUMP_FAC zero times",
         inc_src.count("CLUMP_FAC(I)*WT") == 0
         and inc_src.count("ETAL_MAT(I,S)*CLUMP_FAC") == 0
         and inc_src.count("CHIL_MAT(I,S)*CLUMP_FAC") == 0,
     )
-    host_src = (TREE / "obs" / "cmf_flux_sub_v5.f").read_text()
+    host_src = (SRC / "obs" / "cmf_flux_sub_v5.f").read_text()
     rep.check(
         "render fold applies CLUMP_FAC exactly once per stored array",
         host_src.count("ETA_RND_ST(:,ML)=ETA_RND_ST(:,ML)*CLUMP_FAC(:)") == 1
