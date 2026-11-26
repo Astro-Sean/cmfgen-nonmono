@@ -102,11 +102,10 @@
 	LOGICAL KN_ADAPT_RELAX_V
 	LOGICAL FG_ADAPT_OMEGA_V2_V,FG_PLATEAU_DET_V
 	LOGICAL MOM_ADAPT_OMEGA_V2_V
-	REAL(KIND=LDP) KN_M_TOL_V,KN_RAY_TOL_V,KN_RAY_BULK_TOL_V
+	REAL(KIND=LDP) KN_M_TOL_V
 	REAL(KIND=LDP) JNEXT_RELAX_V,INEXT_RELAX_V
 	REAL(KIND=LDP) KN_RAY_STALL_V
 	REAL(KIND=LDP) FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V
-	REAL(KIND=LDP) FG_COMMIT_NC_V
 	LOGICAL FG_COMMIT_CONV_V,FG_BULK_CONTR_V,FG_SEED_COMMIT_V
 	REAL(KIND=LDP) MOM_DAMP_E
 	EXTERNAL GET_MOM_DAMP_MIN
@@ -1136,6 +1135,18 @@
 	  CALL RD_STORE_LOG(GS_RAW_MATURE,'GS_RAW_MATURE',L_FALSE,
 	1     'KNOP: require raw max change for release maturity?')
 !
+! GS_MATURE_TOL (default 5.0E-2, read-only): VADAT exposure of
+! the population maturity gate GS_MATURE_TOL -- the raw FG max
+! change below which a sweep counts as mature (CONTROL_VARIABLE_
+! MOD PARAMETER; before 26-Nov-2026 a SOLVE_FOR_POPS local).
+! Read-only: CHECK_PARAM_CONSISTENCY stops any non-default
+! value, the gate in the solver never moves. It is a key so the
+! I1/I3 invariants can name the constant they bound against.
+!
+	  GS_MATURE_TOL_V=GS_MATURE_TOL
+	  CALL RD_STORE_DBLE(GS_MATURE_TOL_V,'GS_MATURE_TOL',L_FALSE,
+	1     'KNOP: mature-sweep raw-change gate (read-only)?')
+!
 ! GS_PRECOND (default FALSE standalone; auto-set TRUE under
 ! DO_NONMONO_KNOP in the auto-set block below, explicit F
 ! respected): postpone the GS freeze while the demanded
@@ -1492,22 +1503,22 @@
 	  CALL RD_STORE_DBLE(INEXT_RELAX_V,'INEXT_RELAX',L_FALSE,
 	1     'FG lagged-store under-relaxation factor')
 !
-! KN_RAY_BULK_TOL (default 6.0E-2 under DO_NONMONO_KNOP, 0 = off
-! otherwise; edited 20-Oct-2026): residual floor on the
-! bulk exit (IXIT=2). The bad-fraction test alone let rays exit
-! converged at residual ~5E-2 -- one capped commit step from the
-! fixed point -- pinning the refresh max just above the maturity
-! gate (5.19-5.24E-2) and ratcheting the store through
-! WRITE_STORE_CAP. The earlier 2.5E-2 default sat below that
-! floor, so the bulk exit never fired on and floored rays
-! still hit the commit gate capped. 6.0E-2 clears the measured
-! floor so those rays commit through WRITE_STORE. The key is
-! KNOP-scoped: SET_FG_KN_OPTS is global, so a shared nonzero
-! default would silently floor bulk exits on non-KNOP runs --
-! off unless the key is set explicitly. 0 disables the term.
+! KN_RAY_BULK_TOL (default 0 = off on every route; KNOP default
+! lowered from 6.0E-2, WP-1 26-Nov-2026): residual floor on the
+! bulk exit (IXIT=2). The measured floor (5.19-5.24E-2) is not a
+! converged plateau but bounded non-contraction of the lagged map
+! on compressing runs (CHECKLIST nbulk arm verdict): certifying it
+! through the bad-fraction exit commits a field still above the
+! GS_MATURE_TOL maturity gate -- a bad-fraction subset is not the
+! global fixed point. 0 disables the term so every production ray
+! must reach KN_RAY_TOL before it certifies. A nonzero setting is
+! still legal but CHECK_PARAM_CONSISTENCY stops it at or above
+! GS_MATURE_TOL on the FG-census routes (invariant I1). The key
+! stays KNOP-scoped: SET_FG_KN_OPTS is global, so a nonzero
+! shared default would silently floor bulk exits on non-KNOP
+! runs.
 !
 	  KN_RAY_BULK_TOL_V=0.0_LDP
-	  IF(DO_NONMONO_KNOP)KN_RAY_BULK_TOL_V=6.0E-2_LDP
 	  CALL RD_STORE_DBLE(KN_RAY_BULK_TOL_V,'KN_RAY_BULK_TOL',
 	1     L_FALSE,'Residual floor for the FG bulk exit (0=off)')
 	  CALL SET_FG_KN_OPTS(KN_RAY_TOL_V,KN_RAY_MAXPASS_V,
@@ -1537,11 +1548,18 @@
 	1     L_FALSE,'Same-map omega estimator in the MOM refresh?')
 	  CALL SET_MOM_OMEGA_V2(MOM_ADAPT_OMEGA_V2_V)
 !
-! KN_RAY_ORDERED (default TRUE): ordered characteristic march in
-! the FG refresh (Knop Paper II ordering). FALSE restores the
-! alternating-direction passes.
+! KN_RAY_ORDERED (default FALSE, WP-1 26-Nov-2026): ordered
+! characteristic march in the FG refresh (Knop Paper II
+! ordering). The WP-0 fixture measured the claimed freshness
+! broken on inserted ray points: at WINX>0 the compressing donor
+! share is a full pass stale and the march plateaus at the pass
+! cap (audit KNOP_REMEDIATION_WP0_2026-11-26.md; CHECKLIST T4-B:
+! F gives every ray FULL, residual 5.1E-4). FALSE selects the
+! alternating-direction SWEEP_FLD passes, which update the whole
+! donor column at once. TRUE re-arms the ordered march for A/B
+! tests.
 !
-	  KN_RAY_ORDERED=.TRUE.
+	  KN_RAY_ORDERED=.FALSE.
 	  CALL RD_STORE_LOG(KN_RAY_ORDERED,'KN_RAY_ORDERED',L_FALSE,
 	1     'Ordered (Knop) march in the FG refresh?')
 	  CALL SET_FG_ORD_SWEEP(KN_RAY_ORDERED)
@@ -2543,12 +2561,15 @@
 	1     'Flip-free passes before a damped cell is released')
 	  CALL SET_FG_ORD_P2DAMP(KN_ORD_P2DAMP,KN_ORD_P2N,KN_ORD_P2REL)
 !
-! KN_NI1_FULL (default FALSE): certify a production NI=1 ray
-! KN_CS_FULL (reason 0) -- a single-point ray has no transfer
-! domain, so vacuous FULL is the honest class and it stops
-! holding FG_RF_ALL_CONV FALSE. F keeps the legacy INV census.
+! KN_NI1_FULL (default TRUE, WP-1 26-Nov-2026): certify a
+! production NI=1 ray KN_CS_FULL (reason 0) -- a single-point ray
+! has no transfer domain, so vacuous FULL is the honest class.
+! With F the ray keeps the legacy KN_CS_INV census status and
+! holds FG_RF_ALL_CONV FALSE forever -- the ninth conjunct of
+! CONV_EXIT_EVAL can never pass (CHECKLIST T3 arm). F restores
+! the deadlock for A/B regression checks.
 !
-	  KN_NI1_FULL=.FALSE.
+	  KN_NI1_FULL=.TRUE.
 	  CALL RD_STORE_LOG(KN_NI1_FULL,'KN_NI1_FULL',L_FALSE,
 	1     'Certify single-point KNOP rays KN_CS_FULL?')
 	  CALL SET_FG_NI1_FULL(KN_NI1_FULL)
@@ -2678,6 +2699,13 @@
 ! FG_BULK_CONTR (default T) additionally requires same-direction
 ! contraction before the bulk exit may fire, so flat noncontracting
 ! rays are classed stall/plateau/cap instead of converged.
+! WP-1 (26-Nov-2026): the 0.05 default is kept as the legacy
+! value, but NC == GS_MATURE_TOL pins a capped ray's committed
+! delta exactly at the maturity gate -- the freeze/release limit
+! cycle of defect (c). CHECK_PARAM_CONSISTENCY stops an
+! explicitly-set equality on the FG-census routes (invariant I3);
+! the absent-key legacy equality stays until WP-4 replaces the
+! fixed cap. Choose 0.04 or below for production decks.
 !
 	  FG_COMMIT_NC_V=0.05_LDP
 	  CALL RD_STORE_DBLE(FG_COMMIT_NC_V,'FG_COMMIT_NC',L_FALSE,
@@ -2687,6 +2715,16 @@
 	1     'Require contraction before the bulk bad-fraction exit?')
 	  CALL SET_FG_COMMIT(FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V,
 	1     FG_COMMIT_CONV_V,FG_COMMIT_NC_V,FG_BULK_CONTR_V)
+!
+! WP-1 (26-Nov-2026): record whether FG_COMMIT_NC was written
+! explicitly -- invariant I3 stops only an explicit NC ==
+! GS_MATURE_TOL equality (the absent-key legacy default is
+! exempt until WP-4). The RD store is cleaned before
+! CHECK_PARAM_CONSISTENCY runs, so the presence flag is staged
+! in CONTROL_VARIABLE_MOD here.
+!
+	  CALL GET_KEY_STRING(TMP_STRING,'FG_COMMIT_NC',L_FALSE,
+	1     FG_COMMIT_NC_SET)
 !
 ! FG_SEED_COMMIT (02-Nov-2026, default T): waive the
 ! FG_COMMIT_JUMP veto per ray until its first WRITE_STORE commit.
