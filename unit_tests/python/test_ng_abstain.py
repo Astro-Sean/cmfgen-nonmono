@@ -29,7 +29,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PLOTDIR,
@@ -47,12 +47,12 @@ from common import (
 )
 
 HELPERS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "subs" / "ngaccel.f",
-    TREE / "subs" / "equal.f",
-    TREE / "subs" / "x02ajf.f",
-    TREE / "new_main" / "mod_subs" / "control_variable_mod.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "subs" / "ngaccel.f",
+    SRC / "subs" / "equal.f",
+    SRC / "subs" / "x02ajf.f",
+    SRC / "new_main" / "mod_subs" / "control_variable_mod.f",
     F90DIR / "stub_scr_read.f",
 ]
 
@@ -79,7 +79,7 @@ def build():
     for tag in ("new", "ref"):
         if tag == "new":
             objs = prod_objs(
-                [TREE / "new_main" / "subs" / "do_ng_accel_band_v4.f"]
+                [SRC / "new_main" / "subs" / "do_ng_accel_band_v4.f"]
             )
         else:
             objs = compile_objs(
