@@ -12,7 +12,7 @@
 	USE MOD_CMFGEN
 	USE STEQ_DATA_MOD
 	USE CONTROL_VARIABLE_MOD, ONLY : LTE_MODEL, USE_ELEC_HEAT_BAL,
-	1     JFNK_QUIET_IO
+	1     JFNK_QUIET_IO, BA_NC_MAXPOP
 	IMPLICIT NONE
 !
 ! Altered 21-Feb-2022 : Added a quick fudge to STOP equation replacement from occuring.
@@ -89,6 +89,13 @@
 	INTEGER EQ
 	INTEGER ID
 	INTEGER ISPEC
+!
+! WP-7c [BA_NC_MAXPOP] (edited 27-Nov-2026): row index of the
+! species' most populated level and its population, for the
+! conservation-row placement below.
+!
+	INTEGER IROW
+	REAL(KIND=LDP) POPMAX
 !
 	INTEGER ERROR_LU,WARNING_LU
 	INTEGER LUER,LUWARN,LUOUT
@@ -251,17 +258,44 @@
 !
 ! Insert the number conservation equation for each species.
 !
+! edited 27-Nov-2026 (checklist WP-7c) [BA_NC_MAXPOP]: the NC row no
+! longer always lands on the fixed EQ_SPECIES slot (the top
+! pseudo-ion's ground row). When armed, it is placed at the row of
+! the species' MOST POPULATED level at this depth (Arramy et al.
+! 2024, Sec. 2.1.1 -- conditioning improves when the conserved
+! equation sits on a well-populated unknown), and the displaced
+! rate equation relocates to EQ_SPECIES so the equation count is
+! unchanged. Ground-state rows (ATM(ID)%EQXzV) are excluded from
+! the candidate set: the ionization-conservation replacement below
+! may overwrite them and would silently drop the NC row. When the
+! argmax row IS EQ_SPECIES, or no candidate exists (single-level
+! ions), the placement reduces to the default. Default F -- NC at
+! EQ_SPECIES, path unchanged.
+!
 	DO ISPEC=1,NUM_SPECIES
 	  IF(SPECIES_PRES(ISPEC))THEN
 	    I=EQ_SPECIES(ISPEC)
+	    IF(BA_NC_MAXPOP)THEN
+	      IROW=I
+	      POPMAX=-1.0_LDP
+	      DO ID=SPECIES_BEG_ID(ISPEC),SPECIES_END_ID(ISPEC)-1
+	        DO J=1,SE(ID)%N_SE-1
+	          EQ=SE(ID)%EQ_IN_BA(J)
+	          IF(EQ .NE. ATM(ID)%EQXzV .AND.
+	1             POPS(EQ,K) .GT. POPMAX)THEN
+	            POPMAX=POPS(EQ,K)
+	            IROW=EQ
+	          END IF
+	        END DO
+	      END DO
+	      IF(IROW .NE. I)THEN
+	            C_MAT(I,:)=C_MAT(IROW,:)
+	            IF(DIAG_BAND)STEQ_VEC(I)=STEQ_VEC(IROW)
+	          END IF
+	      I=IROW
+	    END IF
 	    C_MAT(I,:)=C_NC(ISPEC,:)
-	  END IF
-	END DO
-!
-	DO ISPEC=1,NUM_SPECIES
-	  IF(DIAG_BAND .AND. SPECIES_PRES(ISPEC))THEN
-	    I=EQ_SPECIES(ISPEC)
-	    STEQ_VEC(I)=STEQ_NC(ISPEC)
+	    IF(DIAG_BAND)STEQ_VEC(I)=STEQ_NC(ISPEC)
 	  END IF
 	END DO
 !
