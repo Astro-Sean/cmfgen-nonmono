@@ -40,7 +40,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PLOTDIR,
@@ -55,11 +55,11 @@ from common import (
 )
 
 HELPERS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "subs" / "lin_interp.f",
-    TREE / "subs" / "mon_interp.f",
-    TREE / "subs" / "mon_int_funs_v2.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "subs" / "lin_interp.f",
+    SRC / "subs" / "mon_interp.f",
+    SRC / "subs" / "mon_int_funs_v2.f",
 ]
 
 NX = 60
@@ -69,7 +69,7 @@ OLD_AGE = 39.0
 
 def build():
     md = BINDIR / "obj_snhyd"
-    objs = prod_objs(HELPERS + [TREE / "new_main" / "subs" / "rv_sn_model_snhyd.f"])
+    objs = prod_objs(HELPERS + [SRC / "new_main" / "subs" / "rv_sn_model_snhyd.f"])
     objs += compile_objs(
         "snhyd_drv",
         [F90DIR / "drv_snhyd.f90"],
