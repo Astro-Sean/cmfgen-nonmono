@@ -653,6 +653,24 @@ arm also remained lum-deprived (ratio about 0.04 at iteration 680), so
 the next controlled experiment is fixed damping rather than another
 implicit-H change.
 
+Verdict (26-Nov-2026, both arms cancelled once the answer was in -
+CMFGEN 13671005, 13671134 and OBS chains 13671006, 13671135):
+- himpl (warm restart, MOM_H_IMPL=T): killed at it1409 after ~1400
+  LAMBDA iterations with no BA handoff; population max-increases were
+  still 5.2E7-6.6E7% at the last iterates (earlier peaks to 1E16).
+  The implicit-H channel did not restore outer-loop contraction -
+  detonation, not a bounded stall. Consistent with the augres
+  finding that H is the dominant residual damage: regularising one
+  lagged channel inside a J/H pair that does not solve the augmented
+  system cannot fix the fixed point.
+- cold (no warm restart, MOM_H_IMPL=F, adaptive relax): killed at
+  it722, still LAMBDA warmup, max-increases 4.7E4-8.5E4%. Removing
+  the solver-swap shock did not change the outcome - the
+  non-contraction is a structural outer-loop defect on the
+  USE_LAM_ES=F/MOM_BLKGMRES route, not an initial-condition shock.
+  Confirms the route-table FAIL; next controlled step remains the
+  augmented J+H implicit solve (FIX 4), not further regularisation.
+
 Execution experiment submitted 25-Nov-2026:
 `m15_2p82d_VAL_sob_lamesF_blkgmres_r01`, CMFGEN 13671873 and OBS
 13671874. Same cold-start eps1em3 deck and pinned executable as the
