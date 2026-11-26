@@ -29,10 +29,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import TREE, Report
+from common import SRC, TREE, Report
 
-CMF = (TREE / "new_main" / "cmfgen_sub.f").read_text()
-POPS = (TREE / "new_main" / "mod_subs" / "solve_for_pops.f").read_text()
+CMF = (SRC / "new_main" / "cmfgen_sub.f").read_text()
+POPS = (SRC / "new_main" / "mod_subs" / "solve_for_pops.f").read_text()
 
 REP = Report("test_iter_conv_gate (exit-gate maturity coverage)")
 
@@ -128,7 +128,7 @@ def test_T01_exit_maturity_conjunct():
         "T-01: LAM_FIELD_GATE reduces to held/frozen without lagged field",
         re.search(
             r"LAM_FIELD_GATE=HELD \.OR\. FREEZE",
-            (TREE / "new_main" / "mod_subs" / "lam_handoff_mod.f90").read_text(),
+            (SRC / "new_main" / "mod_subs" / "lam_handoff_mod.f90").read_text(),
         )
         is not None,
     )
@@ -159,7 +159,7 @@ def test_T02_sob_mom_census_fixed():
         sob_demote is not None,
     )
     # The lagged-field route flag must include the SOB moment route.
-    rcv = (TREE / "new_main" / "mod_subs" / "rd_control_variables.f").read_text()
+    rcv = (SRC / "new_main" / "mod_subs" / "rd_control_variables.f").read_text()
     REP.check(
         "T-02: HAS_LAGGED_FIELD includes SOB .AND. .NOT. USE_LAM_ES",
         re.search(
@@ -177,7 +177,7 @@ def test_mom_gates_narrowed_to_mom_route():
     store -- DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES. Before the fix,
     KNOP (LAM_ES forced T) and plain SOB+LAM_ES=T fired these
     armed-but-inert calls each iteration."""
-    sba = (TREE / "new_main" / "subs" / "solveba_v13.f").read_text()
+    sba = (SRC / "new_main" / "subs" / "solveba_v13.f").read_text()
     REP.check(
         "MOM_KNOP_REFRESH_V1 call gated on SOB + .NOT. USE_LAM_ES",
         "IF(DO_NONMONO_SOB .AND. .NOT. USE_LAM_ES .AND. DO_KNOP_REFRESH)"
