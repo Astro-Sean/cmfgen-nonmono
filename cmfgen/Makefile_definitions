@@ -35,17 +35,19 @@ INSTALL_DIR=$(HOME)/cur_cmf/
 endif
 
 ifeq ($(HOST),viper)
-# Self-locating install root: this file lives at the repo top and is
-# included by relative path from every level, so its own directory is
-# the worktree root.  Required because ptmp1 (/ptmp) and ptmp2 are two
-# git worktrees of the same repo and each must install into its own
-# exe/lib/mod; a hardcoded path silently cross-installed (fedd903
-# pointed builds here at the other worktree).
-INSTALL_DIR:=$(realpath $(dir $(lastword $(MAKEFILE_LIST))))/
+# Self-locating install root: this file lives in cmfgen/ since the
+# 26-Nov-2026 reorganisation and is included by relative path from every
+# level; the worktree root is one directory up.  Required because ptmp1
+# (/ptmp) and ptmp2 are two git worktrees of the same repo and each must
+# install into its own exe/lib/mod; a hardcoded path silently
+# cross-installed (fedd903 pointed builds here at the other worktree).
+# Keeping the root (not cmfgen/) means run-model scripts and queued
+# slurm jobs still find exe/ at the old path.
+INSTALL_DIR:=$(realpath $(dir $(lastword $(MAKEFILE_LIST)))/../)/
 endif
 
 ifeq ($(HOST),raven)
-INSTALL_DIR:=$(realpath $(dir $(lastword $(MAKEFILE_LIST))))/
+INSTALL_DIR:=$(realpath $(dir $(lastword $(MAKEFILE_LIST)))/../)/
 endif
 
 ifeq ($(DEBUG),nodebug)
