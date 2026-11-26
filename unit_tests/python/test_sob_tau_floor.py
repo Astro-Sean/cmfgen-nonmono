@@ -328,6 +328,40 @@ def main():
         f"err={err9:.2e} maxdiff={np.abs(a9[:,0]-b9[:,0]).max():.2e}",
     )
 
+    # -- T10 (WP4): pin the monotonic-equivalence crossover at
+    # 1+sigma = 1e-4.  sigma = -0.9999 sits at the boundary: the
+    # minimum |1+sigma*mu^2| (mu=1) equals the 1e-4 arm, so new and
+    # reference remain identical.  sigma = -0.99995 is INSIDE the
+    # floor window although still monotonic (sigma > -1): near-radial
+    # rays get floored at 1e-4 and new differs from upstream.  This
+    # is the window the site comments now describe as
+    # "sigma >= -1 + 1e-4".
+    p_radial = [0.005, 0.01, 0.02, 0.05]
+    case, r10, p10, w10, gamh10 = write_case(
+        "case_sim_xover_in.txt", -0.99995, p_frac=p_radial, chil0=1.0e9
+    )
+    a10, _ = parse_rows(run(bins[("sobjsim", "new")], "sobjsim", case).stdout)
+    b10, _ = parse_rows(run(bins[("sobjsim", "ref")], "sobjsim", case).stdout)
+    beta10 = beta_predict(-0.99995, r10, p10, w10, gamh10, floor=True)
+    err10 = np.abs(a10[:, 0] - beta10).max()
+    d10 = np.abs(a10[:, 0] - b10[:, 0]).max()
+    rep.check(
+        "T10a sigma=-0.99995 (monotonic, in window): floored, differs",
+        err10 < 1e-9 and d10 > 1e-6 and np.all(np.isfinite(a10[:, 0])),
+        f"err={err10:.2e} |new-ref|={d10:.2e}",
+    )
+    case, r10b, p10b, w10b, gamh10b = write_case(
+        "case_sim_xover_eq.txt", -0.999, p_frac=p_radial, chil0=1.0e9
+    )
+    a10b, _ = parse_rows(run(bins[("sobjsim", "new")], "sobjsim", case).stdout)
+    b10b, _ = parse_rows(run(bins[("sobjsim", "ref")], "sobjsim", case).stdout)
+    ok10b, rel10b = ref_close(a10b[:, 0], b10b[:, 0])
+    rep.check(
+        "T10b sigma=-0.999 (above crossover): identical to upstream",
+        ok10b,
+        f"maxrel={rel10b:.2e} maxdiff={np.abs(a10b[:,0]-b10b[:,0]).max():.2e}",
+    )
+
     # -- Plot: BETA(I) new vs ref vs analytic for sigma=-2.
     fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
     pred = beta_predict(-2.0, r, p, w, gamh, floor=True)
