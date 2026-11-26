@@ -15,6 +15,7 @@ def main():
         [
             SRC / "tools" / "set_kind_module.f",
             SRC / "new_main" / "subs" / "cmf_blkband_pin_null_v1.f",
+            SRC / "new_main" / "subs" / "cmf_blkband_pin_sym_v1.f",
             F90DIR / "drv_cmf_blkband_pin.f90",
         ],
     )
@@ -22,6 +23,8 @@ def main():
     print(result.stdout, end="")
     if "CMF_BLKBAND_PIN_NULL_V1: PASS" not in result.stdout:
         raise SystemExit("CMF_BLKBAND_PIN_NULL_V1 regression failed")
+    if "CMF_BLKBAND_PIN_SYM_V1: PASS" not in result.stdout:
+        raise SystemExit("CMF_BLKBAND_PIN_SYM_V1 regression failed")
 
 
 if __name__ == "__main__":
