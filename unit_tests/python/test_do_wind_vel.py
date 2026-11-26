@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 STOP_MSG = "DO_V_PARAMS is incompatible with non-monotonic"
@@ -41,7 +41,7 @@ PARAMS = """      5       [N_GRAD_ITS]
 
 def build():
     md = BINDIR / "obj_dwv"
-    objs = [prod_obj(TREE / "new_main" / "subs" / "do_wind_vel_v1.f")]
+    objs = [prod_obj(SRC / "new_main" / "subs" / "do_wind_vel_v1.f")]
     objs += compile_objs(
         "dwv_drv", [F90DIR / "drv_do_wind_vel.f90"],
         moddir=md, extra_flags=PROD_MOD_INC)
