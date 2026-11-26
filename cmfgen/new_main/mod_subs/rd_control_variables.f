@@ -1056,6 +1056,21 @@
 	  POP_TRACE_MAXFAC=MAX(POP_TRACE_MAXFAC,0.0_LDP)
 	  POP_MASK_PROBE=MAX(0,POP_MASK_PROBE)
 !
+! BA_SYM_PIN / BA_NC_MAXPOP (defaults F = off): checklist WP-7c
+! SE-block handling -- see CONTROL_VARIABLE_MOD. SYM_PIN swaps the
+! post-solve floor mask for symmetric elimination inside the DIAG
+! factorisation; NC_MAXPOP moves each species' conservation row to
+! its most populated level. Both are structural changes to the
+! assembled block, so they ship off until the manufactured
+! near-null block test passes.
+!
+	  BA_SYM_PIN=.FALSE.
+	  CALL RD_STORE_LOG(BA_SYM_PIN,'BA_SYM_PIN',L_FALSE,
+	1     'Symmetrically eliminate floor-pinned levels in the SE block?')
+	  BA_NC_MAXPOP=.FALSE.
+	  CALL RD_STORE_LOG(BA_NC_MAXPOP,'BA_NC_MAXPOP',L_FALSE,
+	1     'Place the conservation row at the most populated level?')
+!
 ! MOM_TRIAL_LAM (default 0 = disabled): demand ceiling for the
 ! marginal-release trial. With MAXCH above it the trial takes the
 ! damped GS_LAM_CAP LAMBDA step instead of the resacc BA step -- a
