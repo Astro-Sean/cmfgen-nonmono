@@ -36,8 +36,8 @@ def run_driver(mode):
     binpath = common.compile_and_link_prod(
         "drv_iter_ledger",
         [
-            common.TREE / "tools" / "set_kind_module.f",
-            common.TREE / "new_main" / "mod_subs" / "iter_ledger_mod.f90",
+            common.SRC / "tools" / "set_kind_module.f",
+            common.SRC / "new_main" / "mod_subs" / "iter_ledger_mod.f90",
             common.F90DIR / "drv_iter_ledger.f90",
         ],
     )
