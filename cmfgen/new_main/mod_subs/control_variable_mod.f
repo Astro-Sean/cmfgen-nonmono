@@ -1647,6 +1647,18 @@
 	REAL(KIND=LDP) KN_GATE_DIV_FAC
 	INTEGER KN_GATE_DIV_M
 !
+! KN_GATE_COMMIT_RES (WP-3, 26-Nov-2026, default TRUE): gate the
+! maturity metrics on the committed field. When set, each commit
+! (WRITE_STORE / WRITE_STORE_CAP) is re-measured by one
+! non-committing L_QP pass seeded from the just-written store;
+! the max-norm exports as FG_RF_COMMIT_RES into GS_MAX_ALL (in
+! place of the pre-commit residual) and the bad-cell census
+! replaces GS_NBAD_EFF. F keeps the legacy path -- the gate then
+! reads the solve's reported residual as before WP-3. VADAT
+! [KN_GATE_COMMIT_RES].
+!
+	LOGICAL KN_GATE_COMMIT_RES
+!
 ! KN_RAY_STALL (default 0.98): same-direction residual ratio above
 ! which a refresh pass counts toward the NSTALL early exit in
 ! SWEEP_FLD/SWEEP_FLD_ORD. 0.90 quit rays still contracting at up
