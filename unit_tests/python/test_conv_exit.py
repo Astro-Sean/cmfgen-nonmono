@@ -52,8 +52,8 @@ WORK.mkdir(parents=True, exist_ok=True)
 binpath = common.compile_and_link_prod(
     "drv_conv_exit",
     [
-        common.TREE / "tools" / "set_kind_module.f",
-        common.TREE / "new_main" / "mod_subs" / "lam_handoff_mod.f90",
+        common.SRC / "tools" / "set_kind_module.f",
+        common.SRC / "new_main" / "mod_subs" / "lam_handoff_mod.f90",
         common.F90DIR / "drv_conv_exit.f90",
     ],
 )
@@ -234,9 +234,9 @@ REP.check("margin: stage-B demand never takes the active slot",
           c is not None and c[1] == "ex_maxch" and c[5] == 5.0)
 
 # ---- source pins --------------------------------------------------
-POPS = (common.TREE / "new_main" / "mod_subs" / "solve_for_pops.f").read_text()
-CMF = (common.TREE / "new_main" / "cmfgen_sub.f").read_text()
-MOD = (common.TREE / "new_main" / "mod_subs" / "lam_handoff_mod.f90").read_text()
+POPS = (common.SRC / "new_main" / "mod_subs" / "solve_for_pops.f").read_text()
+CMF = (common.SRC / "new_main" / "cmfgen_sub.f").read_text()
+MOD = (common.SRC / "new_main" / "mod_subs" / "lam_handoff_mod.f90").read_text()
 
 call = re.search(
     r"CALL CONV_EXIT_EVAL\(RD_LAMBDA,DO_LAMBDA_AUTO,LAST_LAMBDA,"
