@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 NU_CONT = [40, 30, 25, 20, 18, 16, 14, 12, 10, 8, 6, 4, 3, 2, 1]
@@ -31,8 +31,8 @@ NU_CONT = [40, 30, 25, 20, 18, 16, 14, 12, 10, 8, 6, 4, 3, 2, 1]
 def build():
     md = BINDIR / "obj_ins"
     objs = [
-        prod_obj(TREE / "subs" / "ins_line_v6.f"),
-        prod_obj(TREE / "subs" / "ins_line_obs_v5.f"),
+        prod_obj(SRC / "subs" / "ins_line_v6.f"),
+        prod_obj(SRC / "subs" / "ins_line_obs_v5.f"),
     ]
     objs += compile_objs(
         "ins_drv", [F90DIR / "drv_ins_line.f90"],
