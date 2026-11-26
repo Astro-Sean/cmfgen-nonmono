@@ -316,6 +316,43 @@ which stamps the same value in the initial VADAT.
     JQSRT, arXiv:2505.08309; Knop et al. 2009 II, A&A 501, 813).
     Correctness requirement backed by theory - no failed run is
     yet attributed to F.
+- WP-1 default flips and tolerance-ladder invariants
+  (26-Nov-2026, `docs/audits/KNOP_REMEDIATION_WP1_2026-11-26.md`):
+  - `KN_RAY_ORDERED` (default F since 26-Nov-2026, was T):
+    ordered characteristic march in the FG refresh (Knop Paper
+    II ordering). The WP-0 fixture measured the claimed
+    freshness broken on inserted ray points: at WINX>0 the
+    compressing donor share is a full pass stale and the march
+    plateaus at the pass cap. F selects the alternating
+    `SWEEP_FLD` passes, which update the whole donor column at
+    once. T re-arms the ordered march for A/B tests.
+  - `KN_RAY_BULK_TOL` (default 0 = off on every route; KNOP
+    default lowered from 6.0E-2): residual floor on the bulk
+    exit (IXIT=2). The measured floor is bounded
+    non-contraction of the lagged map, not convergence (CHECKLIST
+    nbulk arm). 0 disables the term so every production ray must
+    reach `KN_RAY_TOL` to certify.
+  - `GS_MATURE_TOL` (default 5.0E-2, read-only): VADAT exposure
+    of the population maturity gate `GS_MATURE_TOL` (a
+    `CONTROL_VARIABLE_MOD` PARAMETER since 26-Nov-2026; before
+    that a `SOLVE_FOR_POPS` local). Read-only:
+    `CHECK_PARAM_CONSISTENCY` stops any non-default value.
+  - Hard invariants in `CHECK_PARAM_CONSISTENCY` (STOP, not
+    warning), active on the FG-census routes
+    (`DO_NONMONO_KNOP`, `DO_SOB_FG_KNOP`):
+    - I1: `KN_RAY_BULK_TOL < GS_MATURE_TOL` -- a ray may not
+      certify looser than the gate.
+    - I2: `KN_RAY_TOL <= 0.1 * GS_MATURE_TOL` -- the certified
+      field must be >=10x tighter than the gate.
+    - I3: an explicitly-set `FG_COMMIT_NC` must not equal
+      `GS_MATURE_TOL` -- a capped ray pins `GS_MAX_ALL` exactly
+      at the gate (freeze/release limit cycle). The absent-key
+      legacy default (0.05 == 0.05) is exempt until WP-4
+      replaces the fixed cap.
+    - I4 (census): `KN_NACT`/`KN_NFULL` count only rays with a
+      transfer domain (`NI_RAY >= 2`); `FG_RF_ALL_CONV`
+      additionally requires `KN_NINV = 0` so an early return
+      left `KN_CS_INV` still fails the all-ray verdict closed.
 - `GS_FREEZE` and the freeze/maturity/watchdog stack are
   KNOP-scoped: forced F outside `DO_NONMONO_KNOP`.
 - `DO_KNOP_REFRESH` - converges the lagged J_NEXT/H_NEXT map
@@ -434,12 +471,16 @@ which stamps the same value in the initial VADAT.
   `USE_LAM_ES=T`, KNOP, `DO_SOB_FG_KNOP`, or stock - and
   `CHECK_PARAM_CONSISTENCY` prints an inert warning; the run is
   legal but the keys are dead in OUTGEN.
-- `KN_NI1_FULL` (default F, 24-Nov-2026): certify a production
-  NI=1 ray KN_CS_FULL (reason 0) in `KNOP_RAY_SOLVE_V1` instead
-  of leaving it KN_CS_INV. A single-point ray has no marchable
-  transfer domain, so vacuous FULL is the honest class; with F
-  the ray holds `FG_RF_ALL_CONV` FALSE forever and, through the
-  rf_not_allconv fold-in, the LAMBDA handoff shut.
+- `KN_NI1_FULL` (default T since 26-Nov-2026, was F): certify a
+  production NI=1 ray KN_CS_FULL (reason 0) in
+  `KNOP_RAY_SOLVE_V1` instead of leaving it KN_CS_INV. A
+  single-point ray has no marchable transfer domain, so vacuous
+  FULL is the honest class; with F the ray holds
+  `FG_RF_ALL_CONV` FALSE forever and, through the
+  rf_not_allconv fold-in, the LAMBDA handoff shut -- the
+  permanent ninth-conjunct deadlock of defect (d) in
+  `docs/audits/KNOP_REMEDIATION_WP1_2026-11-26.md`. F remains
+  for A/B regression checks.
 - `KN_LAM_PARTIAL_HANDOFF` (default F, 24-Nov-2026): split the
   field verdicts. `LAM_FIELD_NOT_CONVERGED` (strict, read by the
   converged exit in `cmfgen_sub` and the `CONV_EXIT_EVAL`
