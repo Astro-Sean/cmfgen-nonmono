@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, Report,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, Report,
                     compile_objs, link_prod, prod_obj, run)
 
 SIGMA = [-0.5] * 5
@@ -42,7 +42,7 @@ def vec(out, key):
 def main():
     rep = Report("EVAL_ADIABATIC_V3 SIGMA_TRUE selection")
     md = BINDIR / "obj_adiab"
-    objs = [prod_obj(TREE / "new_main" / "subs" /
+    objs = [prod_obj(SRC / "new_main" / "subs" /
                      "eval_adiabatic_v3.f")]
     objs += compile_objs(
         "adiab_drv", [F90DIR / "drv_adiab.f90"],
