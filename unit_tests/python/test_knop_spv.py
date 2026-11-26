@@ -47,7 +47,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import (
+from common import (SRC, 
     F90DIR,
     TREE,
     Report,
@@ -83,10 +83,9 @@ HELPERS = [
     "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
-    "unit_tests/f90/stub_vadat.f",
 ]
 
-FG = (TREE / "plane/fg_j_cmf_nonmono_v1.f").read_text()
+FG = (SRC / "plane/fg_j_cmf_nonmono_v1.f").read_text()
 NCFX = 6
 
 
@@ -166,7 +165,7 @@ OPERANDS = [
 
 def build():
     return compile_and_link_prod(
-        "knspv", [TREE / h for h in HELPERS] + [F90DIR / "drv_knop_spv.f90"]
+        "knspv", [SRC / h for h in HELPERS] + [F90DIR / "stub_vadat.f", F90DIR / "drv_knop_spv.f90"]
     )
 
 
