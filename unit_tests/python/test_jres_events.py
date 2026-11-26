@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common import TREE, compile_and_link_prod
+from common import SRC, TREE, compile_and_link_prod
 
 
 def main():
@@ -20,7 +20,7 @@ def main():
         "jres_events",
         [
             Path(__file__).resolve().parents[1] / "f90" / "drv_jres_events.f",
-            TREE / "obs" / "jres_validity.f",
+            SRC / "obs" / "jres_validity.f",
         ],
     )
     print(f"built {drv}")
