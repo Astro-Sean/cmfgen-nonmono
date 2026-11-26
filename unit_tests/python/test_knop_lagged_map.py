@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, TREE, WORKDIR, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, TREE, WORKDIR, Report, compile_and_link_prod, run
 
 HELPERS = [
     "tools/set_kind_module.f",
@@ -61,13 +61,12 @@ HELPERS = [
     "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
-    "unit_tests/f90/stub_vadat.f",
 ]
 
 
 def build():
     return compile_and_link_prod(
-        "knray", [TREE / h for h in HELPERS] + [F90DIR / "drv_knop_ray.f90"]
+        "knray", [SRC / h for h in HELPERS] + [F90DIR / "stub_vadat.f", F90DIR / "drv_knop_ray.f90"]
     )
 
 
