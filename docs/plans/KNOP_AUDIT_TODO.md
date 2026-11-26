@@ -1,7 +1,7 @@
 # KNOP_AUDIT_TODO.md - independent audit of DO_NONMONO_KNOP
 
 Baseline: 53ee4e14 (test_knop_lagged_field pin commit)
-Audit target: `plane/fg_j_cmf_nonmono_v1.f` and the refresh stack
+Audit target: `cmfgen/plane/fg_j_cmf_nonmono_v1.f` and the refresh stack
 (KNOP_RAY_SOLVE_V1 / BUILD_FREQ / MATCH_FREQ / SRC_PRIME / SLOPES /
 MARCH / SWEEP_FLD / SWEEP_FLD_ORD / WRITE_STORE).
 
@@ -552,7 +552,7 @@ Confirmed data path:
   formal solve) is monitoring only.  The file header itself states
   the final spectrum is computed with a different, more accurate
   routine.
-- The final spectrum is obs/cmf_flux_sub_v5.f: reruns the continuum
+- The final spectrum is cmfgen/obs/cmf_flux_sub_v5.f: reruns the continuum
   formal solve on the converged ETA/CHI (its own COMP_JCONT_V4.INC),
   fills IPLUS for every ray at every frequency, then COMP_OBS_V3
   transforms to the observer frame and writes OBSFREQ/OBSFRAME.
@@ -668,7 +668,7 @@ semantics. Three independent findings:
 Diagnostic-only corrections applied (no gate/threshold/equation
 change):
 
-- plane/mom_j_cmf_nonmono_v1.f: new module metrics MOM_GS_MAXSYM
+- cmfgen/plane/mom_j_cmf_nonmono_v1.f: new module metrics MOM_GS_MAXSYM
   (symmetric drift, |new-old|/max(|new|,|old|,1e-4*max(old pk,
   fresh pk,1e-28))) and MOM_GS_ARGV(3) (stored/fresh/col-peak at the
   MOM_GS_MAXCHG argmax cell), folded on the same counting gates as
@@ -676,7 +676,7 @@ change):
   MOM_SW_MAXSYM and saves/restores ARGV alongside ARGI/ARGL.
   GET_MOM_GS_MATURITY returns SW_MAXSYM/ARGI/ARGL/ARGV (4 new trailing
   args; sole caller SOLVE_FOR_POPS updated).
-- new_main/mod_subs/solve_for_pops.f:
+- cmfgen/new_main/mod_subs/solve_for_pops.f:
   * ITER_SUM 'fg' row renamed 'fg_rf' and gained ' sw=': the printed
     number was the refresh residual KN_RF_RESID, mislabeled
     'lagged field drift' (GS_NBAD=-1 sentinel falls back to 'fg /
