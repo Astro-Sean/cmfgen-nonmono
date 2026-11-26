@@ -776,6 +776,54 @@ The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
 
+## Knop remediation WP-7: trace levels and the ill-conditioned SE block (27-Nov-2026, task-directed)
+
+WP-7 closes three independent defects in the SE/BA solve path:
+
+- **7a** moves the `POP_TRACE_MAXFAC` per-row cap out of
+  `IF(DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT)` in SOLVEBA_V13 so it
+  runs on every call -- on the all-LAMBDA stall a runaway trace row
+  was never clamped and pinned MAXCH at the trust cap. The block
+  now sits with `POP_FLOOR_STEP` and the `STEQ_RAW` snapshot, so
+  the pre-clamp demand stays visible in `BA_DEM_EXM`. Identical
+  arithmetic, wider coverage.
+- **7b** closes the "solve contract" gap in CMF_BLKBAND_V3:
+  DGEEQU's ignored IFAIL now fails honestly on both paths (TRI ->
+  the 9999 fallback machinery; DIAG -> counted in NDFAIL with a
+  zeroed column), DGECON runs on every factored depth (CN_ANORM
+  unconditional), and the DIAG solve returns `FLAG=(NDFAIL==0)`
+  instead of ok=T with silently zeroed corrections -- SOLVEBA_V13's
+  `!SUCCESS -> STOP` now sees real failures. Stock-path bug fix, no
+  flag. Exposed a latent heap bug: DGECON's `CN_WORK` was 2*N where
+  LAPACK needs 4*N -- fixed.
+- **7c** adds two flag-gated SE-block structures, both default F:
+  `BA_SYM_PIN` symmetrically eliminates each floor-pinned level
+  (`POPS <= MAX(1E-30, BA_DEM_PFLOOR)`, J=1..N-2) inside the DIAG
+  factorisation via the new standalone `CMF_BLKBAND_PIN_SYM_V1` --
+  the correct form of the row-only pin that crashed the coupled
+  block (job 12868544); `BA_NC_MAXPOP` places each species'
+  number-conservation equation at its most populated level's row
+  (Arramy et al. 2024 Sec. 2.1.1) with the displaced rate eq
+  relocating to `EQ_SPECIES` -- `EQXzV` rows excluded from
+  candidates (the ionization-conservation replacement can overwrite
+  them).
+
+Fixtures: `test_cmf_blkband_pin` sym-pin 13/0 (near-null column
+stays finite, majors match a no-trace reference <1E-12, carry
+exact); `test_mat5pen` 9/0 incl. `drv_cmf_diag` ('badrow' trips
+DGEEQU IFAIL=3 -> `DIAG solve failed at 1 of 2 depths`, FLAG=F);
+`test_gfm` 21/0 incl. `drv_gfm_nc` (ncmax moves NC to the argmax
+row and relocates the rate eq, every element exact);
+`test_vadat_keys` 136/0 (+2). Flag-off battery identical:
+`test_knop_frc` 35/0, ordering 50/0, osgn 14/0, conv_gate 18/0,
+conv_exit 53/0, sigma_true 16/0. `test_knop_lagged_field` gained
+the 7a structural check and had its `L_CONT_READY` pin repaired to
+`KN_RAY_TOL_EFF` (the WP-6 rename had silently broken it); still
+ends at the documented pre-existing KN-SEED red. Deliverable:
+`docs/audits/KNOP_REMEDIATION_WP7_2026-11-26.md`. Armed arms
+(BA_SYM_PIN / BA_NC_MAXPOP on the floor-heavy stall model) are the
+A/B handed to the human.
+
 ## Knop remediation WP-6: forcing-term field tolerance (26-Nov-2026, task-directed)
 
 WP-6 couples the Knop refresh's inner stopping tolerance to the
