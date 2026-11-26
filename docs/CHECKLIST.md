@@ -608,6 +608,42 @@ The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
 
+## Knop remediation WP-0: ordering-stall reproduction fixture (26-Nov-2026, task-directed)
+
+WP-0 of the Knop convergence remediation: a manufactured ray that
+reproduces the SWEEP_FLD_ORD stall on the current default and
+converges under KN_RAY_ORDERED=F. Deliverables:
+`unit_tests/f90/drv_knop_ordering.f90`,
+`unit_tests/python/test_knop_ordering.py` (39 checks, all PASS),
+`docs/audits/KNOP_REMEDIATION_WP0_2026-11-26.md`. No production code
+changed.
+
+Fixture: NI=ND=140, NCF=200, every interior row inserted at
+WINX=0.95 toward the deeper node so the ordered march's compressing
+donor reads 0.05*own-row (fresh) + 0.95*deeper-row JPR2=J+1 (a full
+pass stale). |Q|/(chi+|Q|)=0.999, matched NFM=3, store seeded 1e-6.
+
+Measured on the current default: ord exits IXIT=6 (plateau) at
+NPASS=25 with RESID=4.12e-2 and RHO_M=0.949 - inside the stalled
+production-ray signature (IXIT=3/6, res 2.9-8.8e-2, np 10-37). uno
+(same physics, FG_ORD_SWEEP=F) exits clean in 3 passes at
+RESID=4e-16. ordx (exits off) hits the 60-pass cap at RESID=1.588e-2,
+the same floor an independent Python replica produced. ordb
+(drift-dominated unmatched algebra, chi_hat*dz=30, |Q|=0.999) exits
+IXIT=6 at 17 with RESID=0.86.
+
+Recorded deviations from the task spec (documented in the audit,
+asserted in the test): NFM=3 + DTAU=30 is unreachable under matched
+spans (|Q|*chi_hat*dz = NFM_raw/NFM <= 1), so DTAU=30 is carried by
+the unmatched ordb/unob arm; the spec's "<=6 passes alternating"
+mixed-ray claim fails at |Q|~1 on both signs (unom non-contracts at
+~0.95/pass on the matched grid - the nbulk lagged-map finding, not
+an ordering artifact); on the unmatched grid expanding rows anchor
+the chain and both marches converge.
+
+Verdict: PASS - the stall is reproduced on the default and cleared
+by the unordered sweep; the fixture gates WP-1..WP-4.
+
 ## Block-solve arm verdict and outer-loop investigation (25-Nov-2026, user-directed)
 
 E4 verdict after user-requested cancellation: bounded outer-loop stall,
