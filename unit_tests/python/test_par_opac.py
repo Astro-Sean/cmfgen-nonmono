@@ -18,7 +18,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, Report,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, Report,
                     compile_objs, link_prod, prod_obj, run)
 
 MSG = "non-monotonic velocity fields are not supported"
@@ -26,9 +26,9 @@ MSG = "non-monotonic velocity fields are not supported"
 
 def build():
     md = BINDIR / "obj_par_opac"
-    objs = [prod_obj(TREE / "opac" / "mod_par_opac.f"),
-            prod_obj(TREE / "opac" / "par_opac_sub.f"),
-            prod_obj(TREE / "opac" / "ins_line_v5.f")]
+    objs = [prod_obj(SRC / "opac" / "mod_par_opac.f"),
+            prod_obj(SRC / "opac" / "par_opac_sub.f"),
+            prod_obj(SRC / "opac" / "ins_line_v5.f")]
     objs += compile_objs(
         "par_opac_drv",
         [F90DIR / "drv_par_opac.f90",
