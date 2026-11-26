@@ -181,6 +181,8 @@ COVERAGE = {
         UT + "test_sob_tau_floor.py"]),
     "subs/sobjbar_sim.f": ("exec", [
         UT + "test_sob_tau_floor.py"]),
+    "subs/exponx.f": ("exec", [
+        UT + "test_exponx_guard.py"]),
     "subs/sob_rh_couple.f": ("exec", [
         UT + "test_sob_rh_couple.py"]),
     "subs/sup_to_full_v3b.f": ("exec", [
@@ -373,6 +375,21 @@ COVERAGE = {
         "build system; make all must stay clean"),
     "misc/Makefile": ("exempt", "build system; make all must stay clean"),
     "new_main/Makefile": ("exempt", "build system; make all must stay clean"),
+    "disp/Makefile": ("exempt", "build system; make all must stay clean"),
+    "lte_hydro/Makefile": ("exempt",
+        "build system; make all must stay clean"),
+    "new_main/gam_transport/Makefile": ("exempt",
+        "build system; make all must stay clean"),
+    "newsubs/Makefile": ("exempt",
+        "build system; make all must stay clean"),
+    "opac/Makefile": ("exempt", "build system; make all must stay clean"),
+    "spec_plt/subs/Makefile": ("exempt",
+        "build system; make all must stay clean"),
+    "subs/Makefile_new": ("exempt",
+        "build system; make all must stay clean"),
+    "subs/chg/Makefile": ("exempt",
+        "build system; make all must stay clean"),
+    "tools/Makefile": ("exempt", "build system; make all must stay clean"),
     "new_main/mod_subs/Makefile": ("exempt",
         "build system; make all must stay clean"),
     "new_main/subs/Makefile": ("exempt",
