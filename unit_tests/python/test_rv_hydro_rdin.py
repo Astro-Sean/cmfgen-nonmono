@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PROD_MOD_INC,
@@ -198,7 +198,7 @@ def build():
     # compiled once; only set_rv_hydro_model_v3 differs between trees.
     # The per-tag compile must read module files from the common dir.
     common_moddir = BINDIR / "obj_rvhd_common"
-    objs_common = prod_objs([TREE / h for h in SHARED])
+    objs_common = prod_objs([SRC / h for h in SHARED])
     objs_common += compile_objs(
         "rvhd_drv",
         [F90DIR / "drv_rv_hydro_rdin.f90"],
@@ -209,7 +209,7 @@ def build():
     for tag in ("new", "ref"):
         if tag == "new":
             objs = [
-                prod_obj(TREE / "new_main" / "subs" / "set_rv_hydro_model_v3.f")
+                prod_obj(SRC / "new_main" / "subs" / "set_rv_hydro_model_v3.f")
             ]
         else:
             objs = compile_objs(
