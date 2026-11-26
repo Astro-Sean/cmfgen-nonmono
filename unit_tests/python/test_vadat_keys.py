@@ -1697,6 +1697,33 @@ def main():
         p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
     )
 
+    # WP-7c flags default F; both parse and land on CVM.
+    p = run_vadat(
+        exe, write_vadat(WORKDIR / "vadat_wp7_def", dict(knop_base))
+    )
+    v = parse(p.stdout)
+    rep.check(
+        "WP-7c BA_SYM_PIN/BA_NC_MAXPOP absent default F",
+        "RESULT_OK" in p.stdout
+        and v.get("BA_SYM_PIN") == "F"
+        and v.get("BA_NC_MAXPOP") == "F",
+    )
+    p = run_vadat(
+        exe,
+        write_vadat(
+            WORKDIR / "vadat_wp7_arm",
+            dict(knop_base, **{"BA_SYM_PIN": "T", "BA_NC_MAXPOP": "T"}),
+        ),
+    )
+    v = parse(p.stdout)
+    rep.check(
+        "WP-7c BA_SYM_PIN=T and BA_NC_MAXPOP=T land on the module",
+        "RESULT_OK" in p.stdout
+        and v.get("BA_SYM_PIN") == "T"
+        and v.get("BA_NC_MAXPOP") == "T",
+        p.stdout[-300:] if "RESULT_OK" not in p.stdout else "",
+    )
+
     return rep.summary()
 
 
