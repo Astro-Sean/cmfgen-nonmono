@@ -608,6 +608,44 @@ The alteration manifest was also updated to register
 `plane/mom_blk_gmres_mod.f`. A final full pass from the committed state
 is still owed.
 
+## Knop remediation WP-1: defaults, tolerance-ladder invariants, domain census (26-Nov-2026, task-directed)
+
+WP-1 of the Knop convergence remediation: config-level changes
+only. Defaults flipped - `KN_RAY_ORDERED` T->F (alternating
+sweep; the ordered march's inserted-point donor is a full pass
+stale per the WP-0 fixture), `KN_NI1_FULL` F->T (vacuous FULL
+ends the ninth-conjunct deadlock on single-point rays),
+`KN_RAY_BULK_TOL` 6e-2->0 on every route (the bulk floor was
+bounded non-contraction, not convergence). `GS_MATURE_TOL`
+hoisted to a `CONTROL_VARIABLE_MOD` PARAMETER and exposed as a
+read-only VADAT key; `KN_RAY_TOL_V`/`KN_RAY_BULK_TOL_V`/
+`FG_COMMIT_NC_V`/`GS_MATURE_TOL_V` promoted for echo.
+
+Hard invariants in `CHECK_PARAM_CONSISTENCY` (STOP) on the
+FG-census routes (`DO_NONMONO_KNOP`, `DO_SOB_FG_KNOP`): I1
+`KN_RAY_BULK_TOL < GS_MATURE_TOL`; I2 `KN_RAY_TOL <=
+0.1*GS_MATURE_TOL`; I3 explicit `FG_COMMIT_NC /= GS_MATURE_TOL`
+(absent-key legacy default exempt until WP-4; presence staged
+at read time into `FG_COMMIT_NC_SET` because `CLEAN_RD_STORE`
+runs before the checker); I4 domain census in the FG refresh -
+`KN_NACT`/`KN_NFULL` count only `NI_RAY >= 2` rays and
+`FG_RF_ALL_CONV` requires `KN_NINV=0` over the full production
+mask, so a non-domain INV ray still fails closed.
+
+Deliverables: `docs/audits/KNOP_REMEDIATION_WP1_2026-11-26.md`;
+`test_vadat_keys.py` 114/0 (+9 WP-1 checks); `test_knop_ray.py`
+50/1 with re-pinned census cases (T29a blocks via NINV, T29b
+3-ray mixed ensemble reads TRUE off the domain rays, new T29c
+`ni1s` pins the zero-domain fail-closed edge);
+`test_iter_conv_gate` 18/0, `test_conv_exit` 53/0,
+`test_knop_ordering` 39/0, `test_fg_gs` 36/0. Sole remaining
+failures are byte-identical pre-existing ones (T18 `diag=False`,
+`sdab` KNOWN DEFECT, `test_knop_lagged_field` seed_arm_probe).
+
+Verdict: PASS. STOP per spec - Arm A warm restart from the
+it122 checkpoint on `dessart_m15_2p82d_FRESH_knop_v14` with the
+new defaults is the human's to submit.
+
 ## Knop remediation WP-0: ordering-stall reproduction fixture (26-Nov-2026, task-directed)
 
 WP-0 of the Knop convergence remediation: a manufactured ray that
