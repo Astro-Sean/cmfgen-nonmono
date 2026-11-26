@@ -38,10 +38,11 @@ import numpy as np
 # required - the production .o/.mod files are ifort artifacts.
 # ----------------------------------------------------------------------
 TREE = Path(__file__).resolve().parents[2]
+SRC = TREE / "cmfgen"
 TESTDIR = Path(__file__).resolve().parents[1]
 STUB_SRC = TESTDIR / "f90" / "jfnk_int_mod_stub.f90"
 DRIVER_SRC = TESTDIR / "f90" / "jfnk_cli_driver.f90"
-SOLVER_SRC = TREE / "new_main" / "mod_subs" / "jfnk_solver_v1.f90"
+SOLVER_SRC = SRC / "new_main" / "mod_subs" / "jfnk_solver_v1.f90"
 BINARY = TESTDIR / "f90" / "bin" / "jfnk_cli"
 OUTDIR = TESTDIR / "plots" / "harness"
 
@@ -64,11 +65,11 @@ def ensure_binary():
     """Link the production solver .o with freshly compiled test
     sources (cached by mtime)."""
     sys.path.insert(0, str(TREE / "unit_tests"))
-    from common import prod_obj
+    from common import SRC, prod_obj
 
     solver_o = Path(prod_obj(SOLVER_SRC))
     # The production solver calls the ILF print helpers.
-    ilf_o = Path(prod_obj(TREE / "new_main/mod_subs/iter_log_fmt_mod.f90"))
+    ilf_o = Path(prod_obj(SRC / "new_main/mod_subs/iter_log_fmt_mod.f90"))
     deps = [STUB_SRC, DRIVER_SRC, solver_o, ilf_o]
     if BINARY.exists():
         newest = max(p.stat().st_mtime for p in deps)
