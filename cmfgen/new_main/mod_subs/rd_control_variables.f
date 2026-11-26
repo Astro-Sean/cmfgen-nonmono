@@ -1568,6 +1568,33 @@
 	1     'Upper clamp on the signed-Aitken store omega')
 	  CALL SET_FG_OSGN_LIMS(KN_OSGN_MIN_V,KN_OSGN_MAX_V)
 !
+! KN_FORCING_TOL (default FALSE, WP-6 26-Nov-2026): Eisenstat &
+! Walker Choice-2 forcing term on the Knop refresh's inner
+! tolerance -- eta_k = GAM*(F_k/F_{k-1})^ALP from the population
+! demand, tolerance clamped to [KN_FRC_TMIN,KN_FRC_TMAX] and
+! never looser than 0.1*GS_MATURE_TOL (invariant I2; the cap is
+! passed through the setter since the FG module cannot see this
+! module). F keeps the fixed KN_RAY_TOL.
+!
+	  KN_FORCING_TOL=.FALSE.
+	  CALL RD_STORE_LOG(KN_FORCING_TOL,'KN_FORCING_TOL',L_FALSE,
+	1     'E-W forcing term on the Knop refresh tolerance?')
+	  KN_FRC_GAM_V=0.9_LDP
+	  CALL RD_STORE_DBLE(KN_FRC_GAM_V,'KN_FRC_GAM',L_FALSE,
+	1     'E-W Choice-2 forcing coefficient gamma')
+	  KN_FRC_ALP_V=2.0_LDP
+	  CALL RD_STORE_DBLE(KN_FRC_ALP_V,'KN_FRC_ALP',L_FALSE,
+	1     'E-W Choice-2 forcing exponent alpha')
+	  KN_FRC_TMIN_V=1.0E-4_LDP
+	  CALL RD_STORE_DBLE(KN_FRC_TMIN_V,'KN_FRC_TMIN',L_FALSE,
+	1     'Floor on the forcing-priced refresh tolerance')
+	  KN_FRC_TMAX_V=1.0E-2_LDP
+	  CALL RD_STORE_DBLE(KN_FRC_TMAX_V,'KN_FRC_TMAX',L_FALSE,
+	1     'Ceiling on the forcing-priced refresh tolerance')
+	  CALL SET_FG_FORCING_TOL(KN_FORCING_TOL,KN_FRC_GAM_V,
+	1     KN_FRC_ALP_V,KN_FRC_TMIN_V,KN_FRC_TMAX_V,
+	2     1.0E-1_LDP*GS_MATURE_TOL_V)
+!
 ! KN_RAY_ORDERED (default FALSE, WP-1 26-Nov-2026): ordered
 ! characteristic march in the FG refresh (Knop Paper II
 ! ordering). The WP-0 fixture measured the claimed freshness
