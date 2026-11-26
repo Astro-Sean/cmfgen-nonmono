@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import (BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
+from common import (SRC, BINDIR, F90DIR, PROD_MOD_INC, TREE, WORKDIR,
                     Report, compile_objs, link_prod, prod_obj, run)
 
 HEADER = """! manufactured incident file for unit tests
@@ -48,7 +48,7 @@ def ncf1_file():
 
 def build():
     md = BINDIR / "obj_gib"
-    objs = [prod_obj(TREE / "plane" / "get_ibound.f")]
+    objs = [prod_obj(SRC / "plane" / "get_ibound.f")]
     objs += compile_objs(
         "gib_drv", [F90DIR / "drv_get_ibound.f90"],
         moddir=md, extra_flags=PROD_MOD_INC)
