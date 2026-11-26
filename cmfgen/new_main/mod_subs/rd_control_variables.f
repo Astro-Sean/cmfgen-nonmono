@@ -1651,6 +1651,17 @@
 	1     L_FALSE,'Gate maturity on the committed KNOP field?')
 	  CALL SET_FG_GATE_COMMIT_RES(KN_GATE_COMMIT_RES)
 !
+! KN_STORE_LS (WP-4, 26-Nov-2026, default TRUE): provisional
+! commits are accepted by residual descent over the store blend
+! ladder alpha = 1, 0.5, 0.25, 0.125 (FG_COMMIT_NC floors the
+! ladder) instead of the fixed NC bound; F restores
+! WRITE_STORE_CAP.
+!
+	  KN_STORE_LS=.TRUE.
+	  CALL RD_STORE_LOG(KN_STORE_LS,'KN_STORE_LS',
+	1     L_FALSE,'Line-search provisional KNOP commits?')
+	  CALL SET_FG_STORE_LS(KN_STORE_LS)
+!
 ! KN_CERT_DIAG (default FALSE): one machine-readable KN-CS
 ! certification record per ray per refresh.
 !
