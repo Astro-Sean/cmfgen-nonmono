@@ -40,31 +40,31 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from common import F90DIR, REF, TREE, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, REF, TREE, Report, compile_and_link_prod, run
 
 DRV = F90DIR / "drv_fg12.f90"
 # Helpers the solver calls.  All but mon_int_funs_v2 are identical to
 # the frozen reference, so production objects serve both binaries.
 HELPERS = [
-    TREE / "subs" / "genangqw_v2.f",
-    TREE / "subs" / "nordangqw_v2.f",
-    TREE / "subs" / "jweight_v2.f",
-    TREE / "subs" / "hweight_v2.f",
-    TREE / "subs" / "kweight_v2.f",
-    TREE / "subs" / "nweight_v2.f",
-    TREE / "subs" / "tuvghd_rh.f",
-    TREE / "subs" / "write_direct_info_v3.f",
-    TREE / "unix" / "dir_acc_pars_gen.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "unix" / "tune.f",
-    TREE / "subs" / "set_acc_dmu.f",
-    TREE / "tools" / "chk_little_endian.f",
-    TREE / "tools" / "get_lu.f",
+    SRC / "subs" / "genangqw_v2.f",
+    SRC / "subs" / "nordangqw_v2.f",
+    SRC / "subs" / "jweight_v2.f",
+    SRC / "subs" / "hweight_v2.f",
+    SRC / "subs" / "kweight_v2.f",
+    SRC / "subs" / "nweight_v2.f",
+    SRC / "subs" / "tuvghd_rh.f",
+    SRC / "subs" / "write_direct_info_v3.f",
+    SRC / "unix" / "dir_acc_pars_gen.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "unix" / "tune.f",
+    SRC / "subs" / "set_acc_dmu.f",
+    SRC / "tools" / "chk_little_endian.f",
+    SRC / "tools" / "get_lu.f",
 ]
 PROD_SOURCES = [
-    TREE / "plane" / "mod_ray_mom_store.f",
-    TREE / "plane" / "fg_j_cmf_v12.f",
-    TREE / "subs" / "mon_int_funs_v2.f",
+    SRC / "plane" / "mod_ray_mom_store.f",
+    SRC / "plane" / "fg_j_cmf_v12.f",
+    SRC / "subs" / "mon_int_funs_v2.f",
 ]
 REF_SOURCES = [
     # REF mod first: its GMNR_NMJ_G-free interface must shadow the
