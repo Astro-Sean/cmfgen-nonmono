@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PROD_MOD_INC,
@@ -35,9 +35,9 @@ from common import (
     run,
 )
 
-ILF_SRC = TREE / "new_main" / "mod_subs" / "iter_log_fmt_mod.f90"
+ILF_SRC = SRC / "new_main" / "mod_subs" / "iter_log_fmt_mod.f90"
 PROD = [
-    TREE / "tools" / "set_kind_module.f",
+    SRC / "tools" / "set_kind_module.f",
     ILF_SRC,
 ]
 
