@@ -8809,6 +8809,164 @@
 !
 !**********************************************************************
 !
+! MOM_AUG_MATVEC (FIX 4 phase 2 stage 2, derivation doc sec 8 phase 1):
+! matrix-free apply of the augmented coupled (J,H) operator, z -> A z,
+! on the interleaved unknown z(k) = (x(1),h(1),...,x(ND)) of length
+! NW=2*ND-1 per captured frequency column. x(i,k) sits at
+! (k-1)*NW+2i-1, h(m,k) at (k-1)*NW+2m.
+!
+! The rows are the same implemented linear skeleton MOM_AUG_RESID_V1
+! evaluates on the committed field: captured depth tridiagonal plus
+! CUP upwind-J edges on the moment rows, the LAGSCL-scaled lagged
+! bracket (H edges, EPS frequency scatter) moved to the LHS, and the
+! midpoint H reconstruction rows. NU_SRC is the b of A z = b and is
+! not applied here; the nonlinear guards (XM_POS clip, boundary EPS
+! cap, |H| clip, rejection, relaxation, Anderson acceleration) stay
+! outside the operator as outer globalisation (derivation sec 7).
+! Columns never captured (NU_OUTBC<0) return zero rows: the operator
+! is undefined there and a later solve stage must handle them
+! explicitly. Pure function of the NU_* coefficients: no clipping,
+! no caps, no solver state read or written.
+!
+	SUBROUTINE MOM_AUG_MATVEC(ZV,AZV,NZV)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1
+	IMPLICIT NONE
+!
+	INTEGER NZV
+	REAL(KIND=LDP) ZV(NZV),AZV(NZV)
+!
+	INTEGER ND,NCF,NW,I,K,D,U,ZR
+	REAL(KIND=LDP) T1B,C,SCL,ZXU
+!
+	AZV(1:NZV)=0.0_LDP
+	IF(.NOT. ALLOCATED(NU_TB))RETURN
+	ND=SIZE(NU_TB,1)
+	NCF=SIZE(NU_TB,2)
+	NW=2*ND-1
+	IF(NZV .NE. NCF*NW)RETURN
+!
+	DO K=1,NCF
+	  IF(NU_OUTBC(K) .LT. 0)CYCLE
+	  T1B=NU_T1B(K)
+!
+! Moment rows.
+!
+	  DO I=1,ND
+	    ZR=(K-1)*NW+2*I-1
+	    ZXU=0.0_LDP
+	    U=NU_KUP(I,K)
+	    IF(U .GE. 1 .AND. U .LE. NCF)ZXU=ZV((U-1)*NW+2*I-1)
+!
+	    IF(I .EQ. 1)THEN
+	      AZV(ZR)=NU_TB(1,K)*ZV(ZR)+NU_TC(1,K)*ZV(ZR+2)-
+     1        NU_CUP(1,K)*ZXU
+	      IF(NU_OUTBC(K) .GT. 1)THEN
+!
+! Negated interior row: the lagged bracket moves left as
+! -SCL*(THB - T5) with THB=-HS*h(1,uh)/T1B and
+! T5=2*EPSP(1)*x(don,u)/T1B (production assembly :3356-3404).
+!
+	        SCL=NU_LAGSCL(1,K)
+	        IF(NU_HS(1,K) .NE. 0.0_LDP .AND. T1B .NE. 0.0_LDP)THEN
+	          U=NU_KUH(1,K)
+	          IF(U .GE. 1 .AND. U .LE. NCF)AZV(ZR)=AZV(ZR)+
+     1            SCL*NU_HS(1,K)*ZV((U-1)*NW+2)/T1B
+	        END IF
+	        C=NU_EPSP(1,K)
+	        IF(C .NE. 0.0_LDP .AND. T1B .NE. 0.0_LDP)THEN
+	          IF(C .GE. 0.0_LDP)THEN
+	            D=1;  U=K-1
+	          ELSE
+	            D=2;  U=0
+	            IF(K+MOM_NM_J(D) .LE. NCF)U=K+MOM_NM_J(D)
+	          END IF
+	          IF(U .GE. 1 .AND. U .LE. NCF)AZV(ZR)=AZV(ZR)+
+     1            SCL*2.0_LDP*C*ZV((U-1)*NW+2*D-1)/T1B
+	        END IF
+	      END IF
+	    ELSE IF(I .EQ. ND)THEN
+	      AZV(ZR)=NU_TA(ND,K)*ZV(ZR-2)+NU_TB(ND,K)*ZV(ZR)
+	    ELSE
+	      SCL=NU_LAGSCL(I,K)
+	      AZV(ZR)=NU_TA(I,K)*ZV(ZR-2)+NU_TB(I,K)*ZV(ZR)+
+     1        NU_TC(I,K)*ZV(ZR+2)-NU_CUP(I,K)*ZXU
+!
+! Lagged bracket moved left: -SCL*(VB*h(i-1,uh) + VC*h(i,uh)
+! + TE1 - TE2) with TE1=2*EPSP(i)*x(don,u) and
+! TE2=2*EPSP(i-1)*x(don,u).
+!
+	      U=NU_KUH(I-1,K)
+	      IF(NU_VB(I,K) .NE. 0.0_LDP .AND.
+     1         U .GE. 1 .AND. U .LE. NCF)
+     2        AZV(ZR)=AZV(ZR)-SCL*NU_VB(I,K)*ZV((U-1)*NW+2*(I-1))
+	      U=NU_KUH(I,K)
+	      IF(NU_VC(I,K) .NE. 0.0_LDP .AND.
+     1         U .GE. 1 .AND. U .LE. NCF)
+     2        AZV(ZR)=AZV(ZR)-SCL*NU_VC(I,K)*ZV((U-1)*NW+2*I)
+	      C=NU_EPSP(I,K)
+	      IF(C .NE. 0.0_LDP)THEN
+	        IF(C .GE. 0.0_LDP)THEN
+	          D=I;  U=K-1
+	        ELSE
+	          D=I+1;  U=0
+	          IF(K+MOM_NM_J(D) .LE. NCF)U=K+MOM_NM_J(D)
+	        END IF
+	        IF(U .GE. 1 .AND. U .LE. NCF)AZV(ZR)=AZV(ZR)-
+     1          SCL*2.0_LDP*C*ZV((U-1)*NW+2*D-1)
+	      END IF
+	      C=NU_EPSP(I-1,K)
+	      IF(C .NE. 0.0_LDP)THEN
+	        IF(C .GE. 0.0_LDP)THEN
+	          D=I-1;  U=K-1
+	        ELSE
+	          D=I;  U=0
+	          IF(K+MOM_NM_J(D) .LE. NCF)U=K+MOM_NM_J(D)
+	        END IF
+	        IF(U .GE. 1 .AND. U .LE. NCF)AZV(ZR)=AZV(ZR)+
+     1          SCL*2.0_LDP*C*ZV((U-1)*NW+2*D-1)
+	      END IF
+	    END IF
+	  END DO
+!
+! H reconstruction rows: h(m) - HS*h(m,uh) - HU*x(m+1) + HL*x(m)
+! - 2*EPSP(m)*x(don,u) + 2*EPS(m)*x(donE,k).
+!
+	  DO I=1,ND-1
+	    ZR=(K-1)*NW+2*I
+	    AZV(ZR)=ZV(ZR)-NU_HU(I,K)*ZV(ZR+1)+NU_HL(I,K)*ZV(ZR-1)
+	    U=NU_KUH(I,K)
+	    IF(NU_HS(I,K) .NE. 0.0_LDP .AND.
+     1       U .GE. 1 .AND. U .LE. NCF)
+     2      AZV(ZR)=AZV(ZR)-NU_HS(I,K)*ZV((U-1)*NW+2*I)
+	    C=NU_EPSP(I,K)
+	    IF(C .NE. 0.0_LDP)THEN
+	      IF(C .GE. 0.0_LDP)THEN
+	        D=I;  U=K-1
+	      ELSE
+	        D=I+1;  U=0
+	        IF(K+MOM_NM_J(D) .LE. NCF)U=K+MOM_NM_J(D)
+	      END IF
+	      IF(U .GE. 1 .AND. U .LE. NCF)AZV(ZR)=AZV(ZR)-
+     1        2.0_LDP*C*ZV((U-1)*NW+2*D-1)
+	    END IF
+	    C=NU_EPS(I,K)
+	    IF(C .NE. 0.0_LDP)THEN
+	      IF(C .GE. 0.0_LDP)THEN
+	        D=I
+	      ELSE
+	        D=I+1
+	      END IF
+	      AZV(ZR)=AZV(ZR)+2.0_LDP*C*ZV((K-1)*NW+2*D-1)
+	    END IF
+	  END DO
+	END DO
+!
+	RETURN
+	END
+!
+!**********************************************************************
+!
 ! MOM_SAME_DIR_RHO (FIX 1, audit finding F): contraction-factor
 ! estimate for the adaptive JNEXT_RELAX update, restricted to
 ! same-map residual pairs.
