@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import (
     F90DIR,
+    SRC,
     TREE,
     WORKDIR,
     Report,
@@ -67,7 +68,7 @@ RV0 = 0.5
 def build():
     return compile_and_link_prod(
         "mom_nu",
-        [TREE / h for h in HELPERS]
+        [SRC / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_nu.f"],
     )
 
