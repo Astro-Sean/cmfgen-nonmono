@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import F90DIR, Report, compile_and_link_prod, run
+from common import SRC, F90DIR, Report, compile_and_link_prod, run
 
 HELPERS = [
     "tools/set_kind_module.f",
@@ -44,15 +44,14 @@ HELPERS = [
     "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
-    "unit_tests/f90/stub_vadat.f",
 ]
 
 
 def main():
     rep = Report("knop_p2_state")
     exe = compile_and_link_prod(
-        "knp2", [F90DIR.parents[1] / h for h in HELPERS]
-        + [F90DIR / "drv_knop_p2.f90"]
+        "knp2", [SRC / h for h in HELPERS]
+        + [F90DIR / "stub_vadat.f", F90DIR / "drv_knop_p2.f90"]
     )
     out = run(exe).stdout
     
@@ -67,7 +66,7 @@ def main():
         ok = parts[-1] == "T"
         rep.check(f"driver {tag}", ok, l)
 
-        src = (F90DIR.parents[1] / "plane/fg_j_cmf_nonmono_v1.f").read_text()
+        src = (SRC / "plane/fg_j_cmf_nonmono_v1.f").read_text()
 
     # three tracker call sites, each inside a significance block
     n_track = len(re.findall(r"CALL KN_P2_TRACK", src))
