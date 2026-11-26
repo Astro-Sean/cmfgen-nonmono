@@ -6,15 +6,16 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
-INTERFACE = (ROOT / "new_main/mod_subs/jfnk_cmfgen_interface_v1.f").read_text()
-SOLVER = (ROOT / "new_main/mod_subs/jfnk_solver_v1.f90").read_text()
-POPS = (ROOT / "new_main/mod_subs/solve_for_pops.f").read_text()
-SOLVE_CORR = (ROOT / "new_main/mod_subs/jfnk_solve_corr_v1.f").read_text()
-INTMOD = (ROOT / "new_main/mod_subs/jfnk_cmfgen_int_mod.f").read_text()
-CVARMOD = (ROOT / "new_main/mod_subs/control_variable_mod.f").read_text()
-BLKBAND = (ROOT / "new_main/subs/cmf_blkband_v3.f").read_text()
-RD_CONTROL = (ROOT / "new_main/mod_subs/rd_control_variables.f").read_text()
-CMFGEN_SUB = (ROOT / "new_main/cmfgen_sub.f").read_text()
+SRC = ROOT / "cmfgen"
+INTERFACE = (SRC / "new_main/mod_subs/jfnk_cmfgen_interface_v1.f").read_text()
+SOLVER = (SRC / "new_main/mod_subs/jfnk_solver_v1.f90").read_text()
+POPS = (SRC / "new_main/mod_subs/solve_for_pops.f").read_text()
+SOLVE_CORR = (SRC / "new_main/mod_subs/jfnk_solve_corr_v1.f").read_text()
+INTMOD = (SRC / "new_main/mod_subs/jfnk_cmfgen_int_mod.f").read_text()
+CVARMOD = (SRC / "new_main/mod_subs/control_variable_mod.f").read_text()
+BLKBAND = (SRC / "new_main/subs/cmf_blkband_v3.f").read_text()
+RD_CONTROL = (SRC / "new_main/mod_subs/rd_control_variables.f").read_text()
+CMFGEN_SUB = (SRC / "new_main/cmfgen_sub.f").read_text()
 
 
 def section(source, start, end):
