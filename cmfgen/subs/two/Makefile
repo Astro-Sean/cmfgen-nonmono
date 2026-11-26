@@ -17,7 +17,7 @@ OBJ = $(LIB)(steq_ba_two_phot.o)\
       $(LIB)(two_phot_var_opac.o)
 
 all : $(LIB)
-	cp $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 	rm -f *.o
 $(LIB) : $(OBJ)	
