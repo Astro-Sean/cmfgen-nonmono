@@ -143,7 +143,7 @@
 ! survives requeues like ITER_HISTORY). WT is the caller's
 ! OMP_GET_WTIME() at write time.
 !
-! Column contract (v3; v1/v2 columns unchanged at old positions,
+! Column contract (v4; v1..v3 columns unchanged at old positions,
 ! enabled-state columns appended at the end):
 !  iter,mode,next,ba,frozen,held,reason,
 !  n_fg,n_mom,n_rf,np_rf,ba_build,ba_reuse,
@@ -154,7 +154,15 @@
 !  ng_try,ng_ok,ng_def,ng_cln,jfnk_cmt,
 !  aa_app,aa_skip,aa_sng,aa_rst,
 !  aao_app,aao_rej,aao_sng,aao_fail,freqm,
-!  aa_ran,aa_en,aao_en
+!  aa_ran,aa_en,aao_en,
+!  frc_eta,frc_rat,frc_sg,frc_tol
+!
+! Forcing-term columns (WP-6): frc_eta is the last Eisenstat &
+! Walker Choice-2 eta the refresh computed (-1 = no update yet),
+! frc_rat the raw ||F_k||/||F_{k-1}|| demand ratio, frc_sg 1 when
+! the 0.1 floor safeguard raised eta, and frc_tol the tolerance
+! KN_RAY_TOL_EFF the inner solve actually ran at. All zeros/-1
+! when KN_FORCING_TOL is disarmed.
 !
 ! Accelerator columns (audit D1): ng_try is 1 when the NG schedule
 ! reached a due call this iteration, ng_ok 1 when the banded secant
@@ -183,7 +191,8 @@
            NG_TRY,NG_OK,NG_DEF,NG_CLN,JFNK_CMT, &
            AA_APP,AA_SKIP,AA_SNG,AA_RST, &
            AAO_APP,AAO_REJ,AAO_SNG,AAO_FAIL,FREQM, &
-           AA_RAN,AA_EN,AAO_EN)
+           AA_RAN,AA_EN,AAO_EN, &
+           FRC_ETA,FRC_RAT,FRC_SG,FRC_TOL)
       REAL(KIND=LDP) WT
       INTEGER ITER,N_BA_BUILD,N_BA_REUSE
       INTEGER N_REJ,N_FROZEN,N_REL
@@ -192,9 +201,10 @@
       INTEGER NG_TRY,NG_OK,NG_DEF,NG_CLN,JFNK_CMT
       INTEGER*8 AA_APP,AA_SKIP,AA_SNG,AA_RST
       INTEGER*8 AAO_APP,AAO_REJ,AAO_SNG
-      INTEGER AAO_FAIL,FREQM,AA_RAN,AA_EN,AAO_EN
+      INTEGER AAO_FAIL,FREQM,AA_RAN,AA_EN,AAO_EN,FRC_SG
       LOGICAL FROZEN,HELD,JADM,JCOUPLED
       REAL(KIND=LDP) MAXCH,MAXCH_APP,MAXATT,SE_RES,SE_RES2,TRUST
+      REAL(KIND=LDP) FRC_ETA,FRC_RAT,FRC_TOL
       CHARACTER(LEN=*) MODE_NOW,MODE_NEXT,BA_CH,REASON
 !
       INTEGER LU,IOS
@@ -238,11 +248,13 @@
         'ng_try,ng_ok,ng_def,ng_cln,jfnk_cmt,'// &
         'aa_app,aa_skip,aa_sng,aa_rst,'// &
         'aao_app,aao_rej,aao_sng,aao_fail,freqm,'// &
-        'aa_ran,aa_en,aao_en'
+        'aa_ran,aa_en,aao_en,'// &
+        'frc_eta,frc_rat,frc_sg,frc_tol'
 !
       WRITE(LU,'(I0,",",A,",",A,",",A,",",I0,",",I0,",",A,",",'// &
         '16(I0,","),6(ES12.4,","),4(F12.2,","),F12.1,",",'// &
-        '5(I0,","),4(I0,","),3(I0,","),4(I0,","),2(I0))') &
+        '5(I0,","),4(I0,","),3(I0,","),4(I0,","),I0,'// &
+        '",",ES12.4,",",ES12.4,",",I0,",",ES12.4)') &
         ITER,TRIM(MODE_NOW),TRIM(MODE_NEXT),TRIM(BA_CH),F_I,H_I, &
         TRIM(REASON), &
         LEDG_N_FG,LEDG_N_MOM,LEDG_N_RF,LEDG_NP_RF, &
@@ -255,7 +267,8 @@
         NG_TRY,NG_OK,NG_DEF,NG_CLN,JFNK_CMT, &
         AA_APP,AA_SKIP,AA_SNG,AA_RST, &
         AAO_APP,AAO_REJ,AAO_SNG,AAO_FAIL,FREQM, &
-        AA_RAN,AA_EN,AAO_EN
+        AA_RAN,AA_EN,AAO_EN, &
+        FRC_ETA,FRC_RAT,FRC_SG,FRC_TOL
       CLOSE(LU)
       RETURN
       END SUBROUTINE LEDG_WRITE_ITER
