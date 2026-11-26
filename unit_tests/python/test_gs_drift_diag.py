@@ -29,11 +29,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FG = (ROOT / "plane/fg_j_cmf_nonmono_v1.f").read_text()
-MOM = (ROOT / "plane/mom_j_cmf_nonmono_v1.f").read_text()
-POPS = (ROOT / "new_main/mod_subs/solve_for_pops.f").read_text()
-RD_CONTROL = (ROOT / "new_main/mod_subs/rd_control_variables.f").read_text()
-CTRL_MOD = (ROOT / "new_main/mod_subs/control_variable_mod.f").read_text()
+SRC = ROOT / "cmfgen"
+FG = (SRC / "plane/fg_j_cmf_nonmono_v1.f").read_text()
+MOM = (SRC / "plane/mom_j_cmf_nonmono_v1.f").read_text()
+POPS = (SRC / "new_main/mod_subs/solve_for_pops.f").read_text()
+RD_CONTROL = (SRC / "new_main/mod_subs/rd_control_variables.f").read_text()
+CTRL_MOD = (SRC / "new_main/mod_subs/control_variable_mod.f").read_text()
 
 
 def section(source, start, end):
