@@ -40,7 +40,9 @@ The observed-frame continuum rescue described below is enabled by default.
   al. 2024): an optional GMRES population update with residual-based
   acceptance and bounded budgets. Admission requires the formal-J path
   (`USE_LAM_ES=T`); input checks reject `DO_JFNK` on the
-  moment-store route. Enabling the flag does not guarantee admission.
+  moment-store route and fail closed on the inner-boundary T pin
+  the JFNK map cannot honour (`FIX_X_DPTH` requires `FIX_T=T`).
+  Enabling the flag does not guarantee admission.
   Frozen-J updates use stored radiative terms; coupled transfer requires
   separate controls. The per-depth factorisation carries a
   certificate check with a least-squares fallback when the factor
@@ -130,14 +132,23 @@ The observed-frame continuum rescue described below is enabled by default.
 
 ## Layout
 
+The Fortran source tree lives under `cmfgen/` (reorganised
+26-Nov-2026); the repository root carries the development tooling.
+Build outputs (`exe/`, `lib/`, `mod/`) still install at the root so
+submitted run scripts keep their paths.
+
 | Path | Contents |
 |---|---|
-| `new_main/` | Main program and the VADAT input readers |
-| `new_main/subs/` | New-solver support routines |
-| `plane/` | The Knop formal solver and non-monotonic moment solvers |
-| `subs/`, `newsubs/`, `com/`, `disp/` | Upstream source, surgical edits only |
-| `obs/` | Observed-frame tools (`cmf_flux`, `obs_frame`) |
+| `cmfgen/` | The CMFGEN tree: upstream source plus this fork's additions |
+| `cmfgen/new_main/` | Main program and the VADAT input readers |
+| `cmfgen/new_main/subs/` | New-solver support routines |
+| `cmfgen/plane/` | The Knop formal solver and non-monotonic moment solvers |
+| `cmfgen/subs/`, `cmfgen/newsubs/`, `cmfgen/com/`, `cmfgen/disp/` | Upstream source, surgical edits only |
+| `cmfgen/obs/` | Observed-frame tools (`cmf_flux`, `obs_frame`) |
+| `cmfgen/obs_template/` | OBS job templates (`batobs.sh`, `CMF_FLUX_PARAM_INIT`) |
+| `cmfgen/pgplot_stubs/` | Stub PGPLOT used where the library is absent |
 | `unit_tests/` | Test drivers; `run_all_tests.py` runs the suite |
+| `tests/` | Solver harnesses (`f90/`, `jfnk_core/`) |
 | `docs/` | `audits/`, `plans/`, `figures/`, and the VADAT key reference `NONMONO_KEYS.md` |
 
 ## Building
