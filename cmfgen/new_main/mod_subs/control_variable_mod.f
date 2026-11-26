@@ -2153,6 +2153,33 @@
 	INTEGER BA_MASK_J,BA_MASK_I
 	INTEGER, ALLOCATABLE :: BA_MASK_STREAK(:,:)
 !
+! BA_SYM_PIN (VADAT, default F): checklist WP-7c, edited
+! 27-Nov-2026. When armed, CMF_BLKBAND_V3's DIAG block solve
+! eliminates each floor-pinned level unknown (POPS(J,K) <=
+! MAX(1E-30, BA_DEM_PFLOOR)) SYMMETRICALLY before DGEEQU: the
+! eliminated column's contribution is carried into the RHS, the
+! row and column are zeroed, and the diagonal is set to 1, so the
+! near-null direction is removed from the factorisation instead of
+! degrading the whole block (the earlier row-only pin, prototyped
+! as POP_MASK_FLOOR's matrix form, crashed the band solve, job
+! 12868544). The pinned correction comes back as the prescribed
+! value (zero), identical to the post-solve POP_MASK_FLOOR mask
+! but without perturbing neighbouring rows. F = off (default path
+! unchanged); DIAG path only.
+!
+! BA_NC_MAXPOP (VADAT, default F): checklist WP-7c, edited
+! 27-Nov-2026. When armed, GENERATE_FULL_MATRIX_V3 places each
+! species' number-conservation equation at the row of its MOST
+! POPULATED level (Arramy et al. 2024, Sec. 2.1.1) instead of the
+! fixed EQ_SPECIES slot. The displaced rate equation relocates to
+! EQ_SPECIES so the equation count is unchanged. Ground-state
+! (EQXzV) rows are excluded from the candidate set because the
+! ionization-conservation replacement below may overwrite them.
+! F = off (NC at EQ_SPECIES, default path unchanged).
+!
+	LOGICAL BA_SYM_PIN
+	LOGICAL BA_NC_MAXPOP
+!
 ! Removed 17-Oct-2026: [BA_DEM_RELFRAC] relative demand floor. It
 ! exempted trace rows from the MAXCH/demand metric at a populated
 ! depth, which let the SOB run report ~0.1% demand while ~700
