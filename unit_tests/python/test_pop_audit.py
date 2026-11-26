@@ -17,7 +17,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 TREE = HERE.parent.parent
-MODSUBS = TREE / "new_main" / "mod_subs"
+SRC = TREE / "cmfgen"
+MODSUBS = SRC / "new_main" / "mod_subs"
 
 SFP = (MODSUBS / "solve_for_pops.f").read_text()
 CVM = (MODSUBS / "control_variable_mod.f").read_text()
