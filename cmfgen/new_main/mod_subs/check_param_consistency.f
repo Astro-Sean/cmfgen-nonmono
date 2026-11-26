@@ -228,5 +228,77 @@
 	2     ' DO_SOB_FG_KNOP, and SOB + USE_LAM_ES=F'
 	END IF
 !
+! WP-1 (26-Nov-2026): GS_MATURE_TOL is a read-only VADAT
+! exposure of the population maturity gate -- a fixed PARAMETER
+! in CONTROL_VARIABLE_MOD that never moves. A non-default value
+! would read as if the gate were retuned while the solver keeps
+! 5.0E-2, so it is rejected outright rather than warned.
+!
+	IF(GS_MATURE_TOL_V .NE. GS_MATURE_TOL)THEN
+	  WRITE(LUER,*)'Error in control parameters in VADAT'
+	  WRITE(LUER,*)'GS_MATURE_TOL is read-only: it exposes the'//
+	1     ' fixed maturity gate GS_MATURE_TOL=5.0E-2'//
+	2     ' (CONTROL_VARIABLE_MOD PARAMETER).'
+	  WRITE(LUER,*)'Remove the key or set it to 5.0D-2.'
+	  STOP
+	END IF
+!
+! WP-1 (26-Nov-2026): tolerance-ladder invariants on the
+! FG-census routes (DO_NONMONO_KNOP and DO_SOB_FG_KNOP -- the
+! only routes that run KNOP_RAY_SOLVE_V1, certify rays, and
+! feed GS_MAX_ALL in SOLVE_FOR_POPS). Each is a hard stop: the
+! combination would certify a field looser than the gate that
+! judges it. Evidence: audit KNOP_REMEDIATION_WP0_2026-11-26.md
+! and the T4-B/nbulk arms in docs/CHECKLIST.md.
+!
+! I1: the bulk-exit residual floor must sit below the maturity
+! gate -- a ray may not certify looser than the gate. The old
+! 6.0E-2 KNOP default certified rays at 5.19-5.24E-2 against a
+! 5.0E-2 gate (bounded non-contraction, not convergence).
+!
+! I2: the per-ray tolerance must be at least 10x tighter than
+! the gate, so one certified ray cannot push GS_MAX_ALL across
+! the threshold on its own.
+!
+! I3: the commit cap must not sit exactly at the gate. With
+! FG_COMMIT_NC == GS_MATURE_TOL a capped ray pins GS_MAX_ALL at
+! the threshold every call -- the freeze/release limit cycle.
+! The absent-key legacy default (0.05 == 0.05) is exempt until
+! WP-4 replaces the fixed cap; an explicitly-set equality is
+! rejected now so a new deck cannot recreate the knife-edge.
+!
+	IF(DO_NONMONO_KNOP .OR. DO_SOB_FG_KNOP)THEN
+	  IF(KN_RAY_BULK_TOL_V .GE. GS_MATURE_TOL)THEN
+	    WRITE(LUER,*)'Error in control parameters in VADAT'
+	    WRITE(LUER,*)'Invariant I1: KN_RAY_BULK_TOL must be'//
+	1       ' < GS_MATURE_TOL on the FG-census routes -- a ray'//
+	2       ' may not certify looser than the maturity gate.'
+	    WRITE(LUER,*)'Got KN_RAY_BULK_TOL=',KN_RAY_BULK_TOL_V,
+	1       ' GS_MATURE_TOL=',GS_MATURE_TOL
+	    STOP
+	  END IF
+	  IF(KN_RAY_TOL_V .GT. 0.1_LDP*GS_MATURE_TOL)THEN
+	    WRITE(LUER,*)'Error in control parameters in VADAT'
+	    WRITE(LUER,*)'Invariant I2: KN_RAY_TOL must be'//
+	1       ' <= 0.1*GS_MATURE_TOL on the FG-census routes --'//
+	2       ' the certified field must be >=10x tighter than'//
+	3       ' the maturity gate.'
+	    WRITE(LUER,*)'Got KN_RAY_TOL=',KN_RAY_TOL_V,
+	1       ' 0.1*GS_MATURE_TOL=',0.1_LDP*GS_MATURE_TOL
+	    STOP
+	  END IF
+	  IF(FG_COMMIT_NC_SET .AND.
+	1     FG_COMMIT_NC_V .EQ. GS_MATURE_TOL)THEN
+	    WRITE(LUER,*)'Error in control parameters in VADAT'
+	    WRITE(LUER,*)'Invariant I3: an explicit FG_COMMIT_NC'//
+	1       ' must not equal GS_MATURE_TOL on the FG-census'//
+	2       ' routes -- a capped ray pins GS_MAX_ALL exactly'//
+	3       ' at the maturity gate (freeze/release cycle).'
+	    WRITE(LUER,*)'Set FG_COMMIT_NC below 5.0D-2 (e.g.'//
+	1       ' 4.0D-2), or remove the key.'
+	    STOP
+	  END IF
+	END IF
+!
 	RETURN
 	END	
