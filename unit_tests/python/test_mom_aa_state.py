@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import common
-from common import F90DIR, TREE, WORKDIR, Report, run
+from common import SRC, F90DIR, TREE, WORKDIR, Report, run
 
 REP = common.Report("test_mom_aa_state (D2 GET_MOM_AA_STATE)")
 
@@ -64,13 +64,12 @@ HELPERS = [
     "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
-    "unit_tests/f90/stub_vadat.f",
 ]
 
 
 def build():
     return common.compile_and_link_prod(
-        "momaa", [TREE / h for h in HELPERS] + [F90DIR / "drv_mom_aa_state.f90"]
+        "momaa", [SRC / h for h in HELPERS] + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_aa_state.f90"]
     )
 
 
