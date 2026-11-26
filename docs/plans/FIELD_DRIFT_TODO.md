@@ -22,19 +22,19 @@ through the maturity getters into `SOLVE_FOR_POPS`.
 
 Files read:
 
-- `new_main/mod_subs/solve_for_pops.f` (getters at ~1028-1042; freeze
+- `cmfgen/new_main/mod_subs/solve_for_pops.f` (getters at ~1028-1042; freeze
   state machine; JFNK admission; SOLVEBA dispatch ~2601-2644;
   population-hold rollback ~2654-2675)
-- `plane/fg_j_cmf_nonmono_v1.f` (in-sweep drift ~4168-4330; INIT reset
+- `cmfgen/plane/fg_j_cmf_nonmono_v1.f` (in-sweep drift ~4168-4330; INIT reset
   ~2256-2309; refresh ~6199-7070; `GET_FG_GS_MATURITY` ~5020-5073)
-- `plane/mom_j_cmf_nonmono_v1.f` (per-iteration reset ~1640-1679;
+- `cmfgen/plane/mom_j_cmf_nonmono_v1.f` (per-iteration reset ~1640-1679;
   in-sweep drift ~3405-3828; `GET_MOM_GS_MATURITY` ~4427-4525;
   refresh driver `MOM_KNOP_REFRESH_V1` ~4804-6610; adaptive omega
   ~6500-6593)
-- `new_main/cmfgen_sub.f` (refresh calls 3281-3293;
+- `cmfgen/new_main/cmfgen_sub.f` (refresh calls 3281-3293;
   `SOLVE_FOR_POPS` call 4557; `JFNK_RAD_SWEEP_V1` 5766-7349)
-- `new_main/mod_subs/comp_j_blank.f` (solver dispatch 834-1089)
-- `new_main/mod_subs/jfnk_solve_corr_v1.f` (`FREEZE_I_NEXT` 531/2392;
+- `cmfgen/new_main/mod_subs/comp_j_blank.f` (solver dispatch 834-1089)
+- `cmfgen/new_main/mod_subs/jfnk_solve_corr_v1.f` (`FREEZE_I_NEXT` 531/2392;
   baseline STEQ 554-625; F(0) test 654-684)
 
 Findings recorded in the audit document, sections 3-5.
@@ -127,19 +127,19 @@ update order, or the commit path.
 
 Changed:
 
-- `new_main/mod_subs/control_variable_mod.f`: new
+- `cmfgen/new_main/mod_subs/control_variable_mod.f`: new
   `LOGICAL GS_DRIFT_DIAG` (default F) with the standard
   declaration/comment block.
-- `new_main/mod_subs/rd_control_variables.f`: `RD_STORE_LOG`
+- `cmfgen/new_main/mod_subs/rd_control_variables.f`: `RD_STORE_LOG`
   registration for `GS_DRIFT_DIAG`.
-- `plane/fg_j_cmf_nonmono_v1.f`: `FG_RF_DCHG=0.0_LDP` added to the
+- `cmfgen/plane/fg_j_cmf_nonmono_v1.f`: `FG_RF_DCHG=0.0_LDP` added to the
   per-iteration INIT reset block (fix for defect 5.1); new
   `GET_FG_RELAX` accessor exposing `INEXT_RELAX`,
   `KN_RF_RESID_PRV`, and the argmax indices.
-- `plane/mom_j_cmf_nonmono_v1.f`: new `GET_MOM_RELAX` accessor
+- `cmfgen/plane/mom_j_cmf_nonmono_v1.f`: new `GET_MOM_RELAX` accessor
   exposing `JNEXT_RELAX`, `MOM_RF_RESID_PRV`, `MOM_RF_RAN`, and the
   argmax indices.
-- `new_main/mod_subs/solve_for_pops.f`: gated
+- `cmfgen/new_main/mod_subs/solve_for_pops.f`: gated
   `IF(GS_DRIFT_DIAG)` diagnostic block after the maturity getters,
   printing per-iteration raw sweep drift, refresh residual,
   retained (relaxed) delta, relaxation factors, census counts,
@@ -298,7 +298,7 @@ committed on `main` (`0ef42d05` and the companion entries).
 ### What was changed (5.3R, approved and implemented)
 
 Both forced-clean `.NOT. HAS_CP` exit blocks deleted from
-`plane/fg_j_cmf_nonmono_v1.f`. `RES`/`RES_FREQ` are always
+`cmfgen/plane/fg_j_cmf_nonmono_v1.f`. `RES`/`RES_FREQ` are always
 measured; `IXIT=0` is retired; every success path now requires
 `RES<KN_RAY_TOL` or the floored bulk exit. Maximum-pass and
 stall/plateau/cap semantics unchanged; `HAS_CP=T` rays untouched.
