@@ -89,7 +89,7 @@ EXE   =  $(EXE_DIR)wr_f_to_s.exe\
          $(EXE_DIR)tlusty_vel.exe
  
 all: OBJ ALLEXE 
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 
 ALLEXE : $(EXE)
