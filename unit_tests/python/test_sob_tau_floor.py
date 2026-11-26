@@ -26,7 +26,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PLOTDIR,
@@ -44,16 +44,16 @@ from common import (
 )
 
 HELPERS = [
-    TREE / "tools" / "set_kind_module.f",
-    TREE / "subs" / "mod_trap_derivatives.f",
-    TREE / "unix" / "term_io.f",
-    TREE / "subs" / "zalongp.f",
-    TREE / "subs" / "nordtau.f",
-    TREE / "subs" / "tcompd.f",
-    TREE / "subs" / "xvecd.f",
-    TREE / "subs" / "thomas.f",
-    TREE / "subs" / "thomas_rh.f",
-    TREE / "subs" / "exponx.f",
+    SRC / "tools" / "set_kind_module.f",
+    SRC / "subs" / "mod_trap_derivatives.f",
+    SRC / "unix" / "term_io.f",
+    SRC / "subs" / "zalongp.f",
+    SRC / "subs" / "nordtau.f",
+    SRC / "subs" / "tcompd.f",
+    SRC / "subs" / "xvecd.f",
+    SRC / "subs" / "thomas.f",
+    SRC / "subs" / "thomas_rh.f",
+    SRC / "subs" / "exponx.f",
 ]
 
 ROUTINES = {
@@ -93,8 +93,8 @@ def build():
         extra_flags=PROD_MOD_INC,
     )
     new_objs = prod_objs(
-        [TREE / "subs" / fname for fname in ROUTINES.values()]
-        + [TREE / "subs" / f for f in LINK_ONLY]
+        [SRC / "subs" / fname for fname in ROUTINES.values()]
+        + [SRC / "subs" / f for f in LINK_ONLY]
     )
     bins = {}
     for tag in ("new", "ref"):
