@@ -33,6 +33,39 @@ def check(name, passed):
     print(f"[PASS] {name}")
 
 
+def test_pop_trace_maxfac_runs_on_every_call():
+    """WP-7a: the POP_TRACE_MAXFAC per-row cap used to sit inside
+    IF(DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT), so on the all-LAMBDA
+    KNOP stall a runaway trace row was never clamped. The block now
+    runs unconditionally after the STEQ_RAW snapshot and
+    POP_FLOOR_STEP, before the resacc gate."""
+    clamp = SOLVEBA.index("IF(POP_TRACE_MAXFAC .GT. 0.0_LDP)THEN")
+    raw = SOLVEBA.index("STEQ_RAW=STEQ")
+    floor_step = SOLVEBA.index("CALL POP_FLOOR_STEP()")
+    gate = SOLVEBA.index("IF(DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT)THEN")
+    check(
+        "POP_TRACE_MAXFAC clamp sits after the STEQ_RAW snapshot",
+        raw < clamp,
+    )
+    check(
+        "POP_TRACE_MAXFAC clamp sits after POP_FLOOR_STEP",
+        floor_step < clamp,
+    )
+    check(
+        "POP_TRACE_MAXFAC clamp is outside the RES_ACC/LAMBDA gate",
+        clamp < gate,
+    )
+    inner = section(
+        SOLVEBA,
+        "IF(DO_BA_RES_ACC .AND. .NOT. LAMBDA_IT)THEN",
+        "IF(DO_BA_RES_ACC .AND. LAMBDA_IT .AND. BA_PART_THIS)THEN",
+    )
+    check(
+        "no POP_TRACE_MAXFAC clamp left inside the gated block",
+        "IF(POP_TRACE_MAXFAC" not in inner,
+    )
+
+
 def test_heal_store_zeroes_fully_poisoned_rows():
     body = section(FG, "SUBROUTINE HEAL_STORE", "RETURN\n\tEND")
     check(
@@ -2076,7 +2109,7 @@ def test_shadow_correction_phase55():
         )
         == 2
         and FG.count(
-            "IF(RES .LT. KN_RAY_TOL .AND. L_CONT_READY)THEN"
+            "IF(RES .LT. KN_RAY_TOL_EFF .AND. L_CONT_READY)THEN"
         )
         == 2
         and FG.count("IF(L_CONT_READY .AND. NPO .GE. 6") == 2,
@@ -2089,6 +2122,7 @@ def test_shadow_correction_phase55():
 
 
 if __name__ == "__main__":
+    test_pop_trace_maxfac_runs_on_every_call()
     test_shadow_correction_phase55()
     test_seed_arm_probe()
     test_qsig_significant_cell_metrics()
