@@ -88,7 +88,7 @@ HELPERS = [
 def build():
     return compile_and_link_prod(
         "vadat",
-        [TREE / h for h in HELPERS]
+        [SRC / h for h in HELPERS]
         + [F90DIR / "stub_vadat.f", F90DIR / "drv_vadat.f90"],
     )
 
