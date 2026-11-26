@@ -175,6 +175,15 @@
 ! acceptance (LAM_FIELD_NOT_READY), not the release/progress
 ! logic -- provisional fields keep moving the iteration.
 	LOGICAL GS_RF_ALLCONV
+!
+! WP-3 [KN_GATE_COMMIT_RES] (26-Nov-2026): committed-state verify
+! exports. GS_COMMIT_RES is the post-commit L_QP pass max-norm
+! (-1 when no ray committed); GS_NBAD_CM/GS_NTOT_CM are the
+! actually-written bad census and its coverage (NTOT_CM=-1: no
+! census -> legacy metrics apply).
+!
+	REAL(KIND=LDP) GS_COMMIT_RES
+	INTEGER*8 GS_NBAD_CM,GS_NTOT_CM
 ! GS_FG_PRECHURN: GS_FG_IMMATURE evaluated before the store-churn OR
 ! (snapshot, not a saved state). FG_CHURN_MARG: immature ONLY via
 ! churn and inside the [FG_TRIAL_CHURN] factor (edited,
@@ -795,6 +804,12 @@
 	GS_MAX_ALL=0.0_LDP
 	GS_NBAD_EFF=0_8
 	GS_NCONV_ALL=0_8
+!
+! WP-3: committed-census disarmed until a refresh fills it.
+!
+	GS_COMMIT_RES=-1.0_LDP
+	GS_NBAD_CM=0_8
+	GS_NTOT_CM=-1_8
 	GS_UNSAFE=.FALSE.
 	GS_PIN=.FALSE.
 	GS_RAW_IMMATURE=.FALSE.
@@ -1129,7 +1144,7 @@
 	3      GS_SW_MAXCHG,GS_SW_NCONV,GS_RF_DCHG,
 	4      GS_NBAD_STAL,GS_NBAD_PLAT,
 	5      GS_SW_CAPPED,GS_SW_CAPTOT,GS_RF_CAPPED,
-	6      GS_RF_ALLCONV)
+	6      GS_RF_ALLCONV,GS_COMMIT_RES,GS_NBAD_CM,GS_NTOT_CM)
 	  CALL GET_FG_SW_SYM(GS_SW_MAXSYM,GS_SYK,GS_SYR,GS_SYL,GS_SYC)
 	  CALL GET_MOM_GS_MATURITY(MOM_RAN,MOM_OK,MOM_CHG_FILE,
 	1      MOM_CAP_FILE,MOM_MAXCHG,MOM_CAPPED,MOM_NEGJ,
@@ -1279,7 +1294,18 @@
 	  GS_MAX_ALL=GS_MAXCHG
 	  IF(GS_NTOT .GT. 0)THEN
 	    GS_MAX_ALL=MAX(GS_MAX_ALL,GS_SW_MAXCHG,GS_RF_DCHG)
-	    IF(GS_NBAD_BLK .GE. 0_8)THEN
+	    IF(KN_GATE_COMMIT_RES .AND. GS_NTOT_CM .GT. 0_8)THEN
+!
+! WP-3 (26-Nov-2026): the gate reads the committed state, not the
+! solve's best-pass report. COMMIT_RES is the L_QP max-norm of
+! the field the store actually kept; NBAD_CM counts only cells
+! the refresh wrote (vetoed or unsolved rays carry no slot, so a
+! committed-but-capped field can no longer certify on its raw
+! solve residual). NTOT_CM=-1 falls back to the legacy metrics.
+!
+	      GS_MAX_ALL=MAX(GS_COMMIT_RES,GS_SW_MAXCHG,GS_RF_DCHG)
+	      GS_NBAD_EFF=GS_NBAD_CM
+	    ELSE IF(GS_NBAD_BLK .GE. 0_8)THEN
 	      GS_NBAD_EFF=MIN(GS_NBAD,GS_NBAD_BLK)
 	    ELSE
 	      GS_NBAD_EFF=GS_NBAD
