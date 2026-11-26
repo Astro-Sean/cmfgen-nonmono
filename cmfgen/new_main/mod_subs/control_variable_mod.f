@@ -1659,6 +1659,18 @@
 !
 	LOGICAL KN_GATE_COMMIT_RES
 !
+! KN_STORE_LS (WP-4, 26-Nov-2026, default TRUE): residual-descent
+! backtracking on the provisional commit. A non-certified ray
+! tries store blends old + alpha*(fresh-old) at alpha = 1, 0.5,
+! 0.25, 0.125 (FG_COMMIT_NC is the floor; one rung at NC itself
+! is appended when it falls under 0.125), verifies each on the
+! committed state (WP-3 machinery) and writes the first that
+! descends below the retained store's committed residual. No
+! descent keeps the store and counts an LS rejection. F
+! restores the fixed WRITE_STORE_CAP path. VADAT [KN_STORE_LS].
+!
+	LOGICAL KN_STORE_LS
+!
 ! KN_RAY_STALL (default 0.98): same-direction residual ratio above
 ! which a refresh pass counts toward the NSTALL early exit in
 ! SWEEP_FLD/SWEEP_FLD_ORD. 0.90 quit rays still contracting at up
