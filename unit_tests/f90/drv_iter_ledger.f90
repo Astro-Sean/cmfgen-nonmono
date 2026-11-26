@@ -44,7 +44,8 @@ program drv_iter_ledger
          1,1,0,4,0, &
          3_8,1_8,0_8,2_8, &
          2_8,1_8,0_8,0,1, &
-         1,1,1)
+         1,1,1, &
+         2.5E-3_LDP,0.5_LDP,1,2.5E-3_LDP)
     wt2 = 360.0_LDP
     call ledg_write_iter(wt2, &
          13,'FULL','FULL','HELD', &
@@ -56,7 +57,8 @@ program drv_iter_ledger
          1,0,0,3,1, &
          0_8,0_8,0_8,0_8, &
          0_8,0_8,0_8,1,0, &
-         0,1,0)
+         0,1,0, &
+         -1.0_LDP,0.0_LDP,0,2.0E-3_LDP)
     write(*,'(A)')'ROWS_WRITTEN=2'
     call ledg_rss_mb(rss)
     write(*,'(A,F12.1)')'RSS_MB=',rss
@@ -73,7 +75,8 @@ program drv_iter_ledger
          0,0,0,0,0, &
          0_8,0_8,0_8,0_8, &
          0_8,0_8,0_8,0,0, &
-         0,0,0)
+         0,0,0, &
+         -1.0_LDP,0.0_LDP,0,2.0E-3_LDP)
     write(*,'(A)')'DONE'
   end if
 !
