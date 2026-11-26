@@ -40,7 +40,7 @@ FN7=$(LIB_DIR)lib$(LN7).a
 #
   
 all : $(OBJ)   $(EXE_DIR)main_lte.exe $(EXE_DIR)wind_hyd.exe
-	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+	cp -f $(INSTALL_DIR)cmfgen/perm_mod_file jnk.mod
 	mv -f *.mod $(MOD_DIR)
 $(LIB) : $(OBJ)
 
