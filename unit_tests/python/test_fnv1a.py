@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import (
     F90DIR,
+    SRC,
     TREE,
     Report,
     compile_and_link_prod,
@@ -50,13 +51,12 @@ HELPERS = [
     "new_main/mod_subs/iter_log_fmt_mod.f90",
     "plane/fg_j_cmf_nonmono_v1.f",
     "plane/mom_j_cmf_nonmono_v1.f",
-    "unit_tests/f90/stub_vadat.f",
 ]
 
 
 def build():
     return compile_and_link_prod(
-        "fnv1a", [TREE / h for h in HELPERS] + [F90DIR / "drv_fnv1a.f90"]
+        "fnv1a", [SRC / h for h in HELPERS] + [F90DIR / "stub_vadat.f", F90DIR / "drv_fnv1a.f90"]
     )
 
 
