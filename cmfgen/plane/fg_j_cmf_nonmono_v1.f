@@ -1084,8 +1084,10 @@
 !
 	REAL(KIND=LDP) KN_RAY_OMEGA
 !
-! FG_ORD_SWEEP: VADAT [KN_RAY_ORDERED] (default T, set by
-! SET_FG_ORD_SWEEP). Selects the ordered refresh march of
+! FG_ORD_SWEEP: VADAT [KN_RAY_ORDERED] (VADAT default F since
+! WP-1; the .TRUE. DATA init below is only the driver-poke
+! sentinel, overwritten by the VADAT read via SET_FG_ORD_SWEEP).
+! Selects the ordered refresh march of
 ! SWEEP_FLD_ORD: rows are marched along the characteristic in space
 ! and the per-row wavelength direction follows sign(GAM) -- the
 ! physically ordered Gauss-Seidel scheme of Knop et al. (2009,
@@ -1097,6 +1099,38 @@
 ! F restores the alternating scheme for A/B testing.
 !
 	LOGICAL FG_ORD_SWEEP
+!
+! FG_ORD_MODE: VADAT [KN_RAY_ORDER_MODE] (default -1 = follow
+! FG_ORD_SWEEP, set by SET_FG_ORD_MODE). Order-mode selector for
+! the refresh march (WP-2): 0 = legacy ordered SWEEP_FLD_ORD,
+! 1 = frequency-major alternating SWEEP_FLD, 2 = frequency-major
+! with the first pass marched down the ray's dominant coupling
+! sign (uniform-compressing starts descending, so the L+NFM
+! donor column is always fresh; mixed and uniform-expanding rays
+! keep the mode-1 ascending start), 3 = SCC/topological --
+! reserved, CHECK_PARAM_CONSISTENCY stops it until mode 2 is
+! measured on mixed rays. The -1 sentinel preserves the legacy
+! mapping for drivers that poke FG_ORD_SWEEP directly
+! (T -> mode 0, F -> mode 1); the VADAT read resolves it to a
+! concrete mode before SET_FG_ORD_MODE runs.
+!
+	INTEGER FG_ORD_MODE
+!
+! FG_FRESH_DIAG: VADAT [KN_FRESH_DIAG] (default F, set by
+! SET_FG_FRESH_DIAG). Per-ray per-pass census of the |Q| donor
+! weight read from a not-yet-updated cell -- the quantity the
+! SWEEP_FLD_ORD header comment claimed was zero. The alternating
+! sweep counts a row's whole donor share stale when the pass
+! direction leaves the coupled column pending (compressing on
+! ascending passes, expanding on descending); the ordered march
+! counts the JPR share on the unmarched side of the front (WINX
+! on the I_M march). Stored in KN_FRESH_FR(pass,dir,ray) with
+! dir 1=I_M, 2=I_P and printed per pass on LUER. Diagnostic
+! only; the solve is unchanged.
+!
+	LOGICAL FG_FRESH_DIAG
+	REAL(KIND=LDP), ALLOCATABLE :: KN_FRESH_FR(:,:,:)
+	INTEGER, SAVE :: KN_FRESH_MAXP=0
 !
 ! FG_ORD_AITKEN: VADAT [KN_ORD_AITKEN] (default F, set by
 ! SET_FG_AITKEN). When T, SWEEP_FLD_ORD applies a guarded Aitken
@@ -1193,6 +1227,8 @@
 	DATA KN_RAY_BULK_TOL /0.0_LDP/
 	DATA KN_RAY_OMEGA /1.0_LDP/
 	DATA FG_ORD_SWEEP /.TRUE./
+	DATA FG_ORD_MODE /-1/
+	DATA FG_FRESH_DIAG /.FALSE./
 	DATA FG_ORD_AITKEN /.FALSE./
 	DATA FG_ORD_AA /.FALSE./
 	DATA FG_ORD_AA_M /2/
@@ -8564,6 +8600,32 @@ C
 	RETURN
 	END
 !
+! SET_FG_ORD_MODE: push the resolved WP-2 order mode (0 ordered,
+! 1 alternating, 2 seeded alternating, 3 reserved). The VADAT
+! read resolves the -1 sentinel before calling, so the value
+! stored here is always concrete; drivers that never call this
+! keep -1 and the solve resolves it from FG_ORD_SWEEP.
+!
+	SUBROUTINE SET_FG_ORD_MODE(MODE_IN)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_ORD_MODE
+	IMPLICIT NONE
+	INTEGER MODE_IN
+	FG_ORD_MODE=MODE_IN
+	RETURN
+	END
+!
+! SET_FG_FRESH_DIAG: arm the WP-2 per-pass stale-donor census.
+! Storage is allocated by FG_KNOP_REFRESH_V1 (KN_FRESH_MAXP rows
+! per direction, -1 where a pass never ran).
+!
+	SUBROUTINE SET_FG_FRESH_DIAG(DO_FR)
+	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: FG_FRESH_DIAG
+	IMPLICIT NONE
+	LOGICAL DO_FR
+	FG_FRESH_DIAG=DO_FR
+	RETURN
+	END
+!
 	SUBROUTINE SET_FG_FREEZE_COEF(DO_FZ)
 	USE FG_J_CMF_NONMONO_MOD_V1, ONLY: KN_FREEZE_COEF
 	IMPLICIT NONE
@@ -9528,6 +9590,21 @@ C
 	  KN_NOP_SP0=SUM(I_P_DEPTH_NEXT(:,KN_NOCP_PROBE_LS,:))
 	ELSE
 	  KN_NOP_SM0=-1.0_LDP; KN_NOP_SP0=-1.0_LDP
+	END IF
+!
+! KN_FRESH_FR (WP-2 diagnostic): per-pass stale share of the |Q|
+! donor weight, indexed (pass, dir, ray) with dir 1=I_M, 2=I_P.
+! -1 marks a pass that never ran so tests can tell a real zero
+! from no data. Sized like the NOP arrays so the whole
+! maxpass+hotpass envelope fits. Disarmed runs deallocate so the
+! flag alone controls the footprint.
+!
+	IF(ALLOCATED(KN_FRESH_FR))DEALLOCATE(KN_FRESH_FR)
+	IF(FG_FRESH_DIAG)THEN
+	  KN_FRESH_MAXP=MAX(KN_RAY_MAXPASS+KN_RAY_HOTPASSES+16,
+	1   KN_CONT_NP+16)
+	  ALLOCATE(KN_FRESH_FR(KN_FRESH_MAXP,2,KN_NP),STAT=IOS)
+	  IF(IOS .EQ. 0)KN_FRESH_FR=-1.0_LDP
 	END IF
 !
 	IF(ALLOCATED(KN_HOT_CNT))DEALLOCATE(KN_HOT_CNT)
@@ -11045,6 +11122,19 @@ C
 	INTEGER INVR
 	INTEGER*8 NB_BM,NT_BM,NB_BP,NT_BP
 	LOGICAL HAS_CP,CLEAN_EXIT,DIVERGED,HAVE_PACK,ORD_SWEEP
+!
+! WP-2 order-mode state. MODE_EFF is the per-ray resolved
+! march mode (FG_ORD_MODE, or the FG_ORD_SWEEP mapping when the
+! -1 sentinel survives); LST_ASC seeds the first-pass direction
+! under mode 2. L_PASS_ASC lets SRC_PRIME see the current pass
+! direction for the fresh census. FR_TOT/FR_ST accumulate the
+! donor weight and its stale share across a pass; the
+! SWEEP_FLD/SWEEP_FLD_ORD routines reset them per pass and store
+! FR_ST/FR_TOT in KN_FRESH_FR.
+!
+	INTEGER MODE_EFF
+	LOGICAL LST_ASC,L_PASS_ASC
+	REAL(KIND=LDP) FR_TOT,FR_ST
 	LOGICAL L_HOT_OVER,L_UNSEED
 	REAL(KIND=LDP) JUMP
 !
@@ -11266,11 +11356,29 @@ C
 	  END IF
 	END IF
 !
+! WP-2 order-mode resolution. FG_ORD_MODE=-1 is the sentinel:
+! resolve it from FG_ORD_SWEEP so drivers that poke the legacy
+! flag keep their behaviour (T -> mode 0, F -> mode 1). A
+! concrete VADAT mode wins over the legacy flag because
+! rd_control_variables pushes it through SET_FG_ORD_MODE before
+! the solve runs. Mode 2 marches the first pass down the ray's
+! dominant coupling sign: a uniform-compressing ray (some GAM<0,
+! none >0) starts descending so its L+NFM donor column is fresh
+! on pass 1; every other ray keeps the mode-1 ascending start,
+! which reduces mode 2 to mode 1 exactly on expanding-only rays.
+!
+	MODE_EFF=FG_ORD_MODE
+	IF(MODE_EFF .LT. 0)MODE_EFF=MERGE(0,1,FG_ORD_SWEEP)
+	LST_ASC=.TRUE.
+	IF(MODE_EFF .EQ. 2)LST_ASC=.NOT.
+	1  (ANY(GAM(1:NI,LS) .LT. 0.0_LDP) .AND.
+	2   .NOT. ANY(GAM(1:NI,LS) .GT. 0.0_LDP))
+!
 ! The ordered march (KN_RAY_ORDERED) indexes the pack per (row,
 ! frequency), so it needs the pack and at least three rows for the
 ! slope endpoints; otherwise the alternating passes run unchanged.
 !
-	ORD_SWEEP=FG_ORD_SWEEP .AND. HAVE_PACK .AND. NI .GE. 3
+	ORD_SWEEP=(MODE_EFF .EQ. 0) .AND. HAVE_PACK .AND. NI .GE. 3
 ! An all-expanding ray couples each frequency bin to its
 ! lower-frequency donor only, so the ordered spatial march
 ! contributes nothing the frequency-major pass lacks; the
@@ -12377,12 +12485,21 @@ C
 	      EXIT
 	    END IF
 	  END IF
-	  ASC=(MOD(NPO,2) .EQ. 1)
+! WP-2 mode 2: the first-pass direction is seeded by LST_ASC
+! instead of hardwiring ascending. On a uniform-compressing ray
+! the L+NFM donor column is then already marched when the
+! compressing rows read it, which is the freshness contract the
+! ordered march was built for. Mode 1 keeps LST_ASC=T and the
+! pass sequence is unchanged.
+!
+	  ASC=((MOD(NPO,2) .EQ. 1) .EQV. LST_ASC)
+	  L_PASS_ASC=ASC
 	  RES=0.0_LDP
 	  RES_FREQ(1:NCF)=0.0_LDP
 	  NBAD_CUR=0; NTOT_CUR=0
 	  NCP_P=0_8; NNG_P=0_8
 	  SGN_ACC=0.0_LDP
+	  FR_TOT=0.0_LDP; FR_ST=0.0_LDP
 !
 ! Identity list resets with the census it mirrors: the list always
 ! holds the current pass's bad cells, so at solve end it is the
@@ -12450,6 +12567,21 @@ C
 	    EXIT
 	  END IF
 	  NB_O=NBAD_CUR; NT_O=NTOT_CUR
+!
+! WP-2 fresh census: store this pass's stale share of the |Q|
+! donor weight the pass read. SRC_PRIME accumulated FR_TOT/FR_ST
+! along the way; the ratio is what the pass genuinely read
+! cross-frequency before it was updated. -1 marks a pass that
+! never ran.
+!
+	  IF(FG_FRESH_DIAG .AND. ALLOCATED(KN_FRESH_FR) .AND.
+	1    NPO .LE. SIZE(KN_FRESH_FR,1))THEN
+	    KN_FRESH_FR(NPO,MERGE(1,2,INWARD),LS)=
+	1      FR_ST/MAX(FR_TOT,1.0E-30_LDP)
+	    WRITE(LUER,'(A,I4,A,I2,A,I4,A,ES11.4)')
+	1      '    fresh r=',LS,' d=',MERGE(1,2,INWARD),' p=',NPO,
+	2      ' stale=',KN_FRESH_FR(NPO,MERGE(1,2,INWARD),LS)
+	  END IF
 !
 ! Divergence containment: a non-finite residual, or a same-direction
 ! blow-up (RES more than 1e3 above the best pass so far, checked once
@@ -12799,6 +12931,69 @@ C
 	END
 !
 ! ----------------------------------------------------------------
+! WP-2 fresh census for one (row,frequency) donor read, called once
+! per KN_ORD_SPV evaluation under FG_FRESH_DIAG. Accumulates the
+! |Q| weight (FR_TOT) and the share read from a not-yet-updated
+! cell (FR_ST), mirroring KN_ORD_SPV_IMPL's donor branch:
+!
+!   expanding row: donor is own-row L-1; the row's L order
+!     ascends, so it is always fresh.
+!   compressing row: donor is the JPR-interpolated L+NNF2. The
+!     row's L order descends, so the own-row share is fresh. A
+!     JPR on the unmarched side of the front is stale -- rows
+!     above J on the I_M march (j ascends), below J on I_P
+!     (j descends). For an interior compressing row JPR1=J and
+!     JPR2=J+1, so the I_M stale share is the WINX weight.
+!
+! NNF2 is recomputed here because the ABI-frozen worker does not
+! export it. Diagnostic only: FLD is never touched.
+! ----------------------------------------------------------------
+	SUBROUTINE KN_FRESH_ACC(JD,LD,INW)
+	INTEGER JD,LD,NNF2
+	LOGICAL INW
+	REAL(KIND=LDP) T1F,W1,W2,QW
+	IF(GAM(JD,LS) .GT. 0.0_LDP)THEN
+	  IF(LD .GT. 1)FR_TOT=FR_TOT+ABS(PK_Q(JD,LD))
+	  RETURN
+	END IF
+	IF(GAM(JD,LS) .EQ. 0.0_LDP)RETURN
+	NNF2=1
+	IF(FG_FREQ_MATCH .AND. LD .LT. NCF .AND.
+	1   KN_DLN_N(LD) .GT. 0.0_LDP)THEN
+	  T1F=DRF_L(JD)/KN_DLN_N(LD)
+	  IF(T1F .GE. DBLE(NCF-LD))THEN
+	    NNF2=NCF-LD
+	  ELSE
+	    NNF2=MAX(1,CEILING(T1F))
+	  END IF
+	END IF
+	IF(LD+NNF2 .GT. NCF)RETURN
+	W1=0.0_LDP; W2=0.0_LDP
+	IF(IKC1(JD) .EQ. 1 .AND. IKC2(JD) .EQ. 1)THEN
+	  W1=1.0_LDP-WINX(JD); W2=WINX(JD)
+	ELSE IF(IKC1(JD) .EQ. 1)THEN
+	  W1=1.0_LDP
+	ELSE IF(IKC2(JD) .EQ. 1)THEN
+	  W2=1.0_LDP
+	ELSE
+	  RETURN
+	END IF
+	QW=ABS(PK_Q(JD,LD))
+	FR_TOT=FR_TOT+QW*(W1+W2)
+	IF(JPR1(JD) .NE. JD .AND. W1 .GT. 0.0_LDP)THEN
+	  IF((INW .AND. JPR1(JD) .GT. JD) .OR.
+	1     (.NOT. INW .AND. JPR1(JD) .LT. JD))
+	2     FR_ST=FR_ST+QW*W1
+	END IF
+	IF(JPR2(JD) .NE. JD .AND. W2 .GT. 0.0_LDP)THEN
+	  IF((INW .AND. JPR2(JD) .GT. JD) .OR.
+	1     (.NOT. INW .AND. JPR2(JD) .LT. JD))
+	2     FR_ST=FR_ST+QW*W2
+	END IF
+	RETURN
+	END
+!
+! ----------------------------------------------------------------
 ! Fill ring slot of row R with S'(R,:) evaluated on the current FLD
 ! state. Used for the boundary rows and for the "preview" of the
 ! not-yet-marched neighbour row -- the lagged C-corner source of
@@ -12889,7 +13084,13 @@ C
 ! through the parabolic slope term DS -- plus compressing
 ! interpolant donors JPR on the unmarched side of the front. Both
 ! are the corner terms Knop also leaves lagged (their C+/- coupling
-! of Eqs. 31/32); the main |Q| wavelength link never waits a pass.
+! of Eqs. 31/32). WP-2 correction: the off-row JPR share of the
+! main |Q| wavelength link IS a full pass stale, because that
+! share reads the unmarched row's L+NFM cell -- for an interior
+! compressing row JPR2=j+1 carries weight WINX, so the ordered
+! march's stale fraction on the I_M pass is the WINX share of
+! the compressing donor weight (measured by KN_FRESH_DIAG). The
+! ordered march wins on total stale share, not on making it zero.
 ! The DS corner vanishes where the monotonicity clamp zeroes the
 ! slopes, i.e. exactly in the steep compression gradients that
 ! stall the alternating scheme.
@@ -13152,6 +13353,7 @@ C
 	  NCP_P=0_8
 	  NNG_P=0_8
 	  KN_SGN_SUM=0.0_LDP
+	  FR_TOT=0.0_LDP; FR_ST=0.0_LDP
 !
 ! Same identity-list reset as SWEEP_FLD: the list mirrors the
 ! current pass's bad cells so the last completed pass leaves the
@@ -13234,6 +13436,7 @@ C
 	      DO L=LB,LE,LDI
 	        IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	        CALL KN_ORD_SPV(FLD,J,L,SPJ)
+	        IF(FG_FRESH_DIAG)CALL KN_FRESH_ACC(J,L,INWARD)
 	        SPW(L,MOD(J-1,4)+1)=SPJ
 	        IF(ALLOCATED(KR_DBG_CHIH) .AND. LS .EQ. KN_DBG_LS .AND.
 	1          NI .LE. SIZE(KR_DBG_CHIH,1) .AND.
@@ -13419,6 +13622,7 @@ C
 	      DO L=LB,LE,LDI
 	        IF(HOTMODE .AND. (L .LT. W_LO .OR. L .GT. W_HI))CYCLE
 	        CALL KN_ORD_SPV(FLD,J,L,SPJ)
+	        IF(FG_FRESH_DIAG)CALL KN_FRESH_ACC(J,L,INWARD)
 	        SPW(L,MOD(J-1,4)+1)=SPJ
 	        IF(ALLOCATED(KR_DBG_CHIH) .AND. LS .EQ. KN_DBG_LS .AND.
 	1          NI .LE. SIZE(KR_DBG_CHIH,1) .AND.
@@ -13527,6 +13731,19 @@ C
      1    npo,fld,res,omega_ray)
 	  NB_O=NBAD_CUR
 	  NT_O=NTOT_CUR
+!
+! WP-2 fresh census, same convention as SWEEP_FLD: the pass's
+! stale share of the |Q| donor weight, accumulated by
+! KN_FRESH_ACC at each KN_ORD_SPV call.
+!
+	  IF(FG_FRESH_DIAG .AND. ALLOCATED(KN_FRESH_FR) .AND.
+	1    NPO .LE. SIZE(KN_FRESH_FR,1))THEN
+	    KN_FRESH_FR(NPO,MERGE(1,2,INWARD),LS)=
+	1      FR_ST/MAX(FR_TOT,1.0E-30_LDP)
+	    WRITE(LUER,'(A,I4,A,I2,A,I4,A,ES11.4)')
+	1      '    fresh r=',LS,' d=',MERGE(1,2,INWARD),' p=',NPO,
+	2      ' stale=',KN_FRESH_FR(NPO,MERGE(1,2,INWARD),LS)
+	  END IF
 !
 ! KN_PSWEEP_DIAG: the march is complete here (Aitken/AA and the
 ! exit tests still ahead), so FLD is the raw pass output Y and
@@ -14603,6 +14820,16 @@ C
 	      IF(ALLOCATED(KN_DBG_NDON) .AND. LS .EQ. KN_DBG_LS .AND.
 	1          L .LE. SIZE(KN_DBG_NDON,2))
 	2          KN_DBG_NDON(I,L)=KN_DBG_NDON(I,L)+1
+!
+! WP-2 fresh census: the L-1 donor is fresh only when this pass
+! marches ascending (L-1 was already done); on a descending pass
+! the whole donor weight is stale. Only the flag gates the
+! census -- the donor arithmetic is untouched.
+!
+	      IF(FG_FRESH_DIAG)THEN
+	        FR_TOT=FR_TOT+ABS(Q_L(I))
+	        IF(.NOT. L_PASS_ASC)FR_ST=FR_ST+ABS(Q_L(I))
+	      END IF
 	    END IF
 	    SP_L(I)=SR_L(I)+Q_L(I)*INEXT_V
 	  ELSE IF(L+NFM_L(I) .LE. NCF)THEN
@@ -14617,6 +14844,17 @@ C
 	      INEXT_V=0.0_LDP
 	    END IF
 	    SP_L(I)=SR_L(I)+ABS(Q_L(I))*INEXT_V
+!
+! The L+NFM donor is fresh only on a descending pass (L+NFM was
+! already marched); on an ascending pass the coupled column is
+! still pending, so the whole donor weight is stale. Rows with
+! no live JPR read nothing and contribute no weight.
+!
+	    IF(FG_FRESH_DIAG .AND. (IKC1(I) .EQ. 1 .OR.
+	1        IKC2(I) .EQ. 1))THEN
+	      FR_TOT=FR_TOT+ABS(Q_L(I))
+	      IF(L_PASS_ASC)FR_ST=FR_ST+ABS(Q_L(I))
+	    END IF
 	  ELSE
 	    SP_L(I)=SR_L(I)
 	  END IF
