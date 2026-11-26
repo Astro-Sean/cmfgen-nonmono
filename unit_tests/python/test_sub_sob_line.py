@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common import (
+from common import (SRC, 
     BINDIR,
     F90DIR,
     PROD_MOD_INC,
@@ -64,8 +64,8 @@ ND = 8
 def build():
     require_fresh_archives()
     md = BINDIR / "obj_sub_sob_line"
-    objs = prod_objs([TREE / h for h in HELPERS])
-    objs += [prod_obj(TREE / "new_main" / "mod_subs"
+    objs = prod_objs([SRC / h for h in HELPERS])
+    objs += [prod_obj(SRC / "new_main" / "mod_subs"
                           / "sub_sob_line_v3.f")]
     objs += compile_objs(
         "drv_sub_sob_line",
