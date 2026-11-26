@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 # Makefiles never create the output dirs; a fresh clone fails without them.
 mkdir -p mod_dbg lib_dbg exe_dbg
 
-make dbg_clean
-make DEBUG=debug cmfgen
+make -C cmfgen dbg_clean
+make -C cmfgen DEBUG=debug cmfgen
 
 echo "Debug build succeeded."
