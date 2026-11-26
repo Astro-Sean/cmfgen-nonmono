@@ -391,6 +391,19 @@
 	REAL(KIND=LDP), SAVE :: GS_REL_DEM=0.0_LDP
 	INTEGER, SAVE :: N_REL_NOPROG=0
 !
+! Release trust seed (checklist WP-9, edited 27-Nov-2026):
+! BA_REL_SEED arms on the same frozen->live transition that sets
+! GS_JUST_REL and is consumed by the first BA call that reaches
+! the SOLVEBA_V13 site. The defect it fixes is the release
+! controller overshoot: the first post-release BA step demanded
+! ~1E7, committed at the MAX_LIN_COR cap and re-poisoned the
+! field the freeze had just converged (FULL->LAMBDA revert).
+! LAMBDA calls never consume the flag, a refreeze clears it
+! with N_REL_SINCE, and JFNK calls cannot see it (the JFNK
+! branch skips the consume site). Armed only by [BA_REL_TRUST].
+!
+	LOGICAL, SAVE :: BA_REL_SEED=.FALSE.
+!
 ! No-progress totals (edited 20-Oct-2026): the
 ! consecutive counters N_FROZEN/N_PRECOND reset at every release
 ! or gate transition -- exactly the alternation GS_FREEZE_LIM /
@@ -2198,6 +2211,7 @@
 ! window or count a raw release, and GS_WAS_FROZEN below stays
 ! false, so the next call is not treated as post-release.
 	    N_REL_SINCE=0
+	    BA_REL_SEED=.FALSE.
 	  ELSE IF(GS_WAS_FROZEN .OR. N_REL_SINCE .GT. 0)THEN
 	    N_REL_SINCE=N_REL_SINCE+1
 ! Count the raw-cure release once per frozen->live transition; the
@@ -2211,6 +2225,14 @@
 	      GS_RAW_RELEASES_TOT=GS_RAW_RELEASES_TOT+1
 	      GS_JUST_REL=.TRUE.
 	      GS_REL_DEM=MAXCH
+!
+! edited 27-Nov-2026 (checklist WP-9): arm the release trust
+! seed on the same transition. The first non-LAMBDA call that
+! reaches the SOLVEBA site below consumes it -- a LAMBDA release
+! step stays damped by GS_LAM_CAP and does not clear the flag,
+! so the seed still lands on the first BA step.
+!
+	      IF(BA_REL_TRUST)BA_REL_SEED=.TRUE.
 	    END IF
 	  END IF
 ! T-06 ledger: count freeze entries on the false->true edge;
@@ -2903,6 +2925,33 @@
 	4       MAIN_COUNTER,SET_POPS_D2_EQ_D1,LST_ITERATION,
 	5       JFNK_COUPLED_THIS)
 	ELSE
+!
+! edited 27-Nov-2026 (checklist WP-9): release trust seed. The
+! first BA call after a freeze release used to ride whatever
+! radius the pre-freeze reject/accept ratchet left -- on the
+! stall that was ~1E4, so a 1E7 demand committed at the
+! MAX_LIN_COR cap and re-poisoned the released field. Under
+! [BA_REL_TRUST] the radius is re-seeded from GS_COMMIT_RES,
+! the WP-3 committed field residual: the trusted correction
+! scale equals the field error the release was judged on,
+! floored at the same 1.0 the trust region already enforces.
+! BAACC_PENDING still arms inside SOLVEBA so the seeded step
+! passes the normal residual-acceptance test, and a MOM_TRIAL
+! or GS_PRECOND_ACT call cannot consume the seed (their
+! branches cleared it or never armed it).
+!
+	  IF(BA_REL_SEED .AND. .NOT. LAMBDA_ITERATION .AND.
+	1     .NOT. MOM_TRIAL .AND. .NOT. GS_PRECOND_ACT)THEN
+	    BA_REL_SEED=.FALSE.
+	    IF(GS_COMMIT_RES .GE. 0.0_LDP)THEN
+	      BA_TRUST_CUR=MAX(1.0_LDP,MIN(BA_TRUST,GS_COMMIT_RES))
+	      IF(CONV_DIAG_LVL .GE. 1)
+	1     WRITE(LUER,'(A,ES12.4,A,ES12.4)')
+	2     '    BA_REL_TRUST: release seed, commit res=',
+	3     GS_COMMIT_RES,'  trust radius now=',BA_TRUST_CUR
+	      CALL APPEND_ITER_REASON(ITER_REASON,'ba_rel_trust')
+	    END IF
+	  END IF
 	  BAACC_RDLAM_PROBE_ARM=RDLAM_PROBE_THIS
 	  CALL SOLVEBA_V13(SOL,POPS,POP_ATOM,DIAG_INDX,NT,NION,NUM_BNDS,ND,
 	1       MAXCH,MAXCH_APP,TEMP_CHAR,SUCCESS,SCALE_OPT,
