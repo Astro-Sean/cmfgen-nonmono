@@ -9,6 +9,37 @@
   below uses the only form that is positive for sigma < -1 and
   matches every code comment in the tree.
 
+## Verbatim source (clean)
+
+Fetched 2026-11-27 from the arXiv e-print tarball
+(https://arxiv.org/e-print/1503.05463, `ms.tex` lines ~795-811) -
+supersedes the degraded OCR as the authoritative quote. Footnote 6:
+
+> In practical terms this does not affect the escape probability very
+> much due to the small solid angle subtended by the singularity.
+> However, in the standard computational approach the angle grid is
+> not well sampled (the sampling becomes worse as we move away from
+> mu=1), and numerical instabilities occurred at one or two depths,
+> which we overcame by limiting the increase in optical depth. In
+> this work we used the simple approach of choosing
+> `max(|1+sigma*mu^2|, -0.2(1+sigma))` for `|1+sigma*mu^2|` when
+> `sigma < 0`.
+
+The 0.2 coefficient and the two-argument MAX are confirmed verbatim.
+Our three-argument form `MAX(|1+sigma*mu^2|, -0.2*(1+sigma), 1e-4)`
+adds only the sigma -> -1 backstop the paper's expression lacks.
+
+Physics implication of the floor, made explicit: for sigma < -1 the
+denominator is bounded below by -0.2*(1+sigma) = 0.2*(|sigma|-1) at
+ALL angles, so the Sobolev optical depth is capped at
+tau <= GAMH/(0.2*(|sigma|-1)) even along the singular ray direction
+mu^2 = 1/|sigma| where the unregularized tau would diverge. On m15
+at the compression shell (sigma_true ~ -82): tau cap ~ GAMH/16.4 -
+i.e. lines that "should" be arbitrarily opaque for near-grazing rays
+are held finite at ~16x the v/r gradient, which thins line
+blanketing in the compression zone. Consequence for the J/ionization
+question is tracked in the WP1 note, not here.
+
 ## Mapping
 
 | Paper element (Sec 3.1 / footnote 6) | Code site | Status |
@@ -30,5 +61,8 @@
 - The paper ignores lines in the continuous spectrum; this tree can
   additionally run the whole continuum non-monotonically - a
   superset, consistent with the paper's intent.
-- sigma >= -1 leaves every formula bit-identical to upstream
-  (verified: the sigma<0 guard is the only branch touched).
+- sigma >= -1 + 1e-4 leaves every formula bit-identical to upstream
+  (verified: the sigma<0 guard is the only branch touched). In the
+  narrow window -1 < sigma < -1 + 1e-4 the flow is still monotonic
+  but the 1e-4 arm can bind along near-radial rays, so the earlier
+  "sigma >= -1" claim was overstated (SOB_check WP4).
