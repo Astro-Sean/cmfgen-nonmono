@@ -800,6 +800,19 @@ WP-1 keys (JFNK acceptance audit, 27-Nov-2026):
   uses the matching merit; the convergence test stays on |F|
   (checklist `jfnk.md` WP-6.2). Telemetry is the ledger's
   dir_deriv_F/dir_deriv_G columns.
+- `JFNK_H_FREEZE` (logical, default F) - freeze the FD JVP step
+  size at the value capped from the first Arnoldi direction of
+  each GMRES solve, so the matvec is a fixed linear map within
+  the solve (the per-direction caps otherwise make it mildly
+  nonlinear: hess_res ran 150-450x below true_res). Later
+  matvecs whose fresh cap would have shrunk h are counted and
+  logged (checklist `jfnk.md` WP-4.2).
+- `JFNK_H_FORM` (string, default 'INFNORM') - base FD step
+  formula: 'INFNORM' is the stock
+  h = eps*max(|x|_inf,1)/|v|_inf; 'TWO_NORM' is the Knoll &
+  Keyes 2004 (Sec 3.2) h = eps*(1+|x|_2)/|v|_2;
+  'COMPONENTWISE' takes the scalar min over active components
+  of eps*max(|x_i|,1)/|v_i| (checklist `jfnk.md` WP-4.3).
 
 ## 8. Historical status notes
 
