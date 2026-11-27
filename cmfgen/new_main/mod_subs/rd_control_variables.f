@@ -2627,6 +2627,22 @@
 	  CALL RD_STORE_DBLE(JFNK_PC_TAU_FAC,'JFNK_PC_TAU_FAC',L_FALSE,
 	1     'PTC tau/x drift factor triggering precond refresh (0=off)')
 !
+! WP-6.2: which inner product the descent gate tests under PTC --
+! 'F' is the stock stripped <F,J_F s>, 'G' the folded <F,J_G s>
+! the step actually solves, 'BOTH' accepts on either.
+!
+	  JFNK_DESCENT_BASIS='F'
+	  CALL RD_STORE_CHAR(JFNK_DESCENT_BASIS,'JFNK_DESCENT_BASIS',
+	1     L_FALSE,'Descent inner product: F, G or BOTH')
+	  CALL SET_CASE_UP(JFNK_DESCENT_BASIS,IZERO,IZERO)
+	  IF(JFNK_DESCENT_BASIS .NE. 'F' .AND.
+	1     JFNK_DESCENT_BASIS .NE. 'G' .AND.
+	2     JFNK_DESCENT_BASIS .NE. 'BOTH')THEN
+	    WRITE(LUER,*)'Invalid JFNK_DESCENT_BASIS=',
+	1     JFNK_DESCENT_BASIS,' -- resetting to F'
+	    JFNK_DESCENT_BASIS='F'
+	  END IF
+!
 	  JFNK_CAUCHY=.TRUE.
 	  CALL RD_STORE_LOG(JFNK_CAUCHY,'JFNK_CAUCHY',L_FALSE,
 	1     'Use Cauchy (M^-1 F) fallback direction?')
