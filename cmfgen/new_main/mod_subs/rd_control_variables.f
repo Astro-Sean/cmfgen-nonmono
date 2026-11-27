@@ -2609,6 +2609,15 @@
 	    JFNK_STAG_POLICY='ABORT'
 	  END IF
 !
+! WP-3.4: cap the line-search eval spend per Newton pass at this
+! fraction of the remaining activation eval budget; 1.0 restores
+! the unbounded ladder.
+!
+	  JFNK_LS_MAX_EVALS_FRAC=0.25D0
+	  CALL RD_STORE_DBLE(JFNK_LS_MAX_EVALS_FRAC,
+	1     'JFNK_LS_MAX_EVALS_FRAC',L_FALSE,
+	2     'Fraction of remaining eval budget the LS may spend')
+!
 	  JFNK_CAUCHY=.TRUE.
 	  CALL RD_STORE_LOG(JFNK_CAUCHY,'JFNK_CAUCHY',L_FALSE,
 	1     'Use Cauchy (M^-1 F) fallback direction?')
