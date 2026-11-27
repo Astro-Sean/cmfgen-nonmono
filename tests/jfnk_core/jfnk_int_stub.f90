@@ -33,4 +33,16 @@ module jfnk_cmfgen_int_mod
    ! Activation-local budget the driver trims per rung; the residual
    ! sentinel enforces the tighter of it and JFNK_MAX_EVALS.
    integer :: JFNK_EVAL_LIM = 0
+   ! WP-2: counts graded-stagnation refresh calls so tests can see
+   ! the consumption on the rejection path.
+   integer :: JFNK_STUB_NFACTOR = 0
 end module jfnk_cmfgen_int_mod
+
+! Production JFNK_FACTOR_PRECOND_V1 is an external routine (not a
+! module member), so the stub mirrors that shape.
+subroutine JFNK_FACTOR_PRECOND_V1(do_factor)
+   use jfnk_cmfgen_int_mod, only: JFNK_STUB_NFACTOR
+   implicit none
+   logical, intent(in) :: do_factor
+   if(do_factor) JFNK_STUB_NFACTOR = JFNK_STUB_NFACTOR + 1
+end subroutine JFNK_FACTOR_PRECOND_V1
