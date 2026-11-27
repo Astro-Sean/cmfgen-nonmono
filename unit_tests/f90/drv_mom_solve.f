@@ -13,7 +13,9 @@
 !          per frequency -- the comp_j_blank INACCURATE pattern; the
 !         sweep census must not exceed GS_NTOT) | nurf (comp1 +
 !         NUSOLV-off vs NUSOLV-on refresh A/B -- fixed-point
-!         invariance of the implicit frequency-chain pass)
+!         invariance of the implicit frequency-chain pass) | rfst
+!         (compw + one plain ALT refresh on the thick scattering
+!         atmosphere -- the compressing-branch stall fixture)
 !   ntype: nonj | gonly
 !   niter: number of sweeps over all NCF frequencies
 !   outbc: 1 (Eddington closure) or 2 (negated interior row)
@@ -47,7 +49,8 @@
       REAL(KIND=LDP) CHI(ND),ETA(ND),ESEC(ND),VDOP(ND),CHI_L(ND)
       REAL(KIND=LDP) JNU(ND),RSQH(ND)
       REAL(KIND=LDP) FREQ,DLN,DLNC,V0,RC,BETA,T1,T2,S0,DLNR
-      REAL(KIND=LDP) ALB,CHISCL,CHIWAV,PERT,PFAC
+      REAL(KIND=LDP) ALB,CHISCL,CHIWAV,PERT,PFAC,BALB
+      REAL(KIND=LDP) DLNA,V0A,RFBLK,RFMAXP,RFRLX,RFAA
       REAL(KIND=LDP) VDOP_FRAC,DBB,IC,IBSTAB,FJ,HF,GF
       REAL(KIND=LDP) FRQ(NCF),NU_NXT
       CHARACTER(LEN=32) MODE,NTYPE,INBM,HCHK,OUTTAG,CARG
@@ -119,6 +122,60 @@
       CALL GETARG(12,CARG)
       IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)PERT
 !
+! Optional arg 13: rfst band albedo (default 1.0 = pure scattering
+! CDS). Values below 1 restore absorption inside the band, which
+! bounds the compressing solve and moves the fixture from the
+! runaway-cap stall toward the smooth marginal-map stall.
+!
+      BALB=1.0_LDP
+      CALL GETARG(13,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)BALB
+!
+! Optional arg 14: log-frequency grid spacing (default 5E-2). The
+! production compressing rows sit at tight bins (line-edge doublets
+! reach 2E-11); every advection coefficient carries 1/DLN, so a
+! small DLN moves the fixture toward the production marginal-map
+! regime without needing ALB=1 exactly.
+!
+      DLNA=5.0E-2_LDP
+      CALL GETARG(14,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)DLNA
+!
+! Optional arg 15: outer velocity V0 (default 4000). CON_GAM~V/R
+! scales every advection coefficient; production V in the CDS is
+! ~2400-6400, but a larger V0 lifts |GAM| into the |Q|~1 regime at
+! moderate opacity.
+!
+      V0A=4.0E3_LDP
+      CALL GETARG(15,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)V0A
+!
+! Optional args 16-18: rfst/rfj refresh-schedule overrides. RFBLK<0
+! leaves the production bulk-exit default alone; >=0 wires
+! MOM_RF_BULK_EXIT via SET_MOM_RF_BULK (0 keeps the march running
+! past the bulk tail so the marginal compressing rows get the full
+! KN_M_MAXPASS window). RFMAXP/RFRLX>0 route through
+! SET_MOM_KN_OPTS; unset knobs keep the module values.
+!
+      RFBLK=-1.0_LDP
+      CALL GETARG(16,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)RFBLK
+      RFMAXP=0.0_LDP
+      CALL GETARG(17,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)RFMAXP
+      RFRLX=0.0_LDP
+      CALL GETARG(18,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)RFRLX
+!
+! Optional arg 19: rfst/rfj AA toggle. RFAA<0 leaves MOM_RF_AA at
+! its module default (TRUE); 0 switches the pass-boundary Anderson
+! acceleration off so the marginal-map drift keeps its geometric
+! signature for the stall detector.
+!
+      RFAA=-1.0_LDP
+      CALL GETARG(19,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)RFAA
+!
       NTYP6='N_ON_J'
       IF(NTYPE .EQ. 'gonly')NTYP6='G_ONLY'
       IF(NTYPE .EQ. 'mixed')NTYP6='MIXED'
@@ -135,7 +192,7 @@
       DBB=1.0E-3_LDP
       IC=2.0E-4_LDP
       IBSTAB=0.5_LDP
-      DLN=5.0E-2_LDP
+      DLN=DLNA
 !
 ! Model R grid: log-spaced, R(1) outer.
 !
@@ -173,9 +230,10 @@
         NCASE=6; SIGT(7:9)=-4.0_LDP; SIGT(15:17)=-6.0_LDP
       ELSE IF(MODE .EQ. 'strong')THEN
         NCASE=7; SIGT(10:14)=-12.0_LDP
-      ELSE IF(MODE .EQ. 'compw' .OR. MODE .EQ. 'nuw')THEN
+      ELSE IF(MODE .EQ. 'compw' .OR. MODE .EQ. 'nuw' .OR.
+     1        MODE .EQ. 'rfst')THEN
         NCASE=8; SIGT(8:16)=-4.0_LDP
-      ELSE IF(MODE .EQ. 'jump')THEN
+      ELSE IF(MODE .EQ. 'jump' .OR. MODE .EQ. 'rfj')THEN
         NCASE=9; SIGT(12:12)=-60.0_LDP
       ELSE IF(MODE .EQ. 'zero')THEN
         NCASE=10; SIGT(10:14)=-3.0_LDP
@@ -197,7 +255,7 @@
         GOTO 999
       END IF
 !
-      V0=4.0E3_LDP
+      V0=V0A
       V(1)=V0
       DO I=1,ND-1
         T1=0.5_LDP*(SIGT(I)+SIGT(I+1))
@@ -229,6 +287,23 @@
         ESEC(I)=ALB*CHI(I)
         VDOP(I)=50.0_LDP
       END DO
+!
+! rfst: production depth structure -- the compressing band is the
+! thick electron-scattering CDS (arg10 scales CHI inside the band,
+! ESEC/CHI -> 1 there); the expanding rows outside keep the arg9
+! albedo. Compressing rows then carry the marginal PSI/TB ~ 0.9
+! lagged map while the expanding rows stay absorption-anchored and
+! contractive.
+!
+      IF(MODE .EQ. 'rfst' .OR. MODE .EQ. 'rfj')THEN
+        DO I=1,ND
+          IF(SIGT(I) .LT. -1.0_LDP)THEN
+            CHI(I)=CHI(I)*CHISCL
+            ETA(I)=CHI(I)*S0*(1.0_LDP+0.2_LDP*(R(1)-R(I))/R(1))
+            ESEC(I)=BALB*CHI(I)
+          END IF
+        END DO
+      END IF
 !
 ! zsrc: zero-emissivity compression band. The production iter-57 dump
 ! (MOM_J_NONMONO_ERRORS) shows the first negative-J cells sit at
@@ -583,6 +658,55 @@
         WRITE(*,'(A,F4.1)')'RF_FINISHED=',
      1    MERGE(1.0_LDP,0.0_LDP,.NOT. MOM_KN_REFRESHING)
         DEALLOCATE(JRF0,HRF0,JDSC,JASC)
+      END IF
+!
+      IF(MODE .EQ. 'rfst' .OR. MODE .EQ. 'rfj')THEN
+!
+! Compressing-branch stall fixture (checklists/use_lam_es_eq_f.md
+! WP-M1). Production depth structure: a thin, scattering
+! compressing band (jump cell sigt=-60; arg10 scales CHI inside it,
+! arg13 sets its albedo) inside an absorption-anchored column (arg9
+! albedo ~0). At tight log-frequency spacing (arg14 ~1E-4) and high
+! outer velocity (arg15 ~1E5) the compressing rows reach the
+! production marginal-map regime: the nu-census a-value (max
+! |lagged J coupling|/|diagonal|) measures ~0.96 here vs 9.947E-01
+! in the m15 diagnosis, with expanding rows absorption-anchored and
+! contractive. One ALT refresh -- the production failing-arm
+! schedule, no implicit arms -- must print the production signature
+! "Compressing direction stalled - dropping it" while the expanding
+! branch converges and carries the refresh to a converged exit.
+!
+        IF(RFBLK .GE. 0.0_LDP)
+     1    CALL SET_MOM_RF_BULK(RFBLK .GT. 0.5_LDP)
+        IF(RFAA .GE. 0.0_LDP)
+     1    CALL SET_MOM_RF_AA(RFAA .GT. 0.5_LDP)
+        IF(RFMAXP .GT. 0.0_LDP .OR. RFRLX .GT. 0.0_LDP)
+     1    CALL SET_MOM_KN_OPTS(KN_M_TOL,
+     2      MERGE(NINT(RFMAXP),KN_M_MAXPASS,RFMAXP .GT. 0.0_LDP),
+     3      MERGE(RFRLX,JNEXT_RELAX,RFRLX .GT. 0.0_LDP),
+     4      MOM_AA_M,MOM_AA_OUT,MOM_AA_OUT_M)
+!
+! MOM_AUG_RES is capture-only (the solve path is unchanged): arming
+! it makes the per-pass nu-census accumulate over the ALT march, so
+! RFST_AMAX below is the same lagged-coupling ratio the production
+! diagnosis reported (nu-census amax 9.947E-01).
+!
+        CALL SET_MOM_AUG_RES(.TRUE.)
+        CALL SET_MOM_RF_DIR_OPT('ALT ',.TRUE.,.TRUE.,.TRUE.)
+        CALL MOM_KNOP_REFRESH_V1()
+        WRITE(*,'(A,F4.1)')'RFST_CONV=',
+     1    MERGE(1.0_LDP,0.0_LDP,MOM_RF_CONV)
+        WRITE(*,'(A,ES16.8E3)')'RFST_DCHG=',MOM_RF_DCHG
+        WRITE(*,'(A,I10)')'RFST_N5=',MOM_RF_N5
+        WRITE(*,'(A,I10)')'RFST_N50=',MOM_RF_N50
+        WRITE(*,'(A,F4.1)')'RFST_FINISHED=',
+     1    MERGE(1.0_LDP,0.0_LDP,.NOT. MOM_KN_REFRESHING)
+        WRITE(*,'(A,ES16.8E3)')'RFST_AMAX=',NUC_AMAX
+        WRITE(*,'(A,I10)')'RFST_NA9=',NUC_NA9
+        WRITE(*,'(A,I10)')'RFST_NA99=',NUC_NA99
+        WRITE(*,'(A,I10)')'RFST_XSNEG=',NUC_XSNEG
+        WRITE(*,'(A,I10)')'RFST_NROW=',NUC_NROW
+        CALL SET_MOM_AUG_RES(.FALSE.)
       END IF
 !
       IF(MODE .EQ. 'ckpt')THEN
