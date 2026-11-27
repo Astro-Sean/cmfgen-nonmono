@@ -146,6 +146,45 @@ module jfnk_solver_v1_mod
    integer :: jfnk_n_tr_rejected = 0       ! trust-region rejected step
    integer :: jfnk_n_descent_retry = 0     ! non-descent direction retry
    !
+   ! WP-0 (acceptance audit, 27-Nov-2026): one-row-per-Newton-step
+   ! machine-readable record in JFNK_LEDGER, plus per-activation
+   ! residual-eval accounting. newton_hook_v1 refreshes the jfnk_led_*
+   ! fields as each quantity is produced; JFNK_STEP_LEDGER_V1 appends a
+   ! row whenever a loop pass ends (TR decision, reject, or exit).
+   ! _led_* values describe the pass in flight, not the solve.
+   !
+   double precision :: jfnk_led_gres  = 0d0   ! GMRES tolerance this pass
+   double precision :: jfnk_led_refn  = 0d0   ! ||M^{-1}F|| or |F| ref norm
+   integer          :: jfnk_led_gmrst = 0     ! GMRES restarts this pass
+   integer          :: jfnk_led_ginfo = -9    ! info code gmres returned
+   double precision :: jfnk_led_hess  = 0d0   ! Hessenberg LS residual
+   double precision :: jfnk_led_dirf  = 0d0   ! <F, J_F s>_w (PTC stripped)
+   double precision :: jfnk_led_dirg  = 0d0   ! <F, J_G s>_w (PTC folded)
+   double precision :: jfnk_led_cos   = 0d0   ! cos(F, J_F s)
+   double precision :: jfnk_led_alpha = 1d0   ! accepted line-search alpha
+   integer          :: jfnk_led_lssteps = 0   ! LS trial evals this pass
+   integer          :: jfnk_led_lsacc = 0     ! LS/Cauchy accepted this pass
+   double precision :: jfnk_led_phiref = -1d0 ! GLL reference (-1 = no LS)
+   double precision :: jfnk_led_phialp = -1d0 ! accepted-trial phi
+   integer          :: jfnk_led_cauchy = 0    ! accepted step was Cauchy
+   double precision :: jfnk_led_del0  = 0d0   ! trust radius at pass top
+   character(len=32):: jfnk_led_branch = 'none' ! TR branch actually taken
+   !
+   ! Per-activation eval accounting (WP-0.4): eval counts by call site
+   ! and wall seconds per category, so a production admission shows
+   ! where the residual budget went. jfnk_ev_sentinel counts returns
+   ! whose whole vector is >= 1D19 -- the 1D20 budget sentinel from
+   ! JFNK_RESIDUAL_V1 (broken evals write +-1D20 per component and are
+   ! not expected to be all-positive; flagged in the audit when the
+   ! two cannot be told apart).
+   !
+   integer :: jfnk_ev_entry = 0, jfnk_ev_trial = 0, jfnk_ev_ls = 0
+   integer :: jfnk_ev_ls_wasted = 0, jfnk_ev_cauchy = 0
+   integer :: jfnk_ev_sentinel = 0
+   double precision :: jfnk_tm_entry = 0d0, jfnk_tm_trial = 0d0
+   double precision :: jfnk_tm_ls = 0d0, jfnk_tm_cauchy = 0d0
+   double precision :: jfnk_tm_jvp = 0d0, jfnk_ledger_t0 = 0d0
+   !
    ! Maximum GMRES iterations per Newton step (added 2026-09-07).
    ! When > 0, overrides the default limit of m (one restart cycle).
    ! When 0, the default is used (jfnk_gits = m, or 9999 if del == 0).
@@ -822,7 +861,16 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    double precision :: dir_deriv, cos_angle, norm_Js
    double precision :: max_pop_corr, max_t_corr
    integer :: n_gmres_restarts
-   character(len=30) :: step_status
+   !
+   ! WP-0 instrumentation: eval timer scratch; per-pass ledger fields
+   ! live in jfnk_led_* module state (jfnk_solver_v1_mod) so the
+   ! JFNK_STEP_LEDGER_V1 rows written at abort/return sites still
+   ! report the last measured values. jfnk_led_branch replaces the old
+   ! pre-decision step_status label -- the disposition is now computed
+   ! from the TR branch actually taken (WP-0.1).
+   !
+   double precision :: tw_ev
+   double precision, external :: jfnk_wtime_v1
    !
    ! V4 descent check (2026-09-09):
    ! If the GMRES direction is not a descent direction (<F,Js>_w <= 0),
@@ -857,6 +905,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    ! before each conditional allocate: on a re-entry where the arrays
    ! already hold the right shape, no allocate runs and a stale nonzero
    ! ios_nw/ginfo would otherwise fabricate an alloc failure.
+   ! n_reject is initialized here so the alloc-fail ledger rows below
+   ! pass a defined value (WP-0).
+   n_reject = 0
    if(allocated(x_)) then
       if(size(x_) .ne. n) deallocate(x_, fx_, x__, fx__, s, fx_pc, J_s, F_pred)
    end if
@@ -868,6 +919,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       if(info == 1) write(luer,*) 'newton_hook_v1: workspace alloc failed'
       info = 4
       jfnk_exit_reason = 'alloc_fail_workspace'
+      jfnk_led_branch = 'alloc_fail_workspace'
+      call jfnk_step_ledger_v1(n_reject)
+      if(info == 1) call jfnk_eval_account_v1(luer)
       return
    end if
    !
@@ -880,6 +934,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       if(info == 1) write(luer,*) 'newton_hook_v1: unable to allocate memory'
       info = 4
       jfnk_exit_reason = 'alloc_fail_v'
+      jfnk_led_branch = 'alloc_fail_v'
+      call jfnk_step_ledger_v1(n_reject)
+      if(info == 1) call jfnk_eval_account_v1(luer)
       return
    end if
    !
@@ -889,6 +946,24 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    mxdl_     = mxdl
    ginfo     = info
    n_reject  = 0
+   !
+   ! WP-0: activation clock and eval-accounting reset (0.4).
+   ! jfnk_ledger_t0 anchors the ledger wall_s column and the
+   ! accounting totals printed by JFNK_EVAL_ACCOUNT_V1.
+   !
+   jfnk_ledger_t0 = jfnk_wtime_v1()
+   jfnk_ev_entry = 0
+   jfnk_ev_trial = 0
+   jfnk_ev_ls = 0
+   jfnk_ev_ls_wasted = 0
+   jfnk_ev_cauchy = 0
+   jfnk_ev_sentinel = 0
+   jfnk_tm_entry = 0d0
+   jfnk_tm_trial = 0d0
+   jfnk_tm_ls = 0d0
+   jfnk_tm_cauchy = 0d0
+   jfnk_tm_jvp = 0d0
+   jfnk_led_branch = 'none'
    !
    ! Right preconditioning is supported (2026-10, right-PC TR-units
    ! fix): gmres_m_v1 stores the preconditioned basis Z = M^{-1} V and
@@ -905,7 +980,12 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    if(jfnk_fx_fresh) then
       jfnk_fx_fresh = .false.
    else
+      tw_ev = jfnk_wtime_v1()
       call f(n, jfnk_x, jfnk_fx)
+      jfnk_tm_entry = jfnk_tm_entry + (jfnk_wtime_v1() - tw_ev)
+      jfnk_ev_entry = jfnk_ev_entry + 1
+      if(minval(jfnk_fx) >= 1d19) &
+         jfnk_ev_sentinel = jfnk_ev_sentinel + 1
       jfnk_total_f_evals = jfnk_total_f_evals + 1
       ! edited 06-Oct-2026 (SER anchor fix): the entry eval
       ! carries the pseudo-time term whenever it was added by the
@@ -953,6 +1033,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       if(info == 1) write(luer,*) '  JFNK: input already converged'
       info = 0
       jfnk_exit_reason = 'converged_at_entry'
+      jfnk_led_branch = 'converged_at_entry'
+      call jfnk_step_ledger_v1(n_reject)
+      if(info == 1) call jfnk_eval_account_v1(luer)
       return
    end if
    !
@@ -969,6 +1052,27 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! Newton iteration.
       !
       descent_retry_count = 0
+      !
+      ! WP-0 ledger: reset the per-pass fields; every TR branch and
+      ! abort site sets jfnk_led_branch before the row is written so
+      ! the recorded disposition is the branch actually taken (0.1).
+      !
+      jfnk_led_gres = 0d0
+      jfnk_led_refn = 0d0
+      jfnk_led_gmrst = 0
+      jfnk_led_ginfo = -9
+      jfnk_led_hess = 0d0
+      jfnk_led_dirf = 0d0
+      jfnk_led_dirg = 0d0
+      jfnk_led_cos = 0d0
+      jfnk_led_alpha = 1d0
+      jfnk_led_lssteps = 0
+      jfnk_led_lsacc = 0
+      jfnk_led_phiref = -1d0
+      jfnk_led_phialp = -1d0
+      jfnk_led_cauchy = 0
+      jfnk_led_del0 = jfnk_del
+      jfnk_led_branch = 'none'
       !
       ! Audit 17-Sep-2026: per-iteration failure flags. Any matvec
       ! (JVP) or psolve (preconditioner) call below can set these;
@@ -992,6 +1096,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          if(info == 1) write(luer,*) '  JFNK: trust region too small'
          info = 3
          jfnk_exit_reason = 'trust_region_too_small'
+         jfnk_led_branch = 'trust_region_too_small'
+         call jfnk_step_ledger_v1(n_reject)
+         if(info == 1) call jfnk_eval_account_v1(luer)
             return
       end if
       !
@@ -1081,6 +1188,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             jfnk_tol = tol_
             info = 3
                jfnk_exit_reason = 'precond_clip_forcing_norm'
+            jfnk_led_branch = 'precond_clip_forcing_norm'
+            call jfnk_step_ledger_v1(n_reject)
+            if(info == 1) call jfnk_eval_account_v1(luer)
             return
          end if
          ref_norm = dsqrt(dp(n, fx_pc, fx_pc))
@@ -1089,6 +1199,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       end if
       gres     = jfnk_eta * ref_norm
       gdel     = jfnk_del
+      jfnk_led_gres = gres
+      jfnk_led_refn = ref_norm
       ! jfnk_gits is both the iteration budget in and the used count
       ! out of gmres_m_v1. A ginfo==2 hookstep recompute performs no
       ! Arnoldi work, so the prior solve's count is deliberately
@@ -1129,6 +1241,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       jfnk_gmres_m_dim = m
       call gmres_m_v1(m, n, s, fx_, df, dfp, dp, h, v, gres, gdel, &
                        pred_res, jfnk_gits, ginfo, luer)
+      jfnk_led_ginfo = ginfo
       !
       ! Issue 3: request LU refresh when GMRES used most of its budget.
       !
@@ -1162,6 +1275,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_tol = tol_
          info = 3
             jfnk_exit_reason = 'krylov_jvp_or_pc_failure'
+         jfnk_led_branch = 'krylov_jvp_or_pc_failure'
+         call jfnk_step_ledger_v1(n_reject)
+         if(info == 1) call jfnk_eval_account_v1(luer)
          return
       end if
       !
@@ -1231,6 +1347,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_tol = tol_
          info = 3
             jfnk_exit_reason = 'gmres_stagnation_abort'
+         jfnk_led_branch = 'gmres_stagnation_abort'
+         call jfnk_step_ledger_v1(n_reject)
+         if(info == 1) call jfnk_eval_account_v1(luer)
          return
       end if
       !
@@ -1346,8 +1465,13 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                '  JFNK: too many rejected steps — aborting Newton'
             info = 3
                jfnk_exit_reason = 'too_many_rejected_steps'
+            jfnk_led_branch = 'too_many_rejected_steps'
+            call jfnk_step_ledger_v1(n_reject)
+            if(info == 1) call jfnk_eval_account_v1(luer)
             return
          end if
+         jfnk_led_branch = 'reject_runaway_step'
+         call jfnk_step_ledger_v1(n_reject)
          ginfo = 2
          cycle newton_loop
       end if
@@ -1386,12 +1510,19 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_tol = tol_
          info = 3
             jfnk_exit_reason = 'jvp_failure_pred_eval'
+         jfnk_led_branch = 'jvp_failure_pred_eval'
+         call jfnk_step_ledger_v1(n_reject)
+         if(info == 1) call jfnk_eval_account_v1(luer)
          return
       end if
       ! edited 06-Oct-2026 (SER anchor fix): df returns the
       ! FD action of G, J_G*s = J_F*s + s*scale/dtau. Strip the
       ! diagonal so F_pred, pred_res_physical, norm_Js and dir_deriv
       ! are in F terms, consistent with the stripped ared.
+      ! WP-0.3: <F, J_G s>_w is measured BEFORE the strip -- the
+      ! folded/unfolded pair (jfnk_led_dirg vs jfnk_led_dirf) is the
+      ! WP-6 merit-vs-operator consistency telemetry.
+      jfnk_led_dirg = dp(n, fx_, J_s)
       call jfnk_ptc_strip_dir_v1(n, s, J_s)
       do i = 1, n
          F_pred(i) = fx_(i) - J_s(i)
@@ -1401,6 +1532,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! Keep the GMRES Hessenberg residual for diagnostics only.
       !
       pred_res_gmres = pred_res
+      jfnk_led_hess = pred_res_gmres
       !
       ! V4 A/B diagnostic: compute ||J*s||_w and GMRES restart count
       !
@@ -1408,6 +1540,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       n_gmres_restarts = jfnk_gits / max(m, 1)
       if(mod(jfnk_gits, max(m,1)) > 0) n_gmres_restarts = n_gmres_restarts + 1
       n_gmres_restarts = max(0, n_gmres_restarts - 1)
+      jfnk_led_gmrst = n_gmres_restarts
       !
       ! V4 descent check (2026-09-09):
       ! If the GMRES direction is not a descent direction (<F,Js>_w <= 0),
@@ -1432,6 +1565,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! return and is used instead.
       !
       dir_deriv = dp(n, fx_, J_s)
+      jfnk_led_dirf = dir_deriv
+      jfnk_led_cos = dir_deriv / max(tol_ * norm_Js, 1.0d-30)
       !
       ! Bail when the measured exit residual already shows the Krylov
       ! basis amplifies the operator: jfnk_gmres_true_res is the FD
@@ -1511,7 +1646,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       ! Evaluate new residual
       !
+      tw_ev = jfnk_wtime_v1()
       call f(n, jfnk_x, jfnk_fx)
+      jfnk_tm_trial = jfnk_tm_trial + (jfnk_wtime_v1() - tw_ev)
+      jfnk_ev_trial = jfnk_ev_trial + 1
+      if(minval(jfnk_fx) >= 1d19) jfnk_ev_sentinel = jfnk_ev_sentinel + 1
       jfnk_total_f_evals = jfnk_total_f_evals + 1
       ! edited 06-Oct-2026 (SER anchor fix): strip the
       ! pseudo-time term so jfnk_fx/jfnk_tol are F and |F|.
@@ -1599,28 +1738,6 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             max_pop_corr
          write(luer,'(A,ES12.4)') '    largest T correction         :', &
             max_t_corr
-         !
-         ! Step disposition
-         !
-         if(jfnk_tol < tol_) then
-            step_status = 'ACCEPTED'
-         else if(del == 0d0) then
-            step_status = 'ACCEPTED (full Newton)'
-         else if(jfnk_tol > tol__) then
-            step_status = 'ACCEPTED (previous)'
-         else if(pred_negligible) then
-            step_status = 'REJECTED (pred negligible)'
-         else if(ared <= 0d0) then
-            step_status = 'REJECTED (no decrease)'
-         else if(rho < 0.75d0) then
-            step_status = 'ACCEPTED (rho<0.75)'
-         else if(snrm_tr < jfnk_del * 0.9d0) then   ! 2026-09-13 TR-units fix
-            step_status = 'ACCEPTED (full Newton)'
-         else
-            step_status = 'ACCEPTED (enlarge TR)'
-         end if
-         write(luer,'(A,A)') '    step disposition              : ', &
-            trim(step_status)
          flush(luer)
       end if
       !
@@ -1650,8 +1767,13 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                '  JFNK: too many rejected steps — aborting Newton'
             info = 3
                jfnk_exit_reason = 'too_many_rejected_steps'
+            jfnk_led_branch = 'too_many_rejected_steps'
+            call jfnk_step_ledger_v1(n_reject)
+            if(info == 1) call jfnk_eval_account_v1(luer)
             return
          end if
+         jfnk_led_branch = 'reject_nan_inf'
+         call jfnk_step_ledger_v1(n_reject)
          ginfo = 2
          cycle newton_loop
       end if
@@ -1720,11 +1842,18 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             ! unbounded increase. [USE_JFNK_SOLVER] defaults to F.
             if(jfnk_del > 0d0) phi_ref = min(phi_ref, 1.21d0 * phi_0)
          end if
+         jfnk_led_phiref = phi_ref
          !
          ls_loop: do ls_step = 1, jfnk_ls_max_steps
             alpha_ls = jfnk_ls_beta_fac ** dble(ls_step)
             jfnk_x = x_ - alpha_ls * s
+            tw_ev = jfnk_wtime_v1()
             call f(n, jfnk_x, jfnk_fx)
+            jfnk_tm_ls = jfnk_tm_ls + (jfnk_wtime_v1() - tw_ev)
+            jfnk_ev_ls = jfnk_ev_ls + 1
+            jfnk_led_lssteps = ls_step
+            if(minval(jfnk_fx) >= 1d19) &
+               jfnk_ev_sentinel = jfnk_ev_sentinel + 1
             jfnk_total_f_evals = jfnk_total_f_evals + 1
             ! SER anchor fix (06-Oct-2026): strip to F before |F|.
             call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
@@ -1741,6 +1870,36 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                   jfnk_del = min(mxdl_, snrm_tr * 2d0)
                end if
                ared = tol_ - jfnk_tol
+               !
+               ! WP-0.2: the model quantities must describe the step
+               ! actually taken. J is linear in s, so rescaling s by
+               ! alpha scales J*s, <F,Js> (both the F- and G-basis
+               ! values) and |Js| by the same factor; F_pred, pred,
+               ! rho and the cosine are then recomputed on alpha*s.
+               ! The post-decision block prints these refreshed
+               ! values with alpha alongside.
+               !
+               J_s = alpha_ls * J_s
+               dir_deriv = alpha_ls * dir_deriv
+               jfnk_led_dirf = dir_deriv
+               jfnk_led_dirg = alpha_ls * jfnk_led_dirg
+               norm_Js = alpha_ls * norm_Js
+               do i = 1, n
+                  F_pred(i) = fx_(i) - J_s(i)
+               end do
+               pred_res_physical = dsqrt(dp(n, F_pred, F_pred))
+               pred = tol_ - pred_res_physical
+               pred_negligible = (abs(pred) <= pred_floor)
+               if(.not. pred_negligible) then
+                  rho = ared / pred
+               else
+                  rho = 0.0d0
+               end if
+               cos_angle = dir_deriv / max(tol_ * norm_Js, 1.0d-30)
+               jfnk_led_cos = cos_angle
+               jfnk_led_alpha = alpha_ls
+               jfnk_led_lsacc = 1
+               jfnk_led_phialp = phi_alpha
                if(info == 1) call ilf_kvb(luer, &
                   '  JFNK: line search accepted:', 3, &
                   (/'alpha ','||F||','||s||'/), &
@@ -1803,6 +1962,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                '  JFNK: cauchy workspace alloc failed -- skipping step'
             jfnk_exit_reason = 'cauchy_alloc_failure'
             info = 3
+            jfnk_led_branch = 'cauchy_alloc_failure'
+            call jfnk_step_ledger_v1(n_reject)
+            if(info == 1) call jfnk_eval_account_v1(luer)
             return
          end if
          jfnk_w_cauchy = fx_          ! start from F(x)
@@ -1880,7 +2042,15 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                alpha_ls = jfnk_ls_beta_fac ** dble(ls_step)
             end if
             jfnk_x = x_ - alpha_ls * jfnk_w_cauchy
+            tw_ev = jfnk_wtime_v1()
             call f(n, jfnk_x, jfnk_fx)
+            jfnk_tm_cauchy = jfnk_tm_cauchy + (jfnk_wtime_v1() - tw_ev)
+            jfnk_ev_cauchy = jfnk_ev_cauchy + 1
+            ! ls_steps_used counts all backtracking evals this pass:
+            ! any failed Armijo trials plus this Cauchy sweep.
+            jfnk_led_lssteps = jfnk_led_lssteps + 1
+            if(minval(jfnk_fx) >= 1d19) &
+               jfnk_ev_sentinel = jfnk_ev_sentinel + 1
             jfnk_total_f_evals = jfnk_total_f_evals + 1
             ! SER anchor fix (06-Oct-2026): strip to F before |F|.
             call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
@@ -1898,6 +2068,17 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                snrm_tr = alpha_ls * cauchy_nrm
                if(jfnk_del > 0d0) jfnk_del = min(mxdl_, snrm_tr * 2d0)
                ared = tol_ - jfnk_tol
+               !
+               ! WP-0.2: a Cauchy accept is a non-Newton direction --
+               ! J_s still describes J_F*s for the discarded Newton
+               ! candidate, so ared/pred/rho against it are not
+               ! meaningful. cauchy_used marks the ledger row and the
+               ! post-decision print says so instead of printing a
+               ! Newton-model ratio.
+               !
+               jfnk_led_cauchy = 1
+               jfnk_led_lsacc = 1
+               jfnk_led_alpha = alpha_ls
                if(info == 1) write(luer,'(A,ES10.3,A,ES14.4)') &
                   '  JFNK: Cauchy step accepted α=', real(alpha_ls), &
                   ' ||F||=', real(jfnk_tol)
@@ -1932,13 +2113,19 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! step-accepted path (ginfo = 0).
       !
       if(ls_accepted .and. ared >= 0d0) then
+         jfnk_led_branch = 'nm_armijo_decrease'
          ginfo = 0  ! monotone Armijo decrease
       else if(ls_accepted .and. del == 0d0) then
+         jfnk_led_branch = 'ls_accept_noTR'
          ginfo = 0  ! no trust region; keep the non-monotone LS outcome
       else if(ls_accepted) then
          ! [USE_JFNK_SOLVER] defaults to F. A non-monotone increase in
          ! trust-region mode must restore the base and take the normal
          ! rejection path so it cannot grow del or skip its counter.
+         jfnk_led_branch = 'nm_increase_rejected'
+         ! WP-0.4: the LS run's evals were spent on a step the TR check
+         ! is now discarding.
+         jfnk_ev_ls_wasted = jfnk_ev_ls_wasted + jfnk_led_lssteps
          jfnk_n_tr_rejected = jfnk_n_tr_rejected + 1
          jfnk_x = x_
          jfnk_fx = fx_
@@ -1947,15 +2134,18 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          ginfo = 2
       else if(del == 0d0) then
          if(info == 1) write(luer,*) '  JFNK: took full newton step'
+         jfnk_led_branch = 'full_newton_noTR'
          ginfo = 0  ! step accepted, clear hookstep flag
       else if(jfnk_tol > tol__) then
          if(info == 1) write(luer,*) '  JFNK: accepting previous step'
+         jfnk_led_branch = 'accept_previous'
          jfnk_x   = x__
          jfnk_fx  = fx__
          jfnk_tol = tol__
          jfnk_del = del__
          ginfo = 0  ! step accepted, clear hookstep flag
       else if(pred_negligible) then
+         jfnk_led_branch = 'reject_pred_negligible'
          ! V4 audit fix (2026-09-09): Predicted reduction is negligible.
          ! The linearized model does not predict a reduction in the
          ! physical residual norm. Reject the step and shrink the trust
@@ -1971,6 +2161,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_del = 0.5d0 * min(del_try, snrm_tr)   ! 2026-09-13 TR-units fix
          ginfo   = 2
       else if(ared <= 0d0) then
+         jfnk_led_branch = 'reject_no_decrease'
          ! edited, 12-Nov-2026: a trial that fails to reduce
          ! |F| is a rejection, not a retry. ared == 0 used to land in
          ! the rho < 0.75 branch below, which retries without touching
@@ -1992,6 +2183,8 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             jfnk_tol = tol_
             info = 3
             jfnk_exit_reason = 'too_many_rejected_steps'
+            call jfnk_step_ledger_v1(n_reject)
+            if(info == 1) call jfnk_eval_account_v1(luer)
             return
          end if
          jfnk_x = x_
@@ -2000,6 +2193,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_del = 0.5d0 * snrm_tr   ! 2026-09-13 TR-units fix
          ginfo   = 2
       else if(rho < 0.75d0) then
+         jfnk_led_branch = 'retry_smaller_tr'
          if(info == 1) write(luer,*) '  JFNK: step ok, trying smaller &
             &step'
          x__     = jfnk_x
@@ -2021,12 +2215,14 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_tol = tol_
          ginfo   = 2
       else if(snrm_tr < jfnk_del * 0.9d0) then
+         jfnk_led_branch = 'accept_full_newton'
          if(info == 1) write(luer,*) '  JFNK: step good, took full &
             &newton step'
          if(snrm < jfnk_runaway_fac * max(ref_norm, 1.0d-30)) &
             jfnk_del = min(mxdl_, snrm_tr * 2d0)   ! 2026-09-13 TR-units fix
          ginfo = 0  ! step accepted, clear hookstep flag
       else if(jfnk_del < mxdl_ * 0.9d0) then
+         jfnk_led_branch = 'retry_larger_tr'
          if(info == 1) write(luer,*) '  JFNK: step good, trying larger &
             &step'
          x__     = jfnk_x
@@ -2043,7 +2239,39 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          jfnk_fx  = fx_
          jfnk_tol = tol_
          ginfo   = 2
+      else
+         ! WP-0.1: implicit accept -- step reached the TR bound with
+         ! the radius already at the mxdl cap, so no branch above
+         ! matched. ginfo stays 0 and the step is committed below.
+         jfnk_led_branch = 'accept_at_maxdel'
       end if
+      !
+      ! WP-0.1/0.2: the disposition is written AFTER the trust-region
+      ! decision and names the branch actually taken. ared/pred/rho
+      ! were refreshed at the LS-accept site for the alpha-scaled
+      ! step; a Cauchy accept is a non-Newton direction and its model
+      ! ratio is marked not meaningful. The ledger row is written for
+      ! every decided pass, before the ginfo=2 retry cycle.
+      !
+      if(info == 1) then
+         write(luer,'(A,A)') '    step disposition              : ', &
+            trim(jfnk_led_branch)
+         if(jfnk_led_lsacc == 1) &
+            write(luer,'(A,ES12.4)') '    accepted alpha              :', &
+               jfnk_led_alpha
+         if(jfnk_led_cauchy == 1) then
+            write(luer,'(A)') '    acceptance ratio : non-Newton'// &
+               ' direction -- rho not meaningful'
+         else if(pred_negligible) then
+            write(luer,'(A)') '    acceptance ratio : predicted'// &
+               ' decrease negligible'
+         else
+            write(luer,'(A,ES12.4)') &
+               '    acceptance ratio ared/pred   :', rho
+         end if
+         flush(luer)
+      end if
+      call jfnk_step_ledger_v1(n_reject)
       !
       ! Check if need to try another s
       !
@@ -2128,18 +2356,142 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             ' (res=', real(jfnk_tol), ' maxch_est=', real(jfnk_maxch_est), ')'
          info = 0
          jfnk_exit_reason = 'converged'
+         jfnk_led_branch = 'converged'
+         call jfnk_step_ledger_v1(n_reject)
+         if(info == 1) call jfnk_eval_account_v1(luer)
             return
       else if(jfnk_nits == nits) then
          if(info == 1) write(luer,*) '  JFNK: MAXIMUM NONLINEAR ITERATIONS REACHED'
          if(info == 1) write(luer,*) '  JFNK: NONLINEAR SOLVE NOT YET CONVERGED'
          info = 2
          jfnk_exit_reason = 'max_newton_iterations'
+         jfnk_led_branch = 'max_newton_iterations'
+         call jfnk_step_ledger_v1(n_reject)
+         if(info == 1) call jfnk_eval_account_v1(luer)
             return
       end if
       !
    end do newton_loop
    !
 end subroutine newton_hook_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_WTIME_V1 (WP-0): wall seconds from system_clock. The solver
+! object must stay free of an OpenMP-runtime dependency -- the
+! tests/jfnk_core harness links it without -qopenmp, so
+! omp_get_wtime (used inside the interface, not the solver) is not
+! an option here.
+!----------------------------------------------------------------------
+double precision function jfnk_wtime_v1()
+   implicit none
+   integer(kind=selected_int_kind(18)) :: c_now, c_rate
+   call system_clock(count=c_now, count_rate=c_rate)
+   if(c_rate > 0) then
+      jfnk_wtime_v1 = dble(c_now) / dble(c_rate)
+   else
+      jfnk_wtime_v1 = 0d0
+   end if
+end function jfnk_wtime_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_STEP_LEDGER_V1 (WP-0 acceptance audit, 27-Nov-2026):
+! append one CSV record per Newton-step attempt to JFNK_LEDGER in the
+! run directory. Fields come from the jfnk_led_* module state that
+! newton_hook_v1 refreshes as each quantity is produced, so a row
+! written at an abort still reports the last measured values and
+! jfnk_led_branch names the trust-region branch actually taken
+! ('none' when the pass died before a decision). dir_deriv_G is the
+! PTC-folded <F, J_G s> measured before JFNK_PTC_STRIP_V1 removes the
+! dtau anchor from J_s; dir_deriv_F is the stripped <F, J_F s> the
+! descent test uses (WP-6 telemetry pair).
+!----------------------------------------------------------------------
+subroutine jfnk_step_ledger_v1(n_reject)
+   use jfnk_solver_v1_mod
+   use jfnk_cmfgen_int_mod, only: JFNK_N_RESIDUAL_EVALS
+   implicit none
+   integer, intent(in) :: n_reject
+   integer :: lu, fsz
+   logical :: fexist
+   double precision :: t_ratio, t_wall
+   double precision, external :: jfnk_wtime_v1
+   !
+   t_ratio = -1d0
+   if(jfnk_led_refn > 0d0) t_ratio = jfnk_gmres_true_res/jfnk_led_refn
+   t_wall = 0d0
+   if(jfnk_ledger_t0 > 0d0) t_wall = jfnk_wtime_v1() - jfnk_ledger_t0
+   !
+   ! Header when the file is absent OR empty (a truncated/pre-touched
+   ! JFNK_LEDGER still gets its column row).
+   !
+   inquire(file='JFNK_LEDGER', exist=fexist, size=fsz)
+   open(newunit=lu, file='JFNK_LEDGER', status='unknown', &
+        position='append', action='write')
+   if(.not. fexist .or. fsz == 0) write(lu,'(A)') &
+      'nits,fw,eta,gres,ref_norm,gmres_its,gmres_restarts,gmres_info,'// &
+      'hess_res,true_res,true_res_ratio,dir_deriv_F,dir_deriv_G,'// &
+      'cos_angle,alpha_ls,ls_steps,ls_accepted,nm_phi_ref,nm_phi_alpha,'// &
+      'cauchy_used,del_before,del_after,n_reject,taken_branch,'// &
+      'exit_reason,n_res_evals,wall_s'
+   write(lu,"(I6,4(',',ES15.7),',',I5,',',I4,',',I4,"// &
+      "7(',',ES15.7),',',I4,',',I2,2(',',ES15.7),',',I2,"// &
+      "2(',',ES15.7),',',I3,',',A,',',A,',',I8,',',F0.2)") &
+      jfnk_nits, jfnk_tol, jfnk_eta, jfnk_led_gres, jfnk_led_refn, &
+      jfnk_last_gmres_its, jfnk_led_gmrst, jfnk_led_ginfo, &
+      jfnk_led_hess, jfnk_gmres_true_res, t_ratio, jfnk_led_dirf, &
+      jfnk_led_dirg, jfnk_led_cos, jfnk_led_alpha, jfnk_led_lssteps, &
+      jfnk_led_lsacc, jfnk_led_phiref, jfnk_led_phialp, &
+      jfnk_led_cauchy, jfnk_led_del0, jfnk_del, n_reject, &
+      trim(jfnk_led_branch), trim(jfnk_exit_reason), &
+      JFNK_N_RESIDUAL_EVALS, t_wall
+   close(lu)
+end subroutine jfnk_step_ledger_v1
+
+
+!----------------------------------------------------------------------
+! JFNK_EVAL_ACCOUNT_V1 (WP-0.4): print the per-activation residual-eval
+! accounting once, when newton_hook_v1 exits. jfnk_ev_* counts the
+! solver-side f() calls by site; JFNK_N_RESIDUAL_EVALS is the
+! interface-side total and additionally covers evals spent inside FD
+! JVPs (GMRES matvecs, the model-check JVP, lintest probes) and inside
+! sub(). The two are reconciled so a production admission shows where
+! the JFNK_EVAL_LIM budget went; jfnk_ev_ls_wasted is the subset of LS
+! trial evals spent in runs whose accepted step the TR check then
+! discarded.
+!----------------------------------------------------------------------
+subroutine jfnk_eval_account_v1(luer)
+   use jfnk_solver_v1_mod
+   use jfnk_cmfgen_int_mod, only: JFNK_N_RESIDUAL_EVALS
+   implicit none
+   integer, intent(in) :: luer
+   integer :: n_solver_f, n_other
+   double precision :: t_tot
+   double precision, external :: jfnk_wtime_v1
+   !
+   if(luer <= 0) return
+   n_solver_f = jfnk_ev_entry + jfnk_ev_trial + jfnk_ev_ls + &
+                jfnk_ev_cauchy
+   n_other = JFNK_N_RESIDUAL_EVALS - n_solver_f
+   t_tot = 0d0
+   if(jfnk_ledger_t0 > 0d0) t_tot = jfnk_wtime_v1() - jfnk_ledger_t0
+   write(luer,'(A)') '  --- JFNK eval accounting (this activation) ---'
+   write(luer,'(A,I5,A,I5,A,I5,A,I5)') &
+      '    f() evals: entry=', jfnk_ev_entry, &
+      '  trial=', jfnk_ev_trial, '  ls=', jfnk_ev_ls, &
+      '  cauchy=', jfnk_ev_cauchy
+   write(luer,'(A,I5,A,I5)') &
+      '    ls evals wasted on discarded steps=', jfnk_ev_ls_wasted, &
+      '  sentinel (budget-cap) evals=', jfnk_ev_sentinel
+   write(luer,'(A,I5,A,I5,A,I5)') &
+      '    solver-side total=', n_solver_f, &
+      '  interface total JFNK_N_RESIDUAL_EVALS=', &
+      JFNK_N_RESIDUAL_EVALS, '  in JVP/sub()=', n_other
+   write(luer,'(A,4(F9.2,A),F9.2,A)') &
+      '    eval wall s: entry=', jfnk_tm_entry, '  trial=', &
+      jfnk_tm_trial, '  ls=', jfnk_tm_ls, '  cauchy=', &
+      jfnk_tm_cauchy, '  activation=', t_tot
+end subroutine jfnk_eval_account_v1
 
 
 !----------------------------------------------------------------------
