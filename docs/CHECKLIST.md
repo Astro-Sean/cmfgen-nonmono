@@ -2835,3 +2835,48 @@ Audit: `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md`.
 - [x] TODO/audit documents current (`docs/plans/FIELD_DRIFT_TODO.md`,
       `docs/audits/PHASE_5_3_P_DIRECTION_AUDIT.md` 5600+ lines).
 - [x] All work committed and pushed to `origin/main`.
+
+## JFNK-acceptance work packages (27-Nov-2026, checklist-driven)
+
+Working the audit-and-repair checklist `checklists/jfnk.md` (WP-0
+.. WP-7) on branch `jfnk-acceptance-audit`, baseline `a9b0b022`.
+Symptom under audit: JFNK admissions rarely commit Newton
+corrections - info=3 exits or best iterates under the 1e-4 commit
+floor. Per-WP detail: `docs/audits/JFNK_ACCEPTANCE_AUDIT.md`.
+
+- [x] WP-0 instrumentation: `step_status` moved behind the
+      trust-region decision and replaced by `jfnk_led_branch`,
+      set inside each TR branch (incl. the previously unlabelled
+      `accept_at_maxdel` implicit accept) and at every
+      abort/reject site; on Armijo accept `J_s`/dir_deriv/
+      pred/rho are rescaled by alpha and reprinted with it,
+      Cauchy accepts marked non-Newton (rho not meaningful).
+      New `JFNK_LEDGER` CSV (one row per decided pass + terminal
+      row) and per-activation eval accounting reconciled against
+      `JFNK_N_RESIDUAL_EVALS`, incl. LS evals wasted on
+      TR-discarded accepts and budget-sentinel returns.
+      `jfnk_wtime_v1` uses system_clock so the solver object
+      stays free of the OpenMP runtime for tests/jfnk_core.
+      Test: tests/jfnk_core/test_step_status.f90 (parses the
+      ledger: header contract, label set, nits/accept-row
+      consistency, terminal ordering, alpha/lsacc consistency,
+      eval reconciliation). Owed: production admission harvest
+      (JFNK_LEDGER + accounting block from one live DO_JFNK
+      admission) before WP-1+ verdicts cite production behaviour.
+- [ ] WP-1 non-monotone line-search acceptance: nm_credit /
+      n_reject accounting for TR-discarded LS accepts,
+      JFNK_NM_ACCEPT key, test_nm_accept.f90.
+- [ ] WP-2 graded Krylov-stagnation response: JFNK_STAG_POLICY,
+      GMRES budget decoupling, JFNK_STAG_TOL review.
+- [ ] WP-3 budget-exhaustion graceful stop: JFNK_EVAL_BUDGET_HIT,
+      sentinel handling, affordability check, LS eval cap.
+- [ ] WP-4 FD-operator fixed linear map: lintest probes,
+      JFNK_H_FREEZE, JFNK_H_FORM variants, BA JVP A/B.
+- [ ] WP-5 preconditioner lag under PTC: tau-drift refresh
+      (JFNK_PC_TAU_FAC), folded/unfolded sign test.
+- [ ] WP-6 merit/operator consistency: dir_deriv_F vs
+      dir_deriv_G telemetry (WP-0 ledger columns already land),
+      JFNK_DESCENT_BASIS, alpha-sweep diagnostic.
+- [ ] WP-7 admission-gate policy report (report-only): demand
+      histogram, condition-loss fractions, BA_LAST_RAW age,
+      recommendation in docs/audits/.
