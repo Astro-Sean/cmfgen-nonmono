@@ -200,10 +200,47 @@ expensive on a real model, which is why retries cap at 2. The
 true_res < ref band relies on the exit measurement being
 trustworthy under the FD matvec (WP-4 territory).
 
-## WP-3 .. WP-7
+## WP-3 budget-exhaustion graceful stop
 
-Not yet worked this session. Owed in checklist order:
-WP-3 budget-exhaustion signal (`JFNK_EVAL_BUDGET_HIT`),
+Land (unit-verified, all four sub-items):
+
+- 3.1/3.2 `JFNK_EVAL_BUDGET_HIT` (new `JFNK_CMFGEN_INT_MOD` flag)
+  is set in `JFNK_RESIDUAL_V1` at both sentinel sites (eval cap and
+  wall cap), alongside a cached `JFNK_EVAL_CAP` refreshed at
+  `JFNK_INIT_V1` and per eval. The solver tests the flag after
+  every eval that can return the sentinel - entry eval, post-GMRES,
+  trial eval, LS ladder, Cauchy sweep - and exits `info=2`
+  `budget_stop`, keeping the last accepted (or entry) iterate.
+  The driver maps `info=2` to the existing best-iterate commit
+  (`jfnk_solve_corr_v1.f:2368`), so the old route - sentinel
+  |Y|~1e22 landing in the NaN/contraction guards as a mismeasured
+  trial - is gone. LS/Cauchy sites exit the loop keeping the best
+  already-accepted trial.
+- 3.3 Affordability gate at admission
+  (`jfnk_solve_corr_v1.f` pre-factorization): when
+  `JFNK_EVAL_CAP > 0` and the remaining budget cannot cover
+  `m+2` evals (one restart cycle + entry + trial), the admission
+  takes the existing `info=-2` skip instead of burning the LU.
+- 3.4 `[JFNK_LS_MAX_EVALS_FRAC]` (real, default 0.25) caps the
+  LS eval spend per Newton pass at a fraction of the remaining
+  budget; 1.0 restores the unbounded ladder.
+
+Test: `tests/jfnk_core/test_budget_stop.f90` - the residual
+callback trips the flag + 1D20 sentinel after N calls. Run A
+(mid-GMRES hit) and run B (entry-eval sentinel) both exit
+`info=2 budget_stop` with a real iterate, not the sentinel.
+jfnk_core 6/6 PASS in the new test, zero regressions in the
+suite; test_vadat_keys 143/143.
+
+**Residual risk / owed.** `JFNK_EVAL_BUDGET_HIT` stays set once
+tripped (the budget does not grow), so the flag is one-shot per
+activation - matches the sentinel semantics. `JFNK_SEC_HIT` now
+also feeds the flag, so wall-clock exhaustion gets the same
+graceful exit instead of sentinel-trials. Production A/B owed.
+
+## WP-4 .. WP-7
+
+Not yet worked. Owed in checklist order:
 WP-4 FD-operator fixed linear map (`JFNK_H_FREEZE`/`JFNK_H_FORM`,
 lintest A/B), WP-5 tau-drift preconditioner refresh
 (`JFNK_PC_TAU_FAC`), WP-6 merit/operator consistency
@@ -223,4 +260,8 @@ WP-0 ledger columns), WP-7 admission-gate report (histogram +
   JFNK_STAG_POLICY default ABORT). JFNK_GMRES_RST default is now
   derived - a sanctioned default change; the advertised budget is
   now reachable.
-- WP-3..WP-7: OWED.
+- WP-3: PARTIAL->VERIFIED pending production harvest (unit-verified:
+  sentinel sites flag JFNK_EVAL_BUDGET_HIT, all five eval sites
+  exit info=2 budget_stop, admission affordability gate, LS frac
+  cap at default 0.25).
+- WP-4..WP-7: OWED.
