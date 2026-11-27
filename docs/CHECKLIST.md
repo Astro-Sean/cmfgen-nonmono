@@ -1,5 +1,34 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [~] Knop WP-8 gate: A/B arms prepared for submission (27-Nov-2026,
+      user-directed "continue with the knop solver").
+      WP-8 (Anderson acceleration, optional) is gated on
+      WP-1..WP-6 merged AND measured. Merged state verified:
+      knop/wp1..wp7 branches all 0 commits ahead of origin/main.
+      Measured half open - the sec-4 production A/B is the human's
+      to submit; configs and scorer are now prepared.
+      Arm A configs/dessart_m15_2p82d_FRESH_knop_v14_wpA.yaml:
+      warm restart from the it121 checkpoint, WP-1 pins
+      (KN_RAY_ORDERED=F, KN_NI1_FULL=T, KN_RAY_BULK_TOL=0) with
+      WP-3/4 explicitly disarmed (KN_GATE_COMMIT_RES=F,
+      KN_STORE_LS=F) so the arm isolates WP-1.
+      Arm B configs/dessart_m15_2p82d_FRESH_knop_v14_wpB.yaml:
+      same restart plus KN_GATE_COMMIT_RES=T, KN_STORE_LS=T,
+      KN_OMEGA_SGN=T (the only non-default flag).
+      Both arms carry KN_Q_RESID=T + KN_CERT_DIAG=T telemetry.
+      Scorer scripts/analyze_knop_wp_arms.py evaluates the sec-4
+      signatures (cert census, rf_all_conv, fg_rf < 2e-3,
+      q < 1e-3, ba=FULL resuming, demand <10% then <3%, commit
+      guards, abort criteria). Verified against the it121
+      baseline OUTGEN: reads full=69/85, stag=1, inv=1,
+      rf_all_conv=F, fg_rf min 2.1e-2, last-10 maxch 9.0 -
+      verdict OPEN 1/7, matching the stalled baseline.
+      Baseline channels confirmed live in OUTGEN:
+      cert census / rf_all_conv / fg_rf / commit rejects+nc
+      capped / commit verdicts / Time taken for iteration;
+      ITER_LEDGER CSV columns mode,ba,reason,maxch,se_res.
+      Next: human submits wpA/wpB; on verdicts, WP-8 may open.
+
 - [x] escatter.md checklist diagnosis (27-Nov-2026, user-directed
       via checklists/escatter.md).
       Question: do the four electron-scattering prescriptions in the
