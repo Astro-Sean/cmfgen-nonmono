@@ -758,6 +758,24 @@ WP-1 keys (JFNK acceptance audit, 27-Nov-2026):
   consecutive GLL increase accepts; one credit is spent per
   `nm_armijo_increase` commit and refilled on any ared>0 commit.
   Exhaustion falls back to the rejection path.
+- `JFNK_STAG_POLICY` (string, default 'ABORT') - Krylov-stagnation
+  response when GMRES exits ginfo=1. 'ABORT' keeps the stock gate:
+  the inexact direction is used only when both pred_res and the
+  measured true_res beat 0.9*ref_norm, else Newton aborts.
+  'GRADED' keeps the direction whenever measured true_res still
+  beats ref_norm (descent gate decides downstream), and on a
+  stale-preconditioner stall (true_res >= ref_norm or
+  unverifiable) consumes the refresh flag on the rejection path,
+  factors the preconditioner, and re-solves once at 10x tighter
+  eta; a second failure aborts. Off by default pending a
+  production A/B (checklist `jfnk.md` WP-2).
+- `JFNK_GMRES_RST` (integer, default derived) - max GMRES restart
+  cycles per solve. The absent-key default is now
+  ceil(JFNK_MAXGMRES/JFNK_M)-1 (=4 with the stock 50/10) so the
+  effective cap min(JFNK_MAXGMRES,(RST+1)*JFNK_M) equals the
+  advertised JFNK_MAXGMRES budget; the old flat default of 1
+  silently capped every solve at 20 matvecs. Explicit values win
+  unchanged (checklist `jfnk.md` WP-2.2).
 
 ## 8. Historical status notes
 
