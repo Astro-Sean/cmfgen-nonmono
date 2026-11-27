@@ -1,0 +1,112 @@
+{
+  "driver_rc_ok": true,
+  "rmax": 125312.1,
+  "rcore": 14546.88,
+  "nx_file": 70,
+  "nd": 70,
+  "tau_lo_ln": -0.3700526242630162,
+  "tau_max": 37.71083206021938,
+  "tau_outer_file": 1.7288044200374148e-10,
+  "u_range": 7.230146331763114,
+  "grid": {
+    "min_dlog_tau": 0.005701218042088563,
+    "max_dlog_tau": 1.3117553920291662,
+    "ratio_dlog_tau": 230.0833580377541,
+    "min_abs_dlogR": 2.9880848835261986e-05,
+    "n_abs1pSigma_lt_1e-6": 0,
+    "max_abs_sigma": 82.45420114324725,
+    "n_sigma_lt_m1": 70,
+    "tau_inner": 37.78183410931542,
+    "tau_outer": 8.897844486119077e-09,
+    "v_outer": 48.91759,
+    "v_inner": 7073.564,
+    "n_below_v100": 22,
+    "n_above_v1000": 19
+  },
+  "zero_gradient_nodes_1e-3": [],
+  "extremum": {
+    "file_peak_v": 7073.564,
+    "file_peak_r": 14546.88,
+    "grid_peak_v": 7073.564,
+    "grid_peak_r": 14546.88,
+    "v_err_frac": 0.0,
+    "r_err_frac": 0.0,
+    "note": "m15 peak sits at the inner file boundary; the interior-extremum check is the synthetic bump below"
+  },
+  "extremum_bump": {
+    "file_peak_v": 7959.3609554905315,
+    "file_peak_r": 10295.755673125128,
+    "grid_peak_v": 7959.360955491,
+    "grid_peak_r": 9940.83031846618,
+    "v_err_frac": 5.884766051349299e-14,
+    "r_err_frac": 0.034472977596526,
+    "reversals_preserved": 16
+  },
+  "features": {
+    "reversal_entries": 0,
+    "sigma_minima": 1,
+    "density_spikes": 0,
+    "entry_idx": [],
+    "minima_idx": [
+      65
+    ],
+    "spike_idx": []
+  },
+  "reversals_preserved": 70,
+  "u_inversion_max_rel_err": 0.0016968177391640132,
+  "tau_quad": {
+    "max_rel_trap_vs_ref": 0.012528877539853421,
+    "med_rel_trap_vs_ref": 0.005925265609539073
+  },
+  "sigma_c2_max_jump": 57230.48511354046,
+  "power_law_b1.5": {
+    "max_abs_sigma_err": 0.0005707899552189755,
+    "med_abs_sigma_err": 0.00011631538164580402,
+    "max_rel_v_err": 6.557970417461438e-06
+  },
+  "convergence_b7": {
+    "70": {
+      "max_rel_v_err": 4.6222222249203943e-05,
+      "max_abs_sigma_err": 0.004201616031659361
+    },
+    "140": {
+      "max_rel_v_err": 5.3762766455650645e-06,
+      "max_abs_sigma_err": 0.001015009923530208,
+      "order_v": 3.1039073411586307,
+      "order_sigma": 2.049450493698407
+    },
+    "280": {
+      "max_rel_v_err": 6.461469554716316e-07,
+      "max_abs_sigma_err": 0.0002486761232025625,
+      "order_v": 3.056673151831866,
+      "order_sigma": 2.0291539343659086
+    },
+    "560": {
+      "max_rel_v_err": 7.913362608110972e-08,
+      "max_abs_sigma_err": 6.14964859226852e-05,
+      "order_v": 3.029499548047918,
+      "order_sigma": 2.015692114533601
+    }
+  },
+  "pchip_vs_steffen": {
+    "max_rel_v_diff": 2.1957035777253102e-07,
+    "max_abs_sigma_diff": 0.00012783461430709853,
+    "note": "Steffen vs Fritsch-Carlson limiter divergence; both monotone, neither wrong - see audit doc B6"
+  },
+  "ltau_shift_max_rel_grid_move": {
+    "0.001": 1.0799065063999794e-14,
+    "0.1": 1.0799065063999794e-14,
+    "10.0": 1.2384033804312257e-14,
+    "1000.0": 9.035952400489624e-15
+  },
+  "homology_rescale": {
+    "grid_r_ratio_expected": 2.0,
+    "grid_r_ratio": 2.0,
+    "max_abs_sigma_move": 6.008349373587407e-11,
+    "tau_inner_ratio_vs_expected_0.25": 0.25000000000000416
+  },
+  "continuity": {
+    "mdot_rel_spread": 11.194594320715371,
+    "note": "SN homologous field: not a steady-wind profile; spread measures grid interpolation only"
+  }
+}
