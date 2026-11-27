@@ -2020,10 +2020,18 @@
 	  CALL RD_STORE_DBLE(JFNK_GMRES_STAG,'JFNK_GMRES_STAG',L_FALSE,
 	1     'GMRES stagnation improvement threshold (0=never stagnate)')
 !
-	  JFNK_GMRES_RST=1
+! WP-2.2: RST=1 capped a restart cycle at (1+1)*JFNK_M matvecs --
+! 20 with the defaults -- while JFNK_MAXGMRES=50 was advertised as
+! the budget. Derive the absent-key default so the restart cap
+! covers the full advertised budget: ceil(MAXGMRES/M)-1. An
+! explicit JFNK_GMRES_RST still wins; the effective cap is
+! min(JFNK_MAXGMRES, (RST+1)*JFNK_M) either way.
+!
+	  JFNK_GMRES_RST=MAX(0,INT(CEILING(
+	1     DBLE(JFNK_MAX_GMRES)/DBLE(MAX(JFNK_M_GMRES,1))))-1)
 	  CALL RD_STORE_INT(JFNK_GMRES_RST,'JFNK_GMRES_RST',L_FALSE,
-	1     'Max GMRES restarts per solve (safety cap; total its still'
-	2     //' bounded by JFNK_MAXGMRES)')
+	1     'Max GMRES restarts per solve (effective cap is'
+	2     //' min(JFNK_MAXGMRES,(RST+1)*JFNK_M))')
 !
 	  JFNK_LGMRES=.FALSE.
 	  CALL RD_STORE_LOG(JFNK_LGMRES,'JFNK_LGMRES',L_FALSE,
@@ -2582,6 +2590,24 @@
 	  JFNK_NM_CREDIT=2
 	  CALL RD_STORE_INT(JFNK_NM_CREDIT,'JFNK_NM_CREDIT',L_FALSE,
 	1     'Consecutive non-monotone accept credit cap')
+!
+! WP-2.1: graded Krylov-stagnation response. 'ABORT' keeps the
+! stock binary gate (inexact direction on the 0.9 tier, Newton
+! abort otherwise). 'GRADED' keeps any direction whose measured
+! true_res still beats ref_norm, and on a stale-preconditioner
+! stall consumes the refresh flag on the rejection path and
+! re-solves once at 10x tighter eta before aborting.
+!
+	  JFNK_STAG_POLICY='ABORT'
+	  CALL RD_STORE_CHAR(JFNK_STAG_POLICY,'JFNK_STAG_POLICY',
+	1     L_FALSE,'Stagnation policy: ABORT or GRADED')
+	  CALL SET_CASE_UP(JFNK_STAG_POLICY,IZERO,IZERO)
+	  IF(JFNK_STAG_POLICY .NE. 'ABORT' .AND.
+	1     JFNK_STAG_POLICY .NE. 'GRADED')THEN
+	    WRITE(LUER,*)'Invalid JFNK_STAG_POLICY=',JFNK_STAG_POLICY,
+	1     ' -- resetting to ABORT'
+	    JFNK_STAG_POLICY='ABORT'
+	  END IF
 !
 	  JFNK_CAUCHY=.TRUE.
 	  CALL RD_STORE_LOG(JFNK_CAUCHY,'JFNK_CAUCHY',L_FALSE,
