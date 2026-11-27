@@ -76,7 +76,63 @@ production behaviour. Unit-level coverage is green; no solver
 behaviour changed (instrumentation only - same decision tree,
 same eval counts).
 
-## WP-1 .. WP-7
+## WP-1: non-monotone line-search acceptance (27-Nov-2026)
+
+**Question.** The GLL line search accepts an alpha with |F| still
+rising, then the trust-region chain discards it whenever del /= 0 -
+and del == 0 is unreachable (JFNK_DEL=0 maps to -1 = auto TR at
+newton_hook_v1:1009). Can a GLL-passed increase be committed
+safely?
+
+**What landed.**
+
+- `JFNK_NM_ACCEPT` (default F): the `nm_increase_rejected` branch
+  is split. With the key set and `jfnk_nm_credit_left > 0`, a
+  GLL-passed increase commits (`nm_armijo_increase`): iterate
+  advances, |F| reaches the nm ring via the normal commit push,
+  del is left unchanged (never grown on an increase), one credit
+  is spent. The credit refills to `JFNK_NM_CREDIT` (default 2,
+  clamped 0..16) on any ared>0 commit; exhaustion falls back to
+  the old reject path. Standard GLL safeguard.
+- Bug fix regardless of the key: the discard branch now also
+  counts `n_reject`, so it is bounded at n_reject_max like every
+  other reject instead of only by `jfnk_del < mndl` (~70 halvings).
+  It also gained the shared too_many_rejected_steps abort.
+- The stale-history cap phi_ref <= 1.21*phi_0 (+10% in norm) stays
+  where it was (solver:1843); the new branch documents it.
+- Li & Fukushima citation corrected to Optim. Methods Softw. 13,
+  181-201 (was Appl. Math. Comput.) at the nm comment block and
+  rd_control_variables.f.
+- Key plumbing: CVM/RCV/jfnk_solve_corr_v1 sync/drv_vadat echo/
+  test_vadat_keys checks/NONMONO_KEYS row.
+
+**Alternatives evaluated (WP-1.4).** A `JFNK_GLOB=LS|TR|HYBRID`
+pure-LS globalisation was not taken: the LS ladder itself is not
+the inconsistency - the discard was. The nm-accept repair keeps
+the TR for all other branches and is the smaller diff; HYBRID =
+current behaviour remains the only mode.
+
+**Tests.** tests/jfnk_core/test_nm_accept.f90: homogeneous problem
+F = x*r^-0.9 (exact J and J^-1), Newton overshoots 10x so the
+alpha ladder probes +25%/+15% fails and a +4.1% GLL pass at
+alpha=0.25 once the window holds an older larger norm. Run A
+(default F): 18 nm_increase_rejected rows, 0 increase commits,
+info=3 - the before picture. Run B (NM_ACCEPT=T, credit 2): 17
+nm_armijo_increase commits, all LS trials, max consecutive run
+2 (bound holds), tr_rejected delta equals genuine reject rows
+only, iterate advanced 40 times. W3-equivalent (a GLL-accepted
+increase survives to sub()) is B5 here. Full suite green incl.
+test_step_status with the new label.
+
+**Residual risk / owed.** Flag defaults F - production behaviour
+is unchanged until a live DO_JFNK A/B (validation job) shows LS
+evals converting into accepted iterates; promote the default to T
+only after that harvest. Credit semantics bound consecutive
+increases, not total fraction; a model that alternates
+increase/decrease could still ride the cap indefinitely, by GLL
+design.
+
+## WP-2 .. WP-7
 
 Not yet worked this session. Owed in checklist order after the
 WP-0 production harvest: WP-1 non-monotone accept (`JFNK_NM_ACCEPT`,
