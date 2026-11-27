@@ -2863,9 +2863,18 @@ floor. Per-WP detail: `docs/audits/JFNK_ACCEPTANCE_AUDIT.md`.
       eval reconciliation). Owed: production admission harvest
       (JFNK_LEDGER + accounting block from one live DO_JFNK
       admission) before WP-1+ verdicts cite production behaviour.
-- [ ] WP-1 non-monotone line-search acceptance: nm_credit /
-      n_reject accounting for TR-discarded LS accepts,
-      JFNK_NM_ACCEPT key, test_nm_accept.f90.
+- [x] WP-1 non-monotone line-search acceptance: JFNK_NM_ACCEPT
+      (default F) commits GLL-passed |F| increases in TR mode
+      (nm_armijo_increase: advance, ring push, del unchanged);
+      JFNK_NM_CREDIT (default 2) bounds consecutive increase
+      accepts and refills on ared>0 commits. The unconditional
+      fix: the discard branch now counts n_reject (bounded at
+      n_reject_max, was ~70 del halvings). Li-Fukushima citation
+      corrected (Optim. Methods Softw., not Appl. Math. Comput.).
+      Test: tests/jfnk_core/test_nm_accept.f90 (A1/B1..B5, default
+      arm still rejects, flag arm commits 17 increases, credit
+      run max 2). Owed: production A/B before promoting the key
+      default (D5 before/after table feeds that call).
 - [ ] WP-2 graded Krylov-stagnation response: JFNK_STAG_POLICY,
       GMRES budget decoupling, JFNK_STAG_TOL review.
 - [ ] WP-3 budget-exhaustion graceful stop: JFNK_EVAL_BUDGET_HIT,
