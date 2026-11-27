@@ -51,7 +51,7 @@
       REAL(KIND=LDP) FREQ,DLN,DLNC,V0,RC,BETA,T1,T2,S0,DLNR
       REAL(KIND=LDP) ALB,CHISCL,CHIWAV,PERT,PFAC,BALB
       REAL(KIND=LDP) DLNA,V0A,RFBLK,RFMAXP,RFRLX,RFAA,RFDIR
-      REAL(KIND=LDP) GF_ARG
+      REAL(KIND=LDP) GF_ARG,RFGS,RFRLX2
       REAL(KIND=LDP) VDOP_FRAC,DBB,IC,IBSTAB,FJ,HF,GF
       REAL(KIND=LDP) FRQ(NCF),NU_NXT
       CHARACTER(LEN=32) MODE,NTYPE,INBM,HCHK,OUTTAG,CARG
@@ -198,6 +198,25 @@
       GF_ARG=0.5_LDP
       CALL GETARG(21,CARG)
       IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)GF_ARG
+!
+! Optional arg 22: rfst/rfj live-GS toggle. RFGS>=0 wires
+! MOM_RF_GS_DESC via SET_MOM_RF_OPTS (KEEPNEG untouched): 1 makes
+! compressing rows read the live J_NEXT_FRQ on descending passes
+! instead of the frozen JNEXT_RF_READ snapshot - the WP-M2
+! candidate fix for the frozen-Jacobi non-contractive map.
+!
+      RFGS=-1.0_LDP
+      CALL GETARG(22,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)RFGS
+!
+! Optional arg 23: rfst/rfj refresh relax factor. RFRLX2>=0 wires
+! MOM_RF_RLX via SET_MOM_RF_RLX (refresh damp schedule only, the
+! sweep write keeps JNEXT_RELAX): the WP-M5 fix pairs
+! MOM_RF_GS_DESC with a full-step refresh.
+!
+      RFRLX2=-1.0_LDP
+      CALL GETARG(23,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)RFRLX2
 !
       NTYP6='N_ON_J'
       IF(NTYPE .EQ. 'gonly')NTYP6='G_ONLY'
@@ -715,6 +734,10 @@
 ! diagnosis reported (nu-census amax 9.947E-01).
 !
         CALL SET_MOM_AUG_RES(.TRUE.)
+        IF(RFGS .GE. 0.0_LDP)
+     1    CALL SET_MOM_RF_OPTS(RFGS .GT. 0.5_LDP,MOM_RF_KEEPNEG)
+        IF(RFRLX2 .GE. 0.0_LDP)
+     1    CALL SET_MOM_RF_RLX(RFRLX2)
         IF(RFDIR .EQ. 1.0_LDP)THEN
           CALL SET_MOM_RF_DIR_OPT('DESC',.TRUE.,.TRUE.,.TRUE.)
         ELSE IF(RFDIR .EQ. 2.0_LDP)THEN
