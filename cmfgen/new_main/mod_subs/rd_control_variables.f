@@ -2569,6 +2569,20 @@
 	  CALL RD_STORE_INT(JFNK_LS_NMWIN,'JFNK_LS_NMWIN',L_FALSE,
 	1     'Non-monotone LS reference window (accepted steps)')
 !
+! WP-1 (JFNK acceptance audit): a GLL-passed |F| increase was
+! discarded by the trust-region chain whenever del /= 0, and del==0
+! is unreachable (JFNK_DEL=0 maps to -1 = auto TR). NM_ACCEPT lets
+! the line-search verdict stand; NM_CREDIT bounds consecutive
+! non-monotone accepts (standard GLL safeguard). Reference:
+! Li & Fukushima 2000, Optim. Methods Softw. 13, 181-201.
+!
+	  JFNK_NM_ACCEPT=.FALSE.
+	  CALL RD_STORE_LOG(JFNK_NM_ACCEPT,'JFNK_NM_ACCEPT',L_FALSE,
+	1     'Commit GLL-passed |F| increases in trust-region mode?')
+	  JFNK_NM_CREDIT=2
+	  CALL RD_STORE_INT(JFNK_NM_CREDIT,'JFNK_NM_CREDIT',L_FALSE,
+	1     'Consecutive non-monotone accept credit cap')
+!
 	  JFNK_CAUCHY=.TRUE.
 	  CALL RD_STORE_LOG(JFNK_CAUCHY,'JFNK_CAUCHY',L_FALSE,
 	1     'Use Cauchy (M^-1 F) fallback direction?')
