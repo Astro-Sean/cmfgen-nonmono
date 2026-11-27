@@ -44,6 +44,7 @@ program test_ptc_sign
    double precision :: x0(NN), f0(NN), ftrue(NN), xsol(NN), fmax
    double precision :: fnrm0, tol_t, ftru_nrm, maxerr
    integer :: evals(10,2), infos(10,2)
+   integer :: nfail_drift
    double precision :: ferr(10,2), xerr(10,2)
    double precision :: pert(10)
    !
@@ -112,7 +113,65 @@ program test_ptc_sign
       sum(evals(:,1)), '  signed=', sum(evals(:,2))
    write(luer,'(A,I2,A,I2)') ' converged unsigned=', &
       count(infos(:,1) == 0), '  signed=', count(infos(:,2) == 0)
-   write(luer,'(A)') 'TEST_PTC_SIGN DONE'
+   !
+   ! WP-5.1 white-box: the drift trigger compares live tau/x to the
+   ! factorization snapshot and sets jfnk_need_precond_refresh.
+   ! ratio 5 > JFNK_PC_TAU_FAC=4 must fire; an unsnapped state
+   ! (tau_at_factor=0) must leave the flag alone.
+   !
+   nfail_drift = 0
+   ! Disable the GMRES-its trigger so only the drift check can set
+   ! the flag in these two arms.
+   jfnk_pc_ref_frac = 1d9
+   jfnk_pc_tau_fac_lim = 4d0
+   jfnk_tau_at_factor = 1d0
+   jfnk_ptc_dtau = 5d0
+   jfnk_need_precond_refresh = 0
+   jfnk_x = xs + pert(1)
+   call f_neg(NN, jfnk_x, f0)
+   fmax = maxval(abs(f0))
+   do i = 1, NN
+      jfnk_ptc_scale(i) = max(abs(f0(i)), 1.0d-8 * fmax, 1.0d-30)
+   end do
+   jfnk_ptc_scale_ready = .true.
+   jfnk_ptc_x0 = 0d0
+   jfnk_ptc_anchor_ready = .true.
+   jfnk_x = xs + pert(1)
+   info = 1
+   call newton_hook_v1(f_neg, df_neg, dfp_neg, sub_neg, dp_neg, &
+                      20, NN, 1.0d-2, tol_t, -1d0, 1.0d-12, &
+                      1.0d99, 50, info, luer)
+   if(jfnk_need_precond_refresh == 1) then
+      write(luer,'(A)') 'T1: PASS  tau drift 5x fires ' // &
+         'jfnk_need_precond_refresh'
+   else
+      write(luer,'(A,I3)') 'T1: FAIL  refresh flag=', &
+         jfnk_need_precond_refresh
+      nfail_drift = 1
+   end if
+   !
+   jfnk_tau_at_factor = 0d0     ! no snapshot -> trigger inert
+   jfnk_need_precond_refresh = 0
+   jfnk_x = xs + pert(2)
+   info = 1
+   call newton_hook_v1(f_neg, df_neg, dfp_neg, sub_neg, dp_neg, &
+                      20, NN, 1.0d-2, tol_t, -1d0, 1.0d-12, &
+                      1.0d99, 50, info, luer)
+   if(jfnk_need_precond_refresh == 0) then
+      write(luer,'(A)') 'T2: PASS  unsnapped state leaves ' // &
+         'refresh flag clear'
+   else
+      write(luer,'(A)') 'T2: FAIL  flag set without a snapshot'
+      nfail_drift = 1
+   end if
+   jfnk_pc_tau_fac_lim = 0d0        ! restore default-off semantics
+   jfnk_pc_ref_frac = 0.8d0         ! back to the stock value
+   !
+   if(nfail_drift == 0) then
+      write(luer,'(A)') 'TEST_PTC_SIGN DONE (all pass)'
+   else
+      write(luer,'(A)') 'TEST_PTC_SIGN DONE (drift FAIL)'
+   end if
 
 contains
 
