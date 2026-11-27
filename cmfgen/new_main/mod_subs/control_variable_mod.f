@@ -663,6 +663,11 @@
 !
 	REAL(KIND=LDP) BA_ENTER_RAW
 	REAL(KIND=LDP) BA_LAST_RAW
+! WP-7.3: outer-iteration index at which BA_LAST_RAW last refreshed
+! (a non-LAMBDA, non-JFNK SOLVEBA call). The JFNK_GATE_REC record
+! reports its age so the audit can measure how stale the gated
+! demand value is at each admission (checklist jfnk.md WP-7.3).
+	INTEGER BA_LAST_RAW_IT
 	INTEGER BA_PROBE_LAM
 !
 ! BA_DAMP_CAP (VADAT [BA_DAMP_CAP], optional, default 0 = off): when
