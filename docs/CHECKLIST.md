@@ -2947,3 +2947,26 @@ floor. Per-WP detail: `docs/audits/JFNK_ACCEPTANCE_AUDIT.md`.
       LAM_STABLE_PROVEN, tier, defer class). Owed: histogram +
       relative-vs-absolute recommendation from the validation
       run (report-only; no defaults changed).
+
+### Production harvest status (28-Nov-2026)
+
+- [x] D5 before-baseline mined from the four finished m15 JFNK
+      runs (pre-WP binaries): 1030 admissions, 0 commits. Split:
+      897 frozen-tier info=-2 skips (FD-guard vetoes;
+      cos(F,A_FDz)<0.05 on 43-54% of probes while
+      cos(BAz,A_FDz)=1.000 everywhere - both operators agree the
+      preconditioned direction is non-descent) vs 133 coupled-tier
+      attempts in cplsob all ending gmres_stagnation_abort
+      (96363 JVPs, 32597 s Newton time, per-direction FD cap
+      inflating the operator ~300x on pinned rows). Full table:
+      docs/audits/JFNK_ACCEPTANCE_AUDIT.md "Production harvest".
+- [~] Telemetry arm RUNNING: m15_2p82d_VAL_sob_jfnk (13774528,
+      HEAD a02daa7a, defaults) - GATE_REC live (all defer class
+      `lambda` through it48), JFNK_LEDGER once Newton runs.
+- [~] A/B arm SUBMITTED: m15_2p82d_VAL_sob_jfnk_cplsob_ab
+      (13778399): warm restart of the cplsob it666 checkpoint,
+      identical deck + JFNK_NM_ACCEPT=T, JFNK_STAG_POLICY=GRADED,
+      JFNK_H_FREEZE=T, JFNK_LINTEST=T. Question: do coupled
+      attempts commit post-fix? Exit criterion: >=1 committed
+      correction or a classified failure mode; harvest with
+      docs/audits/jfnk_acceptance/jfnk_harvest.py.
