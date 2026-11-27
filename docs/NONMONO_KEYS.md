@@ -746,6 +746,19 @@ honoured even on non-Lambda iterations). Implementation:
 `cmfgen/new_main/mod_subs/jfnk_solver_v1.f90` and the `jfnk_*` modules;
 semantics per `../AGENTS.md` section 8.
 
+WP-1 keys (JFNK acceptance audit, 27-Nov-2026):
+
+- `JFNK_NM_ACCEPT` (logical, default F) - when set, a line-search
+  step that passes the GLL reference test with |F| still rising is
+  committed like any accepted iterate (the trust region neither
+  grows nor restores the base on it). Default F keeps the old
+  behaviour: the step is discarded and del halved. Off by default
+  pending a production A/B (checklist `jfnk.md` WP-1).
+- `JFNK_NM_CREDIT` (integer, default 2, clamped 0..16) - cap on
+  consecutive GLL increase accepts; one credit is spent per
+  `nm_armijo_increase` commit and refilled on any ared>0 commit.
+  Exhaustion falls back to the rejection path.
+
 ## 8. Historical status notes
 
 Dated records of why the machinery above exists. For current
