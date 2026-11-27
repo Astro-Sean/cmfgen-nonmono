@@ -2875,8 +2875,21 @@ floor. Per-WP detail: `docs/audits/JFNK_ACCEPTANCE_AUDIT.md`.
       arm still rejects, flag arm commits 17 increases, credit
       run max 2). Owed: production A/B before promoting the key
       default (D5 before/after table feeds that call).
-- [ ] WP-2 graded Krylov-stagnation response: JFNK_STAG_POLICY,
-      GMRES budget decoupling, JFNK_STAG_TOL review.
+- [x] WP-2 graded Krylov-stagnation response: JFNK_STAG_POLICY
+      (default ABORT). GRADED keeps directions whose measured
+      true_res beats ref_norm (descent gate owns dir_deriv>0), and
+      on a stale-preconditioner stall consumes the refresh flag on
+      the rejection path (JFNK_FACTOR_PRECOND_V1 direct), tightens
+      gres 10x, re-solves; abort after 2 retries. WP-2.2:
+      JFNK_GMRES_RST absent-key default now ceil(MAXGMRES/M)-1 so
+      the effective cap equals the advertised budget (sanctioned
+      default change). WP-2.3: JFNK_GMRES_STAG already exposed
+      jfnk_gmres_stag_tol - no new key. Test:
+      tests/jfnk_core/test_stag_graded.f90 (A1 abort-in-band,
+      B1/B2 keep+no-refresh, C1/C2 refresh x2 then abort).
+      Noted: test_guards G14 is a pre-existing -O3 sensitivity
+      boundary (fails on HEAD too). Owed: production A/B before
+      promoting the key default.
 - [ ] WP-3 budget-exhaustion graceful stop: JFNK_EVAL_BUDGET_HIT,
       sentinel handling, affordability check, LS eval cap.
 - [ ] WP-4 FD-operator fixed linear map: lintest probes,
