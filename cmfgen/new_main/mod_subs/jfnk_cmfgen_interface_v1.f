@@ -3952,7 +3952,8 @@
 	USE MOD_CMFGEN, ONLY: ATM, NUM_IONS
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
 	1     jfnk_ptc_active, jfnk_ptc_dtau, jfnk_log_unknown,
-	2     jfnk_ptc_scale, jfnk_ptc_scale_ready, jfnk_x, jfnk_fx
+	2     jfnk_ptc_scale, jfnk_ptc_scale_ready, jfnk_x, jfnk_fx,
+	3     jfnk_tau_at_factor, jfnk_x_at_factor
 	IMPLICIT NONE
 !
 	REAL(KIND=LDP) DUMMY_STEQ(JFNK_NT)
@@ -5682,6 +5683,22 @@
 	JFNK_BA_DIAG_READY = .TRUE.
 	JFNK_N_LU_FACTORS = JFNK_N_LU_FACTORS + 1
 	JFNK_FACTOR_DONE = .TRUE.
+!
+! WP-5.1 (jfnk.md): snapshot the tau and iterate this factorization
+! folded in -- the drift trigger in newton_hook_v1 compares the
+! live values against these to decide when the cached LU has aged
+! past [JFNK_PC_TAU_FAC].
+!
+	JFNK_TAU_AT_FACTOR = JFNK_PTC_DTAU
+	IF(ALLOCATED(jfnk_x))THEN
+	  IF(.NOT. ALLOCATED(jfnk_x_at_factor))THEN
+	    ALLOCATE(jfnk_x_at_factor(SIZE(jfnk_x)))
+	  ELSE IF(SIZE(jfnk_x_at_factor) .NE. SIZE(jfnk_x))THEN
+	    DEALLOCATE(jfnk_x_at_factor)
+	    ALLOCATE(jfnk_x_at_factor(SIZE(jfnk_x)))
+	  END IF
+	  jfnk_x_at_factor = jfnk_x
+	END IF
 	JFNK_QUIET_IO = .FALSE.
 !
 	END SUBROUTINE JFNK_FACTOR_PRECOND_V1
