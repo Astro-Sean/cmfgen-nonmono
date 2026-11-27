@@ -524,6 +524,16 @@ which stamps the same value in the initial VADAT.
   gated on `.NOT. USE_LAM_ES` and `CHECK_PARAM_CONSISTENCY`
   prints an inert warning.
 - `JNEXT_RELAX` - adaptive lagged-J relaxation factor.
+- `MOM_RF_RLX` (default -1.0 = inherit `JNEXT_RELAX`): refresh-only
+  relax factor for the per-cell `MOM_DAMP_NM` schedule in
+  `MOM_KNOP_REFRESH_V1`. `JNEXT_RELAX` also damps the sweep-side
+  `J_NEXT` write (the SE<->RT loop), so it cannot be raised to
+  speed a contractive refresh; this key splits the two. Pair with
+  `MOM_RF_GS_DESC=T`: under live Gauss-Seidel reads the
+  compressing map contracts and the Jacobi-calibrated 0.5 factor
+  only halves the step (WP-M5, docs/audits/
+  USE_LAM_ES_F_WP_M5_FIX_2026-11-27.md). Values <= 0 keep the
+  inherit sentinel; the setter clamps to (0,1].
 - `GS_FOREIGN_SEED` (default F): on restart, accept a
   fingerprint-valid but tag-mismatched `FGINEXT_GS` (e.g. from a
   converged SOB run of the same model) as the lagged-field seed
