@@ -475,6 +475,13 @@
 	  jfnk_do_stag_graded=(JFNK_STAG_POLICY .EQ. 'GRADED')
 	  jfnk_ls_eval_frac=JFNK_LS_MAX_EVALS_FRAC
 	  jfnk_pc_tau_fac_lim=JFNK_PC_TAU_FAC
+	  IF(JFNK_DESCENT_BASIS .EQ. 'G')THEN
+	    jfnk_desc_basis=1
+	  ELSE IF(JFNK_DESCENT_BASIS .EQ. 'BOTH')THEN
+	    jfnk_desc_basis=2
+	  ELSE
+	    jfnk_desc_basis=0
+	  END IF
 	  jfnk_do_cauchy=JFNK_CAUCHY
 	  jfnk_diagnostic_flag=JFNK_DIAGNOSTIC
 !
