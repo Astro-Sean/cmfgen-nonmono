@@ -1,5 +1,33 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] DO_ES_ALI=F isolation arm on the USE_LAM_ES=F route -
+      verdict recorded, jobs cancelled (27-Nov-2026).
+      Question (use_lam_es_eq_f.md isolation arm): does removing
+      the ES_ALI OAB update clear the bounded non-contraction on
+      SOB + USE_LAM_ES=F + MOM_BLKGMRES?
+      Run: dessart_m15_2p82d_VAL_sob_lamesF_blkgmres_noali, jobs
+      13749064 (cancelled it894, 17.8h) / 13749065 (cancelled).
+      Verdict: REFUTED - the stall persists identically with
+      ES_ALI off. At it894: mode LAMBDA_TFIX every iteration with
+      zero full BA steps, pops released and never re-frozen,
+      demanded correction oscillating 1E5-1E9% against the 1E7
+      cap, SE residual 9.32E12 declining ~0.03%/it, luminosity
+      outer/inner ~2.9, conv exit held at 70% (worst margin
+      9.2 dex ex_maxch). ES_ALI's OAB amplification is
+      exonerated as the primary driver.
+      Live defect: the compressing branch of the MOM sign-split
+      march stalls on essentially every refresh -
+      "Compressing direction stalled - dropping it after pass
+      22; the expanding direction continues" x1221 in OUTGEN
+      (expanding: x0). The compressing-zone cells get only the
+      expanding half of the field update; consistent with the
+      SE residual sitting at depth 66-70 (~16% of column sum
+      each). "J(mom) and J(ray) differ by >100% for last
+      frequency" also flagged in ISSUES.
+      The compressing-branch march stall inside
+      MOM_J_CMF_NONMONO_V1 is the open defect on this route;
+      route stays FAIL / opt-in per section 5.
+
 - [~] Knop WP-8 gate: A/B arms prepared for submission (27-Nov-2026,
       user-directed "continue with the knop solver").
       WP-8 (Anderson acceleration, optional) is gated on
