@@ -769,6 +769,42 @@ def main():
         f"NA9={kv(rs.stdout, 'RFST_NA9')}",
     )
 
+    # --- WP-M5: the flag-gated fix must converge the same fixture --
+    # WP-M2 named the non-contractive ingredient: compressing rows
+    # read the frozen JNEXT_RF_READ snapshot (pure Jacobi every other
+    # pass) instead of the live J_NEXT_FRQ. MOM_RF_GS_DESC swaps the
+    # descending-pass read to the live field (arg22) and MOM_RF_RLX
+    # gives the refresh its own relax factor (arg23) - the 0.5
+    # under-relaxation was calibrated against the Jacobi map and
+    # halves a contractive GS step. Alone, GS_DESC removes the stall
+    # but misses the 60-pass budget; the pair converges in ~12
+    # passes on the same schedule that stalled above.
+    rs_fix = run(exe32, "rfj", "nonj", "3", "1", "diff", "none", "1",
+                 "t_rfj_fix", "0.0", "10", "0.0", "0.0",
+                 "0.99", "1e-4", "1e5", "0", "0", "0", "-1", "0",
+                 "0.5", "1", "1", cwd=WORKDIR, timeout=600)
+    rep.check("rfj fix: driver completed", "RESULT_OK" in rs_fix.stdout,
+              rs_fix.stdout[-300:]
+              if "RESULT_OK" not in rs_fix.stdout else "")
+    rep.check(
+        "rfj fix: no compressing stall under GS_DESC+RF_RLX",
+        "Compressing direction stalled" not in rs_fix.stdout
+        and "Expanding direction stalled" not in rs_fix.stdout,
+        rs_fix.stdout[-400:],
+    )
+    rep.check(
+        "rfj fix: refresh converged, not best-pass retained",
+        kv(rs_fix.stdout, "RFST_CONV") > 0.5
+        and kv(rs_fix.stdout, "RFST_DCHG") > 1.0e-2,
+        f"RFST_CONV={kv(rs_fix.stdout, 'RFST_CONV')} "
+        f"RFST_DCHG={kv(rs_fix.stdout, 'RFST_DCHG')}",
+    )
+    rep.check(
+        "rfj fix: converges well inside the 60-pass budget",
+        "converged [OK]" in rs_fix.stdout,
+        [l for l in rs_fix.stdout.splitlines() if "Moment refresh:" in l],
+    )
+
     rep.summary()
 
 
