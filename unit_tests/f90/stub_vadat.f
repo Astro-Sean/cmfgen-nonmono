@@ -14,3 +14,9 @@
       END
       SUBROUTINE WRITE_DIRECT_INFO_V3()
       END
+C WP-2: JFNK_FACTOR_PRECOND_V1 is referenced (flag-gated) by
+C newton_hook_v1 in jfnk_solver_v1.f90, which the vadat driver
+C links; the parse path never calls it.
+      SUBROUTINE JFNK_FACTOR_PRECOND_V1(DO_FACTOR)
+      LOGICAL DO_FACTOR
+      END
