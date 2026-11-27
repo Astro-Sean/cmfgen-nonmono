@@ -200,6 +200,10 @@ def main():
             v.get("JFNK_STAG_POLICY") == "ABORT",
         )
         rep.check(
+            "baseline: JFNK_LS_MAX_EVALS_FRAC defaults 0.25",
+            v.get("JFNK_LS_MAX_EVALS_FRAC") == "2.500E-01",
+        )
+        rep.check(
             "baseline: JFNK_GMRES_RST derives to ceil(90/30)-1 = 2",
             v.get("JFNK_GMRES_RST") == "2",
         )
