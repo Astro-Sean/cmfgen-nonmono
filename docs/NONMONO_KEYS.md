@@ -776,6 +776,17 @@ WP-1 keys (JFNK acceptance audit, 27-Nov-2026):
   advertised JFNK_MAXGMRES budget; the old flat default of 1
   silently capped every solve at 20 matvecs. Explicit values win
   unchanged (checklist `jfnk.md` WP-2.2).
+- `JFNK_LS_MAX_EVALS_FRAC` (real, default 0.25) - cap on the
+  line-search eval spend per Newton pass as a fraction of the
+  remaining activation eval budget (JFNK_EVAL_CAP minus
+  JFNK_N_RESIDUAL_EVALS). On reaching the cap the LS keeps
+  whatever trial already passed Armijo. 1.0 restores the
+  unbounded ladder (checklist `jfnk.md` WP-3.4).
+- `JFNK_EVAL_BUDGET_HIT` is not a VADAT key -- a solver-visible
+  flag set in JFNK_RESIDUAL_V1 when the eval or wall budget
+  sentinel fires. The solver maps it to info=2 'budget_stop' so
+  the driver commits the best iterate instead of aborting
+  (checklist `jfnk.md` WP-3.1/3.2).
 
 ## 8. Historical status notes
 
