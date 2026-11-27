@@ -339,9 +339,10 @@ module jfnk_solver_v1_mod
    double precision :: jfnk_ls_beta_fac = 0.5d0      ! backtracking factor
    double precision :: jfnk_ls_armijo_c = 1.0d-4      ! Armijo parameter
    !
-   ! Non-monotone line search (Li & Fukushima 2000, Appl. Math.
-   ! Comput.; Grippo-Lampariello-Lucidi reference norm): when the
-   ! coupled residual carries evaluation noise, a monotone Armijo test
+   ! Non-monotone line search (Li & Fukushima 2000, Optim. Methods
+   ! Softw. 13, 181-201, doi:10.1080/10556780008805782;
+   ! Grippo-Lampariello-Lucidi reference norm): when the coupled
+   ! residual carries evaluation noise, a monotone Armijo test
    ! rejects steps whose true decrease is masked by sweep noise. The
    ! reference norm is the max of the last jfnk_ls_nmwin_s ACCEPTED
    ! |F| values (ring buffer below), so a bounded temporary increase
@@ -351,6 +352,19 @@ module jfnk_solver_v1_mod
    integer          :: jfnk_ls_nmwin_s = 4
    double precision :: jfnk_ls_nmhist(8) = -1d0
    integer          :: jfnk_ls_nmidx = 0
+   !
+   ! [JFNK_NM_ACCEPT] / [JFNK_NM_CREDIT] (WP-1): a line search that
+   ! passes the GLL test with |F| still rising used to be discarded
+   ! by the trust-region chain whenever del /= 0 -- and del == 0 is
+   ! unreachable because the driver maps JFNK_DEL=0 to -1 (auto TR).
+   ! With jfnk_do_nm_accept on, a GLL-passed increase commits like any
+   ! accepted step but spends one credit; the credit refills
+   ! to jfnk_nm_credit_cap on any ared>0 commit (standard GLL
+   ! safeguard bounding consecutive non-monotone accepts).
+   !
+   logical          :: jfnk_do_nm_accept = .false.
+   integer          :: jfnk_nm_credit_cap = 2
+   integer          :: jfnk_nm_credit_left = 0
    !
    ! Cauchy (preconditioned-residual) fallback direction (review §3):
    ! When the Newton line search fails, try d_C = M^{-1}*F as a
@@ -998,6 +1012,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    ! Fresh non-monotone LS history per activation (Oct-2026).
    jfnk_ls_nmhist = -1d0
    jfnk_ls_nmidx  = 0
+   ! WP-1: the non-monotone accept credit is per-activation too; the
+   ! cap comes from [JFNK_NM_CREDIT] via the driver sync.
+   jfnk_nm_credit_left = jfnk_nm_credit_cap
    ! EW Choice-2 memory is per-Newton-iteration, not per-activation:
    ! a stale eta from a previous solve would safeguard nothing and
    ! make the forcing path stateful across calls.
@@ -2118,6 +2135,18 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       else if(ls_accepted .and. del == 0d0) then
          jfnk_led_branch = 'ls_accept_noTR'
          ginfo = 0  ! no trust region; keep the non-monotone LS outcome
+      else if(ls_accepted .and. jfnk_do_nm_accept .and. &
+              jfnk_nm_credit_left > 0) then
+         ! WP-1 [JFNK_NM_ACCEPT]: the LS already passed the GLL test
+         ! against phi_ref (a bounded increase, capped at 1.21*phi_0
+         ! upstream = +10% in norm). Accept the trial as-is: the
+         ! iterate advances, the accepted |F| is pushed into the
+         ! non-monotone ring by the commit path below, and del is
+         ! left unchanged (never grown on an increase). One credit
+         ! is spent; the commit path refills it on ared>0 steps.
+         jfnk_led_branch = 'nm_armijo_increase'
+         jfnk_nm_credit_left = jfnk_nm_credit_left - 1
+         ginfo = 0
       else if(ls_accepted) then
          ! [USE_JFNK_SOLVER] defaults to F. A non-monotone increase in
          ! trust-region mode must restore the base and take the normal
@@ -2126,7 +2155,23 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          ! WP-0.4: the LS run's evals were spent on a step the TR check
          ! is now discarding.
          jfnk_ev_ls_wasted = jfnk_ev_ls_wasted + jfnk_led_lssteps
+         ! WP-1: count the discard as a genuine rejection like every
+         ! other reject branch. Without it the branch was bounded
+         ! only by jfnk_del < mndl (~70 halvings of del) per solve.
+         n_reject = n_reject + 1
          jfnk_n_tr_rejected = jfnk_n_tr_rejected + 1
+         if(n_reject >= n_reject_max .or. jfnk_del < mndl) then
+            if(info == 1) write(luer,'(A)') &
+               '  JFNK: too many rejected steps -- aborting Newton'
+            jfnk_x = x_
+            jfnk_fx = fx_
+            jfnk_tol = tol_
+            info = 3
+            jfnk_exit_reason = 'too_many_rejected_steps'
+            call jfnk_step_ledger_v1(n_reject)
+            if(info == 1) call jfnk_eval_account_v1(luer)
+            return
+         end if
          jfnk_x = x_
          jfnk_fx = fx_
          jfnk_tol = tol_
@@ -2319,6 +2364,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       jfnk_nits = jfnk_nits + 1
       n_reject = 0
+      ! WP-1: a genuine decrease refills the non-monotone credit; a
+      ! committed increase (nm_armijo_increase, ared<0) does not.
+      if(ared > 0d0) jfnk_nm_credit_left = jfnk_nm_credit_cap
       call sub()
       x_    = jfnk_x
       fx_   = jfnk_fx
