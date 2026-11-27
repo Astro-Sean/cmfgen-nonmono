@@ -51,6 +51,7 @@
 	REAL(KIND=LDP), ALLOCATABLE :: LOG_R_HYDRO(:)
 	LOGICAL, ALLOCATABLE :: USED(:)
 	LOGICAL INS
+	LOGICAL GOT_SIGMA
 	REAL(KIND=LDP) OLD_SN_AGE_DAYS
 	REAL(KIND=LDP) DEN_SCL_FAC
 	REAL(KIND=LDP) TAU_LO,DLOG_TAU,DLOG_U
@@ -152,6 +153,8 @@
 	ALLOCATE (TAU_HYDRO(NX));        TAU_HYDRO=0.0_LDP
 	ALLOCATE (T_HYDRO(NX));          T_HYDRO=0.0_LDP
 !
+	GOT_SIGMA=.FALSE.
+!
 ! Get basic HYDRO grid vectors.
 !
 	DO WHILE (1 .EQ. 1)
@@ -164,6 +167,7 @@
 	    READ(LU,*)V_HYDRO
 	  ELSE IF(INDEX(STRING,'Sigma') .NE. 0)THEN
 	    READ(LU,*)SIGMA_HYDRO
+	    GOT_SIGMA=.TRUE.
 	  ELSE IF(INDEX(STRING,'Density') .NE. 0)THEN
 	    READ(LU,*)DENSITY_HYDRO
 	  ELSE IF(INDEX(STRING,'Kappa') .NE. 0)THEN
@@ -250,6 +254,22 @@
 	    STOP
 	  END IF
 	END DO
+!
+! Defect D4: with no Sigma column the file leaves SIGMA_HYDRO = 0,
+! which makes the expansion factor below assume homology
+! (dlnV/dlnR = 1) and disables every sigma-keyed feature insertion
+! under TAU_OPT=1.  A legitimately homologous model still gets the
+! right answer; warn so a missing column on a non-homologous file is
+! not silent.  Treat an all-zero column the same way - a converter
+! that evaluated the column would leave roundoff, not exact zeros.
+!
+	IF(.NOT. GOT_SIGMA .OR.
+	1   MAXVAL(ABS(SIGMA_HYDRO(1:NX))) .EQ. 0.0_LDP)THEN
+	  WRITE(LUER,*)'Warning in RV_SN_MODEL_SNHYD: SN_HYDRO_DATA has'
+	1   //' no Sigma column (or an all-zero one); the expansion'
+	2   //' factor assumes homology (sigma=0) and TAU_OPT=1'
+	3   //' feature detection finds nothing'
+	END IF
 !
 ! Adjust R grid of SN for expansion, exactly as in
 ! SET_RV_HYDRO_MODEL_V3: R=R0+V.dt and the matching density scale.
