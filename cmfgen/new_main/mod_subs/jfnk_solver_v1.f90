@@ -386,6 +386,15 @@ module jfnk_solver_v1_mod
    double precision :: jfnk_pc_tau_fac_lim = 4d0
    double precision :: jfnk_tau_at_factor = 0d0
    double precision, allocatable :: jfnk_x_at_factor(:)
+   ! [JFNK_DESCENT_BASIS] ('F' default | 'G' | 'BOTH'): which inner
+   ! product the descent gate tests under PTC. 'F' is the stock
+   ! stripped <F, J_F s>; 'G' tests the folded <F, J_G s> the step
+   ! actually solves for; 'BOTH' accepts the direction when either
+   ! is positive. The Armijo merit keeps the F slope -- the
+   ! convergence test is on |F| and must stay there (jfnk.md
+   ! WP-6.2). Telemetry for the choice is the WP-0 ledger's
+   ! dir_deriv_F / dir_deriv_G pair.
+   integer          :: jfnk_desc_basis = 0
    !
    ! Cauchy (preconditioned-residual) fallback direction (review §3):
    ! When the Newton line search fails, try d_C = M^{-1}*F as a
@@ -886,6 +895,11 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    integer          :: ls_step, nm_k
    integer          :: ls_eval_cap, jfnk_ev_ls_thispass
    double precision :: pc_tau_ratio, pc_x_drift
+   logical          :: descent_ok
+   double precision :: descent_deriv
+   integer          :: i_swp
+   double precision :: alpha_swp, swp_list(4)
+   double precision, allocatable :: swp_y(:)
    !
    ! Cauchy direction safeguards (audit 17-Sep-2026): the
    ! preconditioned-residual direction d_C = M^{-1}F now gets the same
@@ -1716,6 +1730,25 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       jfnk_led_dirf = dir_deriv
       jfnk_led_cos = dir_deriv / max(tol_ * norm_Js, 1.0d-30)
       !
+      ! WP-6.2 [JFNK_DESCENT_BASIS]: pick the inner product the
+      ! descent gate tests. dirg (the folded <F, J_G s> measured at
+      ! :1673 pre-strip) describes the operator the step actually
+      ! solves under PTC, so at small tau a step can be descent on G
+      ! while non-descent on F.
+      !
+      descent_ok = dir_deriv > 0d0
+      descent_deriv = dir_deriv
+      if(jfnk_desc_basis == 1) then
+         descent_ok = (jfnk_led_dirg > 0d0)
+         descent_deriv = jfnk_led_dirg
+      end if
+      if(jfnk_desc_basis == 2) then
+         descent_ok = (dir_deriv > 0d0 .or. jfnk_led_dirg > 0d0)
+         ! Merit follows the stronger descent claim; the convergence
+         ! test stays on |F| either way.
+         descent_deriv = max(dir_deriv, jfnk_led_dirg)
+      end if
+      !
       ! Bail when the measured exit residual already shows the Krylov
       ! basis amplifies the operator: jfnk_gmres_true_res is the FD
       ! residual of the assembled step, set on non-converged exits, so
@@ -1731,7 +1764,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! requests a hookstep recompute on the existing basis at no eval
       ! cost.
       !
-      if(dir_deriv <= 0d0 .and. .not. jfnk_gmres_recomputed .and. &
+      if(.not. descent_ok .and. .not. jfnk_gmres_recomputed .and. &
          jfnk_eta > jfnk_eta_min .and. &
          descent_retry_count < descent_retry_max .and. &
          jfnk_gmres_true_res_ok .and. &
@@ -1742,7 +1775,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             ') with true_res/|F|=', &
             real(jfnk_gmres_true_res / max(ref_norm, 1d-30)), &
             ' -- keeping direction, not retrying'
-      else if(dir_deriv <= 0d0 .and. .not. jfnk_gmres_recomputed .and. &
+      else if(.not. descent_ok .and. .not. jfnk_gmres_recomputed .and. &
          jfnk_eta > jfnk_eta_min .and. &
          descent_retry_count < descent_retry_max) then
          !
@@ -1817,6 +1850,53 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          if(info == 1) call jfnk_eval_account_v1(luer)
          return
       end if
+      ! WP-6.3: true-residual alpha sweep on the first two Newton
+      ! passes, gated on JFNK_DIAGNOSTIC. The existing sweep in
+      ! jfnk_newton_diagnostic_v1 prices the LINEARIZED model
+      ! |F - a*J*s| for free; this re-measures the true
+      ! |F(x - a*s)| the optimal-alpha claim rests on -- 4 evals
+      ! per pass on passes 1-2 only (alpha=1 is the trial above).
+      !
+      if(jfnk_diagnostic_flag .and. jfnk_nits <= 1 .and. &
+         info == 1) then
+         write(luer,'(A)') &
+            '  JFNK alpha-sweep (true residual):'
+         write(luer,'(A)') &
+            '  alpha      ||F(x - alpha s)||_w'
+         write(luer,'(ES10.3,ES20.4)') 1.0d0, &
+            dsqrt(dp(n, jfnk_fx, jfnk_fx))
+         swp_list = (/0.5d0, 0.1d0, 0.01d0, 1.0d-3/)
+         if(.not. allocated(swp_y)) allocate(swp_y(n))
+         if(size(swp_y) .ne. n) then
+            deallocate(swp_y)
+            allocate(swp_y(n))
+         end if
+         do i_swp = 1, 4
+            alpha_swp = swp_list(i_swp)
+            jfnk_x = x_ - alpha_swp * s
+            tw_ev = jfnk_wtime_v1()
+            call f(n, jfnk_x, swp_y)
+            jfnk_tm_trial = jfnk_tm_trial + (jfnk_wtime_v1() - tw_ev)
+            jfnk_ev_trial = jfnk_ev_trial + 1
+            jfnk_total_f_evals = jfnk_total_f_evals + 1
+            call jfnk_ptc_strip_v1(n, jfnk_x, swp_y)
+            if(JFNK_EVAL_BUDGET_HIT) exit
+            write(luer,'(ES10.3,ES20.4)') alpha_swp, &
+               dsqrt(dp(n, swp_y, swp_y))
+         end do
+         jfnk_x = x_ - s        ! restore the full-step trial point
+         if(JFNK_EVAL_BUDGET_HIT) then
+            jfnk_fx = fx_
+            jfnk_tol = tol_
+            info = 2
+            jfnk_exit_reason = 'budget_stop'
+            jfnk_led_branch = 'budget_stop'
+            call jfnk_step_ledger_v1(n_reject)
+            if(info == 1) call jfnk_eval_account_v1(luer)
+            return
+         end if
+      end if
+      !
       jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
       ared = tol_ - jfnk_tol
       pred = tol_ - pred_res_physical
@@ -1977,10 +2057,12 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       !
       ls_accepted = .false.
       !
-      if(jfnk_do_line_search .and. ared < 0d0 .and. dir_deriv > 0d0) then
+      if(jfnk_do_line_search .and. ared < 0d0 .and. descent_ok) then
          !
          phi_0  = 0.5d0 * tol_ * tol_
-         dphi_0 = -dir_deriv           ! < 0 for descent direction
+         ! WP-6.2: the slope uses the merit matching the descent
+         ! basis (F stock; G/BOTH per JFNK_DESCENT_BASIS).
+         dphi_0 = -descent_deriv       ! < 0 for descent direction
          !
          ! Non-monotone reference (Oct-2026): phi_ref replaces phi_0 in
          ! the sufficient-decrease test. With jfnk_ls_nonmono=F this
