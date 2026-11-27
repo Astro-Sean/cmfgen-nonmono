@@ -482,6 +482,14 @@
 	  ELSE
 	    jfnk_desc_basis=0
 	  END IF
+	  jfnk_do_h_freeze=JFNK_H_FREEZE
+	  IF(JFNK_H_FORM .EQ. 'TWO_NORM')THEN
+	    jfnk_h_form_sel=1
+	  ELSE IF(JFNK_H_FORM .EQ. 'COMPONENTWISE')THEN
+	    jfnk_h_form_sel=2
+	  ELSE
+	    jfnk_h_form_sel=0
+	  END IF
 	  jfnk_do_cauchy=JFNK_CAUCHY
 	  jfnk_diagnostic_flag=JFNK_DIAGNOSTIC
 !
