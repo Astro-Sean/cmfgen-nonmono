@@ -2890,8 +2890,13 @@ floor. Per-WP detail: `docs/audits/JFNK_ACCEPTANCE_AUDIT.md`.
       Noted: test_guards G14 is a pre-existing -O3 sensitivity
       boundary (fails on HEAD too). Owed: production A/B before
       promoting the key default.
-- [ ] WP-3 budget-exhaustion graceful stop: JFNK_EVAL_BUDGET_HIT,
-      sentinel handling, affordability check, LS eval cap.
+- [x] WP-3 budget-exhaustion graceful stop: JFNK_EVAL_BUDGET_HIT
+      set at both sentinel sites; info=2 'budget_stop' after
+      entry/GMRES/trial/LS/Cauchy evals keeps the best iterate;
+      affordability gate denies admission when budget < m+2;
+      JFNK_LS_MAX_EVALS_FRAC=0.25 caps LS spend. Unit-verified
+      (test_budget_stop 6/6); flag default unchanged semantics
+      (sentinel path), owed production A/B.
 - [ ] WP-4 FD-operator fixed linear map: lintest probes,
       JFNK_H_FREEZE, JFNK_H_FORM variants, BA JVP A/B.
 - [ ] WP-5 preconditioner lag under PTC: tau-drift refresh
