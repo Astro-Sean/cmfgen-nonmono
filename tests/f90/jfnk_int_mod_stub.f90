@@ -21,4 +21,16 @@ module jfnk_cmfgen_int_mod
    ! WP-0: ledger/accounting routines report the interface-side eval
    ! total; the stub counter stays 0 unless a driver's f() bumps it.
    integer, save :: JFNK_N_RESIDUAL_EVALS = 0
+   ! WP-2: counts graded-stagnation refresh calls so tests can see
+   ! the consumption on the rejection path.
+   integer, save :: JFNK_STUB_NFACTOR = 0
 end module jfnk_cmfgen_int_mod
+
+! Production JFNK_FACTOR_PRECOND_V1 is an external routine (not a
+! module member), so the stub mirrors that shape.
+subroutine JFNK_FACTOR_PRECOND_V1(do_factor)
+   use jfnk_cmfgen_int_mod, only: JFNK_STUB_NFACTOR
+   implicit none
+   logical, intent(in) :: do_factor
+   if(do_factor) JFNK_STUB_NFACTOR = JFNK_STUB_NFACTOR + 1
+end subroutine JFNK_FACTOR_PRECOND_V1
