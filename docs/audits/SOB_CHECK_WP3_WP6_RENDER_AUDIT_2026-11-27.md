@@ -49,11 +49,37 @@ itself was verified by a standalone driver against the worktree
 `libsubs` (CEN_ARMED=T under `CMF_SOB_T1_CENSUS=1`, report
 prints).
 
-Awaiting census numbers for the report table:
+## WP6: armed census output (job 13775749, VERIFIED)
 
-- samples, min T1 (ray,depth), min/max GAM, sigma range,
-  undefined-sigma count, NaN/Inf counts, EXPONX guard counts
-  (guard counters folded into the report by the uncommitted
-  `sobew_grad_v2.f` edit; the worktree exe at `f69772a7` predates
-  that fold, so the first armed output may lack the final line -
-  a worktree rebuild + rerun will add it).
+Staged copy rendered with `DO_SOB_LINES=T`, `DO_NONMONO_SOB=T`,
+`GLOBAL_LINE=SOB`, `CMF_SOB_T1_CENSUS=1`.  The EW estimator ran
+the unclamped `SIGMA_TRUE` branch of SOBEW_GRAD_V2.  Census block
+(`obs/OUT_FLUX` lines 240-247 of the staged render):
+
+```
+SOB_T1_CENSUS: samples =    420926590
+SOB_T1_CENSUS: min T1 =    7.393938E-03  at ray     36 depth      1
+SOB_T1_CENSUS: min GAM =   -2.738882E+00  at ray     52 depth     15
+SOB_T1_CENSUS: max GAM =    7.205230E+07  at ray     47 depth     25
+SOB_T1_CENSUS: sigma range =   -1.556105E+02 ..   -1.036970E+00
+SOB_T1_CENSUS: undefined sigma =        0
+SOB_T1_CENSUS: GAM NaN =        0  Inf =        0
+SOB_T1_CENSUS: EXPONX NaN =        0  Inf =        0
+```
+
+Read: 4.21e8 (ray,depth,freq,line) samples; the 1e-4 T1 floor is
+never engaged (min T1 = 7.4e-3); sigma reaches -155.6 in the
+compression shell (deeper than the -82 first estimate); negative
+GAMs exist down to -2.74 but EXPONX stays finite (the X < -700
+bound is never approached); the largest GAM (7.2e7) sits in the
+1/X branch with no overflow.  No NaN/Inf anywhere.
+
+The EXPONX-guard counter line is absent because the worktree exe
+predates the `sobew_grad_v2.f` fold; from the zero overflow
+counts the bound did not engage.  A worktree rebuild + rerun
+will add the printed counters for completeness.
+
+Regression artifact: the staged render dir
+`scratch/render_valsob_census/` (OUT_FLUX lines 240-247) is the
+armed-census reference; reproduce with
+`scratch/render_valsob_census/run_render.sh`.
