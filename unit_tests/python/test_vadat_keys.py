@@ -190,6 +190,19 @@ def main():
             "baseline: JFNK_NM_CREDIT defaults 2",
             v.get("JFNK_NM_CREDIT") == "2",
         )
+        # WP-2 (acceptance audit): stagnation policy defaults to the
+        # stock binary abort; JFNK_GMRES_RST derives from the parsed
+        # JFNK_MAXGMRES/JFNK_M budget -- the template sets 90/30, so
+        # ceil(90/30)-1 = 2 and the effective cap min(90,(2+1)*30)
+        # equals the advertised 90.
+        rep.check(
+            "baseline: JFNK_STAG_POLICY defaults ABORT",
+            v.get("JFNK_STAG_POLICY") == "ABORT",
+        )
+        rep.check(
+            "baseline: JFNK_GMRES_RST derives to ceil(90/30)-1 = 2",
+            v.get("JFNK_GMRES_RST") == "2",
+        )
         # Preconditioner-audit keys (jfnk-precond-fixes): every new
         # flag must default OFF so the default path is unchanged.
         rep.check(
