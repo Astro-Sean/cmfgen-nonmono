@@ -613,6 +613,15 @@
 !
 	DOUBLE PRECISION, SAVE :: JFNK_T_START=0.0D0
 	LOGICAL, SAVE :: JFNK_SEC_HIT=.FALSE.
+! WP-3.1: distinct budget-exhaustion signal, separate from
+! jfnk_resid_nbad/JFNK_EVAL_BROKEN. JFNK_RESIDUAL_V1 sets it at the
+! eval-cap and wall-cap sentinels; the solver reads it so the stop
+! is graceful (info=2 budget_stop, best iterate kept) instead of a
+! Krylov failure. JFNK_EVAL_CAP caches the effective cap computed
+! each call so the solver can price the line search against the
+! remaining budget without re-reading CONTROL_VARIABLE_MOD.
+	LOGICAL, SAVE :: JFNK_EVAL_BUDGET_HIT=.FALSE.
+	INTEGER, SAVE :: JFNK_EVAL_CAP=0
 	INTEGER, SAVE :: JFNK_N_RESIDUAL_EVALS=0
 	INTEGER, SAVE :: JFNK_N_RESIDUAL_NAN=0    ! residual evals with NaN/Inf
 	INTEGER, SAVE :: JFNK_N_JVP_EVALS=0
