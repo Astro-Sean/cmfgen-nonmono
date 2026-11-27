@@ -51,6 +51,7 @@
       REAL(KIND=LDP) FREQ,DLN,DLNC,V0,RC,BETA,T1,T2,S0,DLNR
       REAL(KIND=LDP) ALB,CHISCL,CHIWAV,PERT,PFAC,BALB
       REAL(KIND=LDP) DLNA,V0A,RFBLK,RFMAXP,RFRLX,RFAA,RFDIR
+      REAL(KIND=LDP) GF_ARG
       REAL(KIND=LDP) VDOP_FRAC,DBB,IC,IBSTAB,FJ,HF,GF
       REAL(KIND=LDP) FRQ(NCF),NU_NXT
       CHARACTER(LEN=32) MODE,NTYPE,INBM,HCHK,OUTTAG,CARG
@@ -185,6 +186,18 @@
       RFDIR=0.0_LDP
       CALL GETARG(20,CARG)
       IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)RFDIR
+!
+! Optional arg 21: midpoint N/H closure factor GF (default 0.5).
+! On the USE_LAM_ES=F route GF comes from V13 ray moments, which
+! are expansion-biased at sigma<-1 (comp_j_blank.f:891, F10): a
+! sweep of GF probes whether the stall signature is sensitive to
+! a mispriced compressing-branch closure. GET_MOMS_NON_REL fills
+! the degenerate |H|<1E-3|N| case with SIGN(1E10,N), so GF=1E10
+! also covers that branch.
+!
+      GF_ARG=0.5_LDP
+      CALL GETARG(21,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)GF_ARG
 !
       NTYP6='N_ON_J'
       IF(NTYPE .EQ. 'gonly')NTYP6='G_ONLY'
@@ -365,7 +378,7 @@
 !
       FJ=1.0_LDP/3.0_LDP
       HF=0.30_LDP
-      GF=0.50_LDP
+      GF=GF_ARG
       ND_STORE=ND
       ALLOCATE(R_STORE(ND),RMID_STORE(ND),EXT_RMID_STORE(ND+2),
      1 JNU_STORE(ND),HNU_STORE(ND),NNU_STORE(ND),KNU_STORE(ND),
