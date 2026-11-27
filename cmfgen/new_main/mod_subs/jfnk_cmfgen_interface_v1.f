@@ -2732,7 +2732,9 @@
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_x, jfnk_fx, jfnk_jvp_failed,
 	1                           jfnk_log_unknown, jfnk_resid_nbad,
 	2                           jfnk_pc_clip_event, jfnk_n_zmax_hit,
-	3                           jfnk_n_reg_proj
+	3                           jfnk_n_reg_proj, jfnk_do_h_freeze,
+	4                           jfnk_h_frozen, jfnk_h_frozen_active,
+	5                           jfnk_h_freeze_nv, jfnk_h_form_sel
 	USE CONTROL_VARIABLE_MOD, ONLY: JFNK_MAX_EVALS, JFNK_MAX_SEC,
 	1                           JFNK_FD_COMPLEX, JFNK_EVAL_BROKEN,
 	2                           JFNK_JVP_NDIR, JFNK_BA_JVP,
@@ -2748,6 +2750,7 @@
 	EXTERNAL OMP_GET_WTIME
 !
 	DOUBLE PRECISION EPS0, VNORM, XNORM, H_STEP
+	DOUBLE PRECISION VNORM2, XNORM2
 	DOUBLE PRECISION H_CAP, X_CLIP_B, X_FLOOR, X_MARGIN, CAP_MARGIN
 	INTEGER I_CAP
 	INTEGER IDX_J
@@ -2822,10 +2825,16 @@
 !
 	VNORM = 0.0D0
 	XNORM = 0.0D0
+	VNORM2 = 0.0D0
+	XNORM2 = 0.0D0
 	DO I = 1, N
 	  VNORM = MAX(VNORM, ABS(JFNK_W_V_USE(I)))
 	  XNORM = MAX(XNORM, ABS(jfnk_x(I)))
+	  VNORM2 = VNORM2 + JFNK_W_V_USE(I)**2
+	  XNORM2 = XNORM2 + jfnk_x(I)**2
 	END DO
+	VNORM2 = SQRT(VNORM2)
+	XNORM2 = SQRT(XNORM2)
 	IF(VNORM .LT. 1.0D-30)THEN
 	  JV = 0.0D0
 	  RETURN
@@ -2971,9 +2980,29 @@
 !
 ! edited by Sean Brennan (09-Sep-2026)
 !
-	H_STEP = EPS0 * MAX(XNORM, 1.0D0) / VNORM
+! WP-4.3 [JFNK_H_FORM] (default 'INFNORM'): base-step variants.
+! 'TWO_NORM' is the Knoll & Keyes 2004 (Sec 3.2, eqs 12-16) form
+! h = eps*(1+||x||_2)/||v||_2. 'COMPONENTWISE' reduces the
+! per-component form h_i = eps*max(|x_i|,1)/|v_i| to the scalar min
+! over active components -- the conservative bound; a true vector
+! h does not fit a single directional difference.
 !
-! Safeguard (revised 17-Sep-2026, audit issue 5): keep ONLY the upper
+	IF(jfnk_h_form_sel .EQ. 1)THEN
+	  H_STEP = EPS0 * (1.0D0 + XNORM2) / MAX(VNORM2, 1.0D-300)
+	ELSE IF(jfnk_h_form_sel .EQ. 2)THEN
+	  H_STEP = HUGE(1.0D0)
+	  DO I = 1, N
+	    IF(ABS(JFNK_W_V_USE(I)) .GT. 0.0D0)THEN
+	      H_STEP = MIN(H_STEP,
+	1        EPS0*MAX(ABS(jfnk_x(I)),1.0D0)/ABS(JFNK_W_V_USE(I)))
+	    END IF
+	  END DO
+	  IF(.NOT. (H_STEP .GT. 0.0D0) .OR.
+	1       H_STEP .GE. HUGE(1.0D0)) H_STEP =
+	2       EPS0 * MAX(XNORM, 1.0D0) / VNORM
+	ELSE
+	  H_STEP = EPS0 * MAX(XNORM, 1.0D0) / VNORM
+	END IF
 ! cap. The previous MAX(H_STEP,1D-12) floor was not harmless: for a
 ! huge ||v||_inf it inflated ||h*v|| to a percent-scale perturbation,
 ! far above the FD scale and deep into the nonlinear clipping regime
@@ -3075,8 +3104,36 @@
 	    END IF
 	  END IF
 	END DO
-	JFNK_PROBE_CAPPED = (H_CAP .LT. H_STEP)
-	H_STEP = MIN(H_STEP, H_CAP)
+! WP-4.2 [JFNK_H_FREEZE] (default F): with the flag on, the cap
+! computed from the first Arnoldi direction of the current solve is
+! frozen and reused for every later matvec, so the FD map is a
+! fixed linear operator within the solve. A later direction whose
+! fresh cap would have shrunk the step is a frozen-cap violation --
+! counted for the audit log; the frozen step stands (the whole
+! point is to remove the direction dependence).
+!
+	IF(jfnk_do_h_freeze .AND. jfnk_h_frozen_active)THEN
+	  IF(H_CAP .LT. jfnk_h_frozen)THEN
+	    jfnk_h_freeze_nv = jfnk_h_freeze_nv + 1
+	    IF(jfnk_h_freeze_nv .EQ. 1 .AND. JFNK_LUER .GT. 0)
+	1     WRITE(JFNK_LUER,'(A,2ES12.4)')
+	2     '  JFNK: H_FREEZE cap violated h_frozen, cap=',
+	3     jfnk_h_frozen, H_CAP
+	    JFNK_PROBE_CAPPED = .TRUE.
+	  ELSE
+	    JFNK_PROBE_CAPPED = .FALSE.
+	  END IF
+	  H_STEP = jfnk_h_frozen
+	ELSE
+	  JFNK_PROBE_CAPPED = (H_CAP .LT. H_STEP)
+	  H_STEP = MIN(H_STEP, H_CAP)
+	  IF(jfnk_do_h_freeze)THEN
+	    jfnk_h_frozen = H_STEP
+	    jfnk_h_frozen_active = .TRUE.
+	    IF(JFNK_LUER .GT. 0) WRITE(JFNK_LUER,'(A,ES12.4)')
+	1     '  JFNK: H_FREEZE armed, h=', jfnk_h_frozen
+	  END IF
+	END IF
 !
 ! COLPROBE h-scan hook (see JFNK_CMFGEN_INT_MOD): a diagnostic-only
 ! multiplier applied after the safety cap so probes can step across
