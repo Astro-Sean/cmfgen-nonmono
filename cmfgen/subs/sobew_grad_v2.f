@@ -1,7 +1,9 @@
 !
 ! Regression census of the floored Sobolev denominator T1, the
 ! resulting GAM and its EXPONX escape factor across every
-! (depth, ray) sample of every EW call.  Diagnostic only
+! (depth, ray) sample of every EW call, plus the EXPONX_GUARD_MOD
+! X<-700 bound activations (WP3: the bound returns finite output,
+! so an engaged guard needs its own count).  Diagnostic only
 ! [SOB_check WP6]: armed by environment variable
 ! CMF_SOB_T1_CENSUS=1 (pattern follows CMF_KN_RF_MB).  Unarmed runs
 ! pay one logical test per sample and produce no output.  Report is
@@ -111,6 +113,7 @@
 	END SUBROUTINE SOB_T1_CEN_ACC_EX
 !
 	SUBROUTINE SOB_T1_CENSUS_REPORT(LU)
+	USE EXPONX_GUARD_MOD
 	INTEGER LU
 	IF(.NOT. CEN_INIT)CALL SOB_T1_CEN_INIT()
 	IF(.NOT. CEN_ARMED)RETURN
@@ -131,6 +134,13 @@
 	1  '  Inf = ',CEN_NINF
 	WRITE(LU,'(A,I8,A,I8)')'SOB_T1_CENSUS: EXPONX NaN = ',CEN_XNAN,
 	1  '  Inf = ',CEN_XINF
+!
+! WP3 EXPONX bound activations: the bound returns finite output, so
+! an engaged guard is invisible to the NaN/Inf counts above -- the
+! counters are printed here so an armed report exposes them.
+!
+	WRITE(LU,'(A,I8,A,I8)')'SOB_T1_CENSUS: EXPONX guard = ',
+	1  N_EXPONX_GUARD,'  d_EXPONX guard = ',N_DEXPONX_GUARD
 	RETURN
 	END SUBROUTINE SOB_T1_CENSUS_REPORT
 !
