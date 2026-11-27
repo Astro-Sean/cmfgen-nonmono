@@ -1,5 +1,11 @@
 # VEL_LAW=14 (RV_SN_MODEL_SNHYD TAU_OPT=1) robustness audit
 
+SUPERSEDED 27-Nov-2026 by docs/audits/VEL_LAW14_REVIEW_2026-11-27.md
+(adversarial re-review under checklists/velaw14.md). The D1-D4 input
+defects pinned below are FIXED on jfnk-acceptance-audit (4ac2edbc,
+4ce95eed, 1f025ea1, 0d7d02c0); the construction verdict stands -
+VERIFIED. Kept for the node-for-node construction detail.
+
 Date: 22-Nov-2026. Auditor: Devin. Trigger: user request - VEL_LAW=14
 is deployed as the upgrade to VEL_LAW=12 on the m15 SN_HYDRO_DATA runs;
 verify it is still robust.
