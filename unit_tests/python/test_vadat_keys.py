@@ -180,6 +180,16 @@ def main():
             "baseline: absent JFNK_ESFR defaults F",
             v.get("JFNK_ESFR") == "F",
         )
+        # WP-1 (acceptance audit): the non-monotone accept is opt-in;
+        # the credit cap defaults to 2.
+        rep.check(
+            "baseline: absent JFNK_NM_ACCEPT defaults F",
+            v.get("JFNK_NM_ACCEPT") == "F",
+        )
+        rep.check(
+            "baseline: JFNK_NM_CREDIT defaults 2",
+            v.get("JFNK_NM_CREDIT") == "2",
+        )
         # Preconditioner-audit keys (jfnk-precond-fixes): every new
         # flag must default OFF so the default path is unchanged.
         rep.check(
