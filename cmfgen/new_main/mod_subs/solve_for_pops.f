@@ -583,6 +583,8 @@
 	REAL(KIND=LDP) JFNK_DEM_IN
 	INTEGER JFNK_NREQ_EFF
 	INTEGER JFNK_FRZ_FAIL_N
+	CHARACTER(LEN=12) JFNK_GATE_WHY
+	CHARACTER(LEN=4)  JFNK_GATE_TIER
 	INTEGER, SAVE :: JFNK_FRZ_HITS=0
 	INTEGER, SAVE :: JFNK_CPL_HITS=0
 !
@@ -2482,6 +2484,7 @@
 	  JFNK_FRZ_HITS=0
 	  JFNK_CPL_HITS=0
 	  JFNK_LAST_DEM=0.0_LDP
+	  JFNK_DEM_IN=0.0_LDP
 	END IF
 !
 	JFNK_COUPLED_THIS=.FALSE.
@@ -2707,6 +2710,61 @@
 	  LAMBDA_ITERATION=.FALSE.
 	  FIX_IMPURITY=.FALSE.
 	  MOD_FIX_IMPURITY=.FALSE.
+	END IF
+!
+! WP-7.1 (checklist jfnk.md): JFNK_GATE_REC -- one machine-readable
+! admission record per call, so the gate-policy histogram
+! (demand vs gate, per-condition loss fractions, BA_LAST_RAW age,
+! stable-LAMBDA relief share) can be harvested from OUTGEN instead
+! of reconstructed from CONV_DIAG prose. Fields: great-iteration
+! index, gated demand (BA_LAST_RAW basis), effective gate, the
+! hysteresis counters at decision time, the contraction flag,
+! BA_LAST_RAW age in calls, whether stable-LAMBDA relief held the
+! count at 1, the resolved tier (frz/cpl/-) and a one-word defer
+! class. The `why' priority mirrors the gate order: structural
+! holds (warmup, LAM_ES, LAMBDA designation, GS freeze, rd_lam
+! probe) outrank the demand terms, which outrank the no-commit
+! hold.
+!
+	IF(USE_JFNK_SOLVER)THEN
+	  JFNK_GATE_TIER='-'
+	  IF(JFNK_THIS)THEN
+	    JFNK_GATE_TIER='frz'
+	    IF(JFNK_COUPLED_THIS)JFNK_GATE_TIER='cpl'
+	  END IF
+	  JFNK_GATE_WHY='admit'
+	  IF(BA_TRACE_PHASE)THEN
+	    JFNK_GATE_WHY='trace_phase'
+	  ELSE IF(JFNK_THIS)THEN
+	    JFNK_GATE_WHY='admit'
+	  ELSE IF(ITS_SINCE_START .LE. JFNK_WARMUP)THEN
+	    JFNK_GATE_WHY='warmup'
+	  ELSE IF(.NOT. USE_LAM_ES)THEN
+	    JFNK_GATE_WHY='lam_es'
+	  ELSE IF(LAMBDA_ITERATION .AND. .NOT. JFNK_ANY_ITER)THEN
+	    JFNK_GATE_WHY='lambda'
+	  ELSE IF(DO_NONMONO_KNOP .AND. GS_FREEZE)THEN
+	    JFNK_GATE_WHY='gs_freeze'
+	  ELSE IF(RDLAM_PROBE_THIS)THEN
+	    JFNK_GATE_WHY='rdlam_probe'
+	  ELSE IF(JFNK_GATE_IN .GT. 0.0_LDP .AND.
+	1          JFNK_DEM_IN .GE. JFNK_GATE_IN)THEN
+	    JFNK_GATE_WHY='dem_over'
+	  ELSE IF(.NOT. JFNK_DEM_CTR)THEN
+	    JFNK_GATE_WHY='dem_rise'
+	  ELSE IF(JFNK_FRZ_HITS .LT. JFNK_NREQ_EFF)THEN
+	    JFNK_GATE_WHY='hits_lt_nreq'
+	  ELSE
+	    JFNK_GATE_WHY='frz_hold'
+	  END IF
+	  WRITE(LUER,'(A,I6,3(1X,ES12.4),3(1X,I4),1X,L2,1X,I6,
+	1     1X,L2,1X,A4,1X,A)')
+	2     '  JFNK_GATE_REC it=',ITS_SINCE_START,
+	3     JFNK_DEM_IN,JFNK_GATE_IN,JFNK_COR_GATE,
+	4     JFNK_FRZ_HITS,JFNK_NREQ_EFF,JFNK_CPL_HITS,
+	5     JFNK_DEM_CTR,
+	6     ITS_SINCE_START-BA_LAST_RAW_IT,LAM_STABLE_PROVEN,
+	7     JFNK_GATE_TIER,TRIM(JFNK_GATE_WHY)
 	END IF
 !
 ! edited 03-Oct-2026: the non-demand defer paths were
@@ -3605,7 +3663,10 @@
 ! value. Keep the last BA-measured demand until a real SOLVEBA
 ! re-measures (conservative direction: gates stay held).
 !
-	IF(.NOT. LAM_WAS .AND. .NOT. JFNK_THIS)BA_LAST_RAW=MAXCH
+	IF(.NOT. LAM_WAS .AND. .NOT. JFNK_THIS)THEN
+	  BA_LAST_RAW=MAXCH
+	  BA_LAST_RAW_IT=ITS_SINCE_START
+	END IF
 ! FORCE_LAMBDA (KNOP warm-up above) pins LAMBDA_ITERATION for the
 ! whole N_LAM_RWARM window; without this guard the generic MAXCH test
 ! below could flip the model into a BA step against a stale I_NEXT.
