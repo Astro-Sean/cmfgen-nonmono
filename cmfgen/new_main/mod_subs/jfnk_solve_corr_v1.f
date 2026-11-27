@@ -473,6 +473,7 @@
 	  jfnk_do_nm_accept=JFNK_NM_ACCEPT
 	  jfnk_nm_credit_cap=MIN(MAX(JFNK_NM_CREDIT,0),16)
 	  jfnk_do_stag_graded=(JFNK_STAG_POLICY .EQ. 'GRADED')
+	  jfnk_ls_eval_frac=JFNK_LS_MAX_EVALS_FRAC
 	  jfnk_do_cauchy=JFNK_CAUCHY
 	  jfnk_diagnostic_flag=JFNK_DIAGNOSTIC
 !
@@ -2226,6 +2227,24 @@
 	      END BLOCK
 	    END IF
 	    IF(.NOT. JFNK_REACH_OK)JFNK_INFO=-2
+!
+! WP-3.3 (audit jfnk.md): affordability gate before paying for the
+! LU. The minimum viable solve is one GMRES restart cycle plus the
+! entry and trial evals -- (m+2) residual evals -- so an admission
+! whose remaining budget cannot cover that can only burn the
+! factorization and exit. Gate it through the existing info=-2
+! admission-skip path; rung/demand state is untouched.
+!
+	    IF(JFNK_REACH_OK .AND. JFNK_EVAL_CAP .GT. 0 .AND.
+	1     JFNK_N_RESIDUAL_EVALS+JFNK_M_GMRES_LOC+2 .GT.
+	2     JFNK_EVAL_CAP)THEN
+	      JFNK_REACH_OK=.FALSE.
+	      JFNK_INFO=-2
+	      WRITE(LUER,'(A,I5,A,I5,A)')
+	1     '  JFNK: admission denied -- eval budget (',
+	2     JFNK_EVAL_CAP-JFNK_N_RESIDUAL_EVALS,
+	3     ' left) cannot afford m+2 =',JFNK_M_GMRES_LOC+2,' evals'
+	    END IF
 	    T_PH_PREC=OMP_GET_WTIME()-TW_PH
 !
 ! Gates passed: pay for the LU factorization now. The BA_A build
