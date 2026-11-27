@@ -377,6 +377,15 @@ module jfnk_solver_v1_mod
    ! residual samples -- letting it run to JFNK_LS_MAX unconditionally
    ! can burn the whole activation budget on one step's trials.
    double precision :: jfnk_ls_eval_frac = 0.25d0
+   ! [JFNK_PC_TAU_FAC] (default 4): preconditioner-lag refresh
+   ! trigger under PTC. tau grows on every accepted step while the
+   ! folded diagonal stays frozen at factorization time; when
+   ! max(tau/tau_f, tau_f/tau) or the relative inf-norm x drift
+   ! exceeds this factor the refresh flag is set so the next commit
+   ! refolds the live tau. 0 disables the trigger.
+   double precision :: jfnk_pc_tau_fac_lim = 4d0
+   double precision :: jfnk_tau_at_factor = 0d0
+   double precision, allocatable :: jfnk_x_at_factor(:)
    !
    ! Cauchy (preconditioned-residual) fallback direction (review §3):
    ! When the Newton line search fails, try d_C = M^{-1}*F as a
@@ -876,6 +885,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    double precision :: phi_ref   ! non-monotone LS reference (Oct-2026)
    integer          :: ls_step, nm_k
    integer          :: ls_eval_cap, jfnk_ev_ls_thispass
+   double precision :: pc_tau_ratio, pc_x_drift
    !
    ! Cauchy direction safeguards (audit 17-Sep-2026): the
    ! preconditioned-residual direction d_C = M^{-1}F now gets the same
@@ -1319,6 +1329,29 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          dble(jfnk_last_gmres_its) >= &
          jfnk_pc_ref_frac * dble(jfnk_gmres_m_dim)) then
          jfnk_need_precond_refresh = 1
+      end if
+      !
+      ! WP-5.1 [JFNK_PC_TAU_FAC]: tau-drift refresh trigger. The
+      ! folded diagonal still carries the tau from factorization
+      ! time; past the drift factor the cached LU no longer
+      ! approximates the live operator and GMRES pays for it in
+      ! iterations. The flag is consumed on the commit path in
+      ! JFNK_DIAGNOSTIC_V1, which refolds the live tau.
+      !
+      if(jfnk_pc_tau_fac_lim > 0d0 .and. jfnk_tau_at_factor > 0d0) then
+         pc_tau_ratio = max(jfnk_ptc_dtau/jfnk_tau_at_factor, &
+                            jfnk_tau_at_factor/jfnk_ptc_dtau)
+         pc_x_drift = 0d0
+         if(allocated(jfnk_x_at_factor)) pc_x_drift = &
+            maxval(abs(jfnk_x - jfnk_x_at_factor)) / &
+            max(1d0, maxval(abs(jfnk_x_at_factor)))
+         if(pc_tau_ratio > jfnk_pc_tau_fac_lim .or. &
+            pc_x_drift > jfnk_pc_tau_fac_lim) then
+            if(info == 1) write(luer,'(A,ES10.3,A,ES10.3,A,ES10.3)') &
+               '  JFNK: PC lag drift - tau', jfnk_tau_at_factor, &
+               ' -> ', jfnk_ptc_dtau, '  x_drift=', pc_x_drift
+            jfnk_need_precond_refresh = 1
+         end if
       end if
       !
       ! Audit 17-Sep-2026: Krylov-solve failure (info=3 from gmres_m_v1).
