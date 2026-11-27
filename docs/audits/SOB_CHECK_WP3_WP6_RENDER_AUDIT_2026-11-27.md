@@ -1,0 +1,59 @@
+# WP3 bit-identity + WP6 T1 census render audit
+
+Dated 27-Nov-2026.  Rendered the converged `m15_2p82d_VAL_sob`
+model (it414, 24-Nov) on the committed-state worktree exe
+(`scratch/cmfgen_sobcheck_wt` @ `f69772a7`, ifort -O3,
+`cmf_flux.exe` md5 `a9228c50b5aaad31b31b2d98877bdfc7`) in a
+scratch copy (`scratch/render_valsob_*`).  Baselines are the
+24-Nov OBS job products.
+
+## WP3: unarmed render must be bit-identical (verdict: PASS)
+
+| product | baseline md5 | new md5 | verdict |
+|---|---|---|---|
+| `obs/obs_fin_10` | a60eddc0a4d10419683c3a2cc5db26b3 | a60eddc0a4d10419683c3a2cc5db26b3 | IDENTICAL |
+| `obs/OBSFLUX` | 531ebe61083bdf1660a3b500f9ccc1d6 | 531ebe61083bdf1660a3b500f9ccc1d6 | IDENTICAL |
+| `obs/dFR_DATA` | - | - | IDENTICAL |
+| `obs/EDDFACTOR_INFO` | - | - | IDENTICAL |
+| `obs/OUT_FLUX` | 58d3f4de... | differs | 2 lines only: added `[WARN][SET_TWO_PHOT]` / `[INFO][TWO_PHOT]` log tags (print-tagging commits, not SOB WP code) |
+| `obs/EDDFACTOR` | efec4214... | differs | last-ulp: maxabs 6.8e-16, median rel 4.4e-16 - OpenMP reduction-order noise |
+| `obs/IP_DATA` | 6b12d153... | differs | last-ulp: maxabs 1.3e-17, median rel 4.8e-16 - same |
+| `obs/EWDATA` | dangling symlink | dangling symlink | unchanged (never written under DO_SOB_LINES=F) |
+
+The spectral products (`obs_fin_10`, `OBSFLUX`) are bit-identical:
+the census instrumentation + EXPONX bound do not alter the
+default render path.  EDDFACTOR/IP_DATA differences are
+thread-order nondeterminism: a second render of the same exe on
+the same inputs (job 13775543) reproduces obs_fin_10/OBSFLUX/
+OUT_FLUX exactly while EDDFACTOR/IP_DATA differ at the same
+scale (maxabs 6.7e-16 / 1.3e-17) - run-to-run FP noise, not a
+code-path change.  VERDICT: PASS.
+
+## WP6: armed census render (first attempt)
+
+`CMF_SOB_T1_CENSUS=1` armed render on the same staged copy
+produced bit-identical `obs_fin_10`/`OBSFLUX` (armed
+instrumentation does not perturb the solve) but ZERO census
+lines.  Root cause found: the staged `CMF_FLUX_PARAM_INIT`
+carries `DO_SOB_LINES=F` and `DO_NONMONO_SOB=F`, so
+`CMF_FLUX_SUB_V5` returns at the `DO_SOBOLEV_LINES` guard (line
+2875) before the EW line loop, the `SOB_T1_CEN_ACC` hooks, and
+the `SOB_T1_CENSUS_REPORT` call (line 3238).  The EW estimator
+- and therefore the T1/GAM census - only runs under
+`DO_SOB_LINES=T`; the `SIGMA_TRUE` branch needs
+`DO_NONMONO_SOB=T` in the OBS param.
+
+Fix: resubmitted (job 13775472) with `DO_SOB_LINES=T` +
+`DO_NONMONO_SOB=T` in the staged INIT.  The env arming mechanism
+itself was verified by a standalone driver against the worktree
+`libsubs` (CEN_ARMED=T under `CMF_SOB_T1_CENSUS=1`, report
+prints).
+
+Awaiting census numbers for the report table:
+
+- samples, min T1 (ray,depth), min/max GAM, sigma range,
+  undefined-sigma count, NaN/Inf counts, EXPONX guard counts
+  (guard counters folded into the report by the uncommitted
+  `sobew_grad_v2.f` edit; the worktree exe at `f69772a7` predates
+  that fold, so the first armed output may lack the final line -
+  a worktree rebuild + rerun will add it).
