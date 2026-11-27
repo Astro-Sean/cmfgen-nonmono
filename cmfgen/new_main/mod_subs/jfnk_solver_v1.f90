@@ -365,6 +365,12 @@ module jfnk_solver_v1_mod
    logical          :: jfnk_do_nm_accept = .false.
    integer          :: jfnk_nm_credit_cap = 2
    integer          :: jfnk_nm_credit_left = 0
+   ! [JFNK_STAG_POLICY] ('ABORT' default): 'GRADED' replaces the
+   ! binary ginfo==1 abort with the WP-2 tiered response -- keep a
+   ! direction whose measured true_res still beats ref_norm, else
+   ! consume a precond refresh on the rejection path and re-solve
+   ! once at 10x-tighter eta before aborting.
+   logical          :: jfnk_do_stag_graded = .false.
    !
    ! Cauchy (preconditioned-residual) fallback direction (review §3):
    ! When the Newton line search fails, try d_C = M^{-1}*F as a
@@ -895,6 +901,13 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    !
    integer :: descent_retry_count
    integer, parameter :: descent_retry_max = 3
+   ! WP-2.1(b): graded-stagnation re-solve attempts within one Newton
+   ! pass; reset at the top of newton_loop next to descent_retry_count.
+   integer :: stag_retries
+   ! WP-2.4: refresh factor routine is an external program unit in
+   ! the interface file (not a module member), so the call site uses
+   ! an external declaration.
+   external :: JFNK_FACTOR_PRECOND_V1
    !
    ! Heap-allocated workspace (audit §3, 09-Sep-2026):
    ! x_, fx_, x__, fx__, s, fx_pc were automatic arrays of size N,
@@ -1069,6 +1082,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! Newton iteration.
       !
       descent_retry_count = 0
+      stag_retries = 0
       !
       ! WP-0 ledger: reset the per-pass fields; every TR branch and
       ! abort site sets jfnk_led_branch before the row is written so
@@ -1356,6 +1370,52 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             ' true_res/ref=', &
             real(jfnk_gmres_true_res / max(ref_norm, 1d-30))
          ginfo = 0
+      ! WP-2.1 [JFNK_STAG_POLICY='GRADED', default 'ABORT']: the
+      ! strict 0.9-tier accept above is unchanged; the two arms
+      ! below replace the binary abort for everything else.
+      ! (a) measured true_res still beats ref_norm: the direction
+      ! reduces the residual even if it misses the comfortable
+      ! tier, so keep it -- the dir_deriv > 0 half of the gate is
+      ! enforced downstream by the descent check, which
+      ! retries/hooksteps a non-descent direction before any
+      ! trial evaluation.
+      else if(ginfo == 1 .and. jfnk_do_stag_graded .and. &
+              jfnk_gmres_true_res_ok .and. &
+              ieee_is_finite(jfnk_gmres_true_res) .and. &
+              jfnk_gmres_true_res < ref_norm) then
+         if(info == 1) write(luer,'(A,ES12.4,A)') &
+            '  JFNK: GMRES stagnated; keeping inexact direction &
+            &[GRADED] (true_res/ref=', &
+            real(jfnk_gmres_true_res / max(ref_norm, 1d-30)), ')'
+         ginfo = 0
+      ! (b) true_res >= ref_norm or unverifiable: the stored
+      ! preconditioner is stale for this RHS. WP-2.4: consume the
+      ! refresh flag HERE on the rejection path -- it is otherwise
+      ! only consumed inside sub() on accepted steps, so a flag
+      ! raised during a rejected Newton pass used to starve. Then
+      ! tighten the forcing tolerance 10x and re-solve once; a
+      ! second failure falls through to the abort below.
+      else if(ginfo == 1 .and. jfnk_do_stag_graded .and. &
+              stag_retries < 2) then
+         stag_retries = stag_retries + 1
+         jfnk_need_precond_refresh = 1
+         call JFNK_FACTOR_PRECOND_V1(.TRUE.)
+         jfnk_need_precond_refresh = 0
+         gres = 0.1d0 * gres
+         jfnk_led_gres = gres
+         s = 0d0
+         ! The failing call was the exit measurement, not necessarily
+         ! the operator -- clear the flags so the first matvec of the
+         ! re-solve is judged on its own result.
+         jfnk_jvp_failed = .false.
+         jfnk_pc_clip_event = .false.
+         jfnk_gits = m
+         if(del == 0d0) jfnk_gits = 9999
+         if(jfnk_max_gmres_its > 0) jfnk_gits = jfnk_max_gmres_its
+         if(info == 1) write(luer,'(A,I1,A)') &
+            '  JFNK: GMRES stagnated -- refresh + eta/10 re-solve &
+            &[GRADED] (try', stag_retries, ' of 2)'
+         cycle descent_retry
       else if(ginfo == 1) then
          if(info == 1) write(luer,'(A)') &
             '  JFNK: GMRES stagnated -- aborting Newton (Lambda fallback)'
