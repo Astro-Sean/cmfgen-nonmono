@@ -104,6 +104,7 @@
 	LOGICAL MOM_ADAPT_OMEGA_V2_V
 	REAL(KIND=LDP) KN_M_TOL_V
 	REAL(KIND=LDP) JNEXT_RELAX_V,INEXT_RELAX_V
+	REAL(KIND=LDP) MOM_RF_RLX_V
 	REAL(KIND=LDP) KN_RAY_STALL_V
 	REAL(KIND=LDP) FG_COMMIT_JUMP_V,FG_DIV_HEAL_CAP_V
 	LOGICAL FG_COMMIT_CONV_V,FG_BULK_CONTR_V,FG_SEED_COMMIT_V
@@ -1518,6 +1519,19 @@
 	1     'Anderson history depth for the call-level MOM map')
 	  CALL SET_MOM_KN_OPTS(KN_M_TOL_V,KN_M_MAXPASS_V,
 	1     JNEXT_RELAX_V,MOM_AA_M_V,MOM_AA_OUT,MOM_AA_OUT_M_V)
+!
+! MOM_RF_RLX (default -1.0 = inherit JNEXT_RELAX): refresh-only
+! relax factor for the MOM damp schedule. JNEXT_RELAX also damps
+! the sweep-side J_NEXT write, so raising it to speed a
+! contractive refresh would un-damp the sweep; this key splits
+! the two. Pair with MOM_RF_GS_DESC: under live Gauss-Seidel
+! reads the compressing map contracts and the Jacobi-calibrated
+! 0.5 factor only halves the step (see the WP-M5 audit doc).
+!
+	  MOM_RF_RLX_V=-1.0_LDP
+	  CALL RD_STORE_DBLE(MOM_RF_RLX_V,'MOM_RF_RLX',L_FALSE,
+	1     'MOM refresh-only relax factor (-1 = use JNEXT_RELAX)')
+	  CALL SET_MOM_RF_RLX(MOM_RF_RLX_V)
 !
 	  KN_RAY_TOL_V=2.0E-3_LDP
 	  CALL RD_STORE_DBLE(KN_RAY_TOL_V,'KN_RAY_TOL',L_FALSE,
