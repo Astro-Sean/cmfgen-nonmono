@@ -19,6 +19,7 @@
 	1                           TAU_OPT)
 	USE SET_KIND_MODULE
 	USE ITER_LOG_FMT_MOD, ONLY: ILF_KVB,ILF_VI,ILF_VR
+	USE, INTRINSIC :: IEEE_ARITHMETIC
 	IMPLICIT NONE
 !
 	INTEGER ND
@@ -185,6 +186,51 @@
 	END DO
 	WRITE(LUER,*)'Successfuly read SN data in RV_SN_MODEL_SNHYD'
 	CLOSE(LU)
+!
+! Input validation (27-Nov-2026, VEL_LAW=14 audit defects D1,D2):
+! screen every read column for finiteness before use.  A non-finite
+! value survives the ordering/sign guards below - every Fortran
+! comparison against NaN is .FALSE. - and then either crashes
+! opaquely inside LIN_INTERP's bracket walk or produces a quietly
+! shifted grid (the MAX(Kappa,floor) absorbs a NaN first argument).
+! Sigma only needs finiteness - a negative sigma is the feature this
+! reader exists to keep.  Abort with the column, index and offending
+! value rather than a bare STOP.
+!
+	DO I=1,NX
+	  IF(.NOT. IEEE_IS_FINITE(R_HYDRO(I)))THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Non-finite input Radius at I=',I,' value=',R_HYDRO(I)
+	    STOP
+	  END IF
+	  IF(.NOT. IEEE_IS_FINITE(V_HYDRO(I)))THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Non-finite input Velocity at I=',I,' value=',V_HYDRO(I)
+	    STOP
+	  END IF
+	  IF(.NOT. IEEE_IS_FINITE(DENSITY_HYDRO(I)))THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Non-finite input Density at I=',I,
+	1               ' value=',DENSITY_HYDRO(I)
+	    STOP
+	  END IF
+	  IF(.NOT. IEEE_IS_FINITE(KAPPA_HYDRO(I)))THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Non-finite input Kappa at I=',I,' value=',KAPPA_HYDRO(I)
+	    STOP
+	  END IF
+	  IF(.NOT. IEEE_IS_FINITE(SIGMA_HYDRO(I)))THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Non-finite input Sigma at I=',I,' value=',SIGMA_HYDRO(I)
+	    STOP
+	  END IF
+	  IF(.NOT. IEEE_IS_FINITE(T_HYDRO(I)))THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Non-finite input Temperature at I=',I,
+	1               ' value=',T_HYDRO(I)
+	    STOP
+	  END IF
+	END DO
 !
 ! Adjust R grid of SN for expansion, exactly as in
 ! SET_RV_HYDRO_MODEL_V3: R=R0+V.dt and the matching density scale.
