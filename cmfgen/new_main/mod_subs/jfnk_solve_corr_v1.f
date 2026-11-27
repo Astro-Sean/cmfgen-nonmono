@@ -474,6 +474,7 @@
 	  jfnk_nm_credit_cap=MIN(MAX(JFNK_NM_CREDIT,0),16)
 	  jfnk_do_stag_graded=(JFNK_STAG_POLICY .EQ. 'GRADED')
 	  jfnk_ls_eval_frac=JFNK_LS_MAX_EVALS_FRAC
+	  jfnk_pc_tau_fac_lim=JFNK_PC_TAU_FAC
 	  jfnk_do_cauchy=JFNK_CAUCHY
 	  jfnk_diagnostic_flag=JFNK_DIAGNOSTIC
 !
