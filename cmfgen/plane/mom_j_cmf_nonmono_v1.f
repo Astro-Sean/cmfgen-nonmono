@@ -382,6 +382,22 @@
 !
 	REAL(KIND=LDP), SAVE :: JNEXT_RELAX=0.5_LDP
 !
+! MOM_RF_RLX (VADAT [MOM_RF_RLX], default -1.0 = inherit
+! JNEXT_RELAX): relax factor for the refresh's per-cell damp
+! schedule MOM_DAMP_NM only. JNEXT_RELAX also damps the
+! sweep-side J_NEXT write (the SE<->RT loop), so it cannot be
+! raised to speed a contractive refresh without un-damping the
+! sweep. The 0.5 under-relaxation was calibrated against the
+! frozen-snapshot Jacobi map; under MOM_RF_GS_DESC the
+! compressing read is a live Gauss-Seidel step and the same
+! half-step halves the contraction again (fixture needed ~61
+! passes at census-a ~0.96 against the 60-pass budget). A
+! refresh-only factor of 1.0 commits the full GS step; the
+! cycle-check floor and the decrease-only schedule are
+! unchanged.
+!
+	REAL(KIND=LDP), SAVE :: MOM_RF_RLX=-1.0_LDP
+!
 ! KN_ADAPT_RELAX (VADAT [KN_ADAPT_RELAX], default T, set by
 ! SET_MOM_KN_ADAPT): same adaptive under-relaxation as the FG
 ! INEXT_RELAX update -- the dominant-mode contraction rho_est of the
@@ -5337,6 +5353,25 @@
 	RETURN
 	END
 !
+! SET_MOM_RF_RLX: refresh relax-factor wiring for MOM_RF_RLX,
+! called once from RD_CONTROL_VARIABLES after the VADAT keys are
+! read. The setter clamps to (0,1] the same way JNEXT_RELAX is
+! clamped in SET_MOM_KN_OPTS; values <= 0 keep the inherit
+! sentinel.
+!
+	SUBROUTINE SET_MOM_RF_RLX(R)
+	USE SET_KIND_MODULE
+	USE MOD_MOM_J_NONMONO_V1, ONLY: MOM_RF_RLX
+	IMPLICIT NONE
+	REAL(KIND=LDP) R
+	IF(R .LE. 0.0_LDP)THEN
+	  MOM_RF_RLX=-1.0_LDP
+	ELSE
+	  MOM_RF_RLX=MIN(R,1.0_LDP)
+	END IF
+	RETURN
+	END
+!
 ! SET_MOM_FREQ_MATCH / SET_MOM_RF_AA: runtime wiring for
 ! DO_NONMONO_FREQ_MATCH and MOM_RF_AA, called once from
 ! RD_CONTROL_VARIABLES after the VADAT keys are read.
@@ -5727,6 +5762,12 @@
 	CHARACTER(LEN=11) RES_W,CHG_W
 	CHARACTER(LEN=180) RF_MSG
 	INTEGER NACT_ROW,DMP_TOT,AA_A0,AA_S0,AA_G0,AA_R0,BEST_OUT
+!
+! Resolved refresh relax factor: MOM_RF_RLX overrides the
+! JNEXT_RELAX-inherited base on the damp schedule only. The
+! sweep-side write is not touched.
+!
+	REAL(KIND=LDP) RLX_RF
 	INTEGER RF_EXIT_PASS
 	INTEGER(KIND=8) RF_EXIT_N50
 	REAL(KIND=LDP) RF_EXIT_CHG,RF_EXIT_REF
@@ -5923,10 +5964,12 @@
 	LRENEW=.NOT. ALLOCATED(MOM_DAMP_NM)
 	IF(.NOT. LRENEW)LRENEW=(SIZE(MOM_DAMP_NM,1) .NE. ND_NM .OR.
 	1   SIZE(MOM_DAMP_NM,2) .NE. KN_M_NCF)
+	RLX_RF=JNEXT_RELAX
+	IF(MOM_RF_RLX .GT. 0.0_LDP)RLX_RF=MOM_RF_RLX
 	IF(LRENEW)THEN
 	  IF(ALLOCATED(MOM_DAMP_NM))DEALLOCATE(MOM_DAMP_NM)
 	  ALLOCATE(MOM_DAMP_NM(ND_NM,KN_M_NCF),STAT=IOS)
-	  IF(IOS .EQ. 0)MOM_DAMP_NM=JNEXT_RELAX
+	  IF(IOS .EQ. 0)MOM_DAMP_NM=RLX_RF
 	END IF
 !
 ! Slow recovery across calls: the schedule is decrease-only within a
@@ -5935,7 +5978,7 @@
 ! drift back toward the global factor once per great iteration.
 !
 	IF(ALLOCATED(MOM_DAMP_NM))
-	1   MOM_DAMP_NM=MIN(JNEXT_RELAX,1.15_LDP*MOM_DAMP_NM)
+	1   MOM_DAMP_NM=MIN(RLX_RF,1.15_LDP*MOM_DAMP_NM)
 !
 ! Active-set mask: all frequencies on pass 1 -- the map's frozen
 ! coefficients were rebuilt since the last refresh, so a frequency
@@ -6648,7 +6691,7 @@
 	1                    0.5_LDP*MOM_DAMP_NM(I,L))
 	                  NDMP=NDMP+1
 	                ELSE IF(.NOT. MOM_RF_AA .AND.
-	1                  MOM_DAMP_NM(I,L) .GE. 0.99_LDP*JNEXT_RELAX
+	1                  MOM_DAMP_NM(I,L) .GE. 0.99_LDP*RLX_RF
 	2                  .AND. ABS(D1) .GT. 0.5_LDP*
 	3                  MAX(ABS(JPREV2(I,L)),1.0E-4_LDP*TCOL))THEN
 	                  LAMC=MIN(LAMC,0.9_LDP)
@@ -6924,7 +6967,7 @@
 	    DMP_TOT=0
 	    IF(ALLOCATED(MOM_DAMP_NM))DMP_TOT=COUNT(
 	1      MOM_DAMP_NM(1:ND_NM,1:KN_M_NCF) .LT.
-	2      0.99_LDP*JNEXT_RELAX)
+	2      0.99_LDP*RLX_RF)
 	    WRITE(IPW,'(I0)')IPASS
 	    WRITE(I5_W,'(I0)')PASS_N5
 	    WRITE(I50_W,'(I0)')PASS_N50
@@ -6970,7 +7013,7 @@
 	1    'gam-floor',PASS_NRES,' cells hit the GAM floor'
 	  IF(ALLOCATED(MOM_DAMP_NM))THEN
 	    NDMP=COUNT(MOM_DAMP_NM(1:ND_NM,1:KN_M_NCF) .LT.
-	1      0.99_LDP*JNEXT_RELAX)
+	1      0.99_LDP*RLX_RF)
 	    IF(NDMP .GT. 0 .OR. NACC .GT. 0)WRITE(LUER,
 	1      '(4X,A11,2X,I10,A,ES10.3,A,I10,A)')
 	2      'damp/accel',NDMP,
