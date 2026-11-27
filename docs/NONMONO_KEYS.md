@@ -787,6 +787,12 @@ WP-1 keys (JFNK acceptance audit, 27-Nov-2026):
   sentinel fires. The solver maps it to info=2 'budget_stop' so
   the driver commits the best iterate instead of aborting
   (checklist `jfnk.md` WP-3.1/3.2).
+- `JFNK_PC_TAU_FAC` (real, default 4, 0=off) - PTC preconditioner
+  lag trigger. JFNK_FACTOR_PRECOND_V1 snapshots tau and x at
+  factorization; per Newton pass, when
+  max(tau/tau_f, tau_f/tau) or the relative inf-norm x drift
+  exceeds the factor, jfnk_need_precond_refresh is set so the
+  commit path refolds the live tau (checklist `jfnk.md` WP-5.1).
 
 ## 8. Historical status notes
 
