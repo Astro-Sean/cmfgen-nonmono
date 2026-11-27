@@ -793,6 +793,13 @@ WP-1 keys (JFNK acceptance audit, 27-Nov-2026):
   max(tau/tau_f, tau_f/tau) or the relative inf-norm x drift
   exceeds the factor, jfnk_need_precond_refresh is set so the
   commit path refolds the live tau (checklist `jfnk.md` WP-5.1).
+- `JFNK_DESCENT_BASIS` (string, default 'F') - which inner
+  product the descent gate tests under PTC: 'F' is the stock
+  stripped <F,J_F s>, 'G' the folded <F,J_G s> the step actually
+  solves, 'BOTH' accepts on either positive. The Armijo slope
+  uses the matching merit; the convergence test stays on |F|
+  (checklist `jfnk.md` WP-6.2). Telemetry is the ledger's
+  dir_deriv_F/dir_deriv_G columns.
 
 ## 8. Historical status notes
 
