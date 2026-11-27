@@ -22,12 +22,13 @@ Checks:
   * TAU_OPT=1 semantics: the blended coordinate steers the grid with
     the Kappa column above the TAU_LO clamp, and is exactly invariant
     under a uniform ltau shift (constant Kappa rescale).
-  * pinned VEL_LAW=14 audit defects (desired-behaviour checks,
-    currently failing): non-finite interior Kappa silently absorbed
-    by the floor MAX; non-finite interior Density/V/R segfaults in
-    LIN_INTERP; negative interior Density silent; missing Sigma
-    silently disables feature detection.  See
-    docs/audits/VEL_LAW14_SNHYD_GRID_AUDIT.md.
+  * fixed VEL_LAW=14 audit defects (regression checks): non-finite
+    input columns abort naming column+index+value (previously NaN
+    Kappa was silently absorbed by the floor MAX and NaN Density/V/R
+    segfaulted inside LIN_INTERP); negative Density/Kappa and
+    non-positive R abort; a missing or all-zero Sigma column warns
+    that the expansion assumes homology and TAU_OPT=1 feature
+    detection is off.  See docs/audits/VEL_LAW14_SNHYD_GRID_AUDIT.md.
 """
 
 import sys
@@ -767,17 +768,15 @@ def main():
             f"vs uniform={np.abs(a[:,0]-runif).max()/runif.min():.2e}",
         )
 
-    # ---------------- pinned audit defects (22-Nov-2026) ----------
-    # Desired behaviour is a clean abort; the current code either
-    # crashes inside LIN_INTERP or produces a quietly wrong grid.
-    # These checks FAIL on the present source - they pin the defects
-    # found by the VEL_LAW=14 robustness audit (see
-    # docs/audits/VEL_LAW14_SNHYD_GRID_AUDIT.md).
+    # ---------------- fixed audit defects (22-Nov-2026 audit, -----
+    # fixed 27-Nov-2026).  The finiteness/positivity screen aborts
+    # with the column name, index and offending value; a missing or
+    # all-zero Sigma column warns that the expansion assumes homology
+    # and TAU_OPT=1 feature detection is off.  See
+    # docs/audits/VEL_LAW14_SNHYD_GRID_AUDIT.md.
 
-    # D1: non-finite interior Kappa.  The MAX(kappa,floor) absorbs a
-    # NaN first argument, so the corrupted cell silently takes the
-    # floor opacity and the returned grid is valid-looking but
-    # shifted.  No finiteness screening exists on any input column.
+    # D1: non-finite interior Kappa.  Previously the MAX(kappa,floor)
+    # absorbed the NaN and returned a shifted but valid-looking grid.
     d = WORKDIR / "snhyd_nankap"
     r, v, sig, dens, kap = profiles("beta")
     kap_n = kap.copy()
@@ -785,50 +784,155 @@ def main():
     write_snhyd(d, r, v, sig, dens, kap_n)
     p = run_case(exe, d, OLD_AGE, tau_opt=1)
     rep.check(
-        "PINNED D1: non-finite Kappa aborts (currently silently wrong)",
-        "RESULT_OK" not in p.stdout,
+        "D1: non-finite Kappa aborts naming column+index",
+        "RESULT_OK" not in p.stdout
+        and "Kappa" in p.stdout
+        and str(NX // 2 + 1) in p.stdout,
         f"rc={p.returncode}",
     )
 
-    # D2: non-finite interior Density.  NaN propagates through
-    # kappa*rho into tau and TAU_LO; the LIN_INTERP bracket walk then
-    # reads out of bounds and the driver segfaults (rc 174).
+    # D2: non-finite interior Density.  Previously NaN propagated
+    # through kappa*rho into tau/TAU_LO and the LIN_INTERP bracket
+    # walk read out of bounds (segfault, rc 174).
     d = WORKDIR / "snhyd_nandens"
     dens_n = dens.copy()
     dens_n[NX // 2] = np.nan
     write_snhyd(d, r, v, sig, dens_n, kap)
     p = run_case(exe, d, OLD_AGE, tau_opt=1)
     rep.check(
-        "PINNED D2: non-finite Density aborts (currently segfaults)",
+        "D2: non-finite Density aborts (no segfault)",
         "RESULT_OK" not in p.stdout and p.returncode == 0,
         f"rc={p.returncode}",
     )
 
-    # D3: negative interior Density is accepted silently - only
-    # DENSITY(1) is screened, so a sign error deeper in the file
-    # produces a quietly wrong kappa*rho tau integral.
+    # Non-finite V and R: same screen, remaining columns.
+    d = WORKDIR / "snhyd_nanv"
+    v_n = v.copy()
+    v_n[NX // 3] = np.inf
+    write_snhyd(d, r, v_n, sig, dens, kap)
+    p = run_case(exe, d, OLD_AGE)
+    rep.check(
+        "D2b: non-finite Velocity aborts naming column+index",
+        "RESULT_OK" not in p.stdout
+        and "Velocity" in p.stdout
+        and str(NX // 3 + 1) in p.stdout,
+        f"rc={p.returncode}",
+    )
+
+    d = WORKDIR / "snhyd_nanr"
+    r_n = r.copy()
+    r_n[NX // 4] = np.nan
+    write_snhyd(d, r_n, v, sig, dens, kap)
+    p = run_case(exe, d, OLD_AGE)
+    rep.check(
+        "D2c: non-finite Radius aborts",
+        "RESULT_OK" not in p.stdout and p.returncode == 0,
+        f"rc={p.returncode}",
+    )
+
+    d = WORKDIR / "snhyd_nansig"
+    sig_n = sig.copy()
+    sig_n[NX // 2] = np.nan
+    write_snhyd(d, r, v, sig_n, dens, kap)
+    p = run_case(exe, d, OLD_AGE)
+    rep.check(
+        "D2d: non-finite Sigma aborts naming column",
+        "RESULT_OK" not in p.stdout and "Sigma" in p.stdout,
+        f"rc={p.returncode}",
+    )
+
+    # D3: negative interior Density.  Previously only DENSITY(1) was
+    # screened, so a sign error deeper in the file quietly corrupted
+    # the kappa*rho tau integral.
     d = WORKDIR / "snhyd_negdens"
     dens_n = dens.copy()
     dens_n[NX // 2] = -abs(dens_n[NX // 2])
     write_snhyd(d, r, v, sig, dens_n, kap)
     p = run_case(exe, d, OLD_AGE, tau_opt=1)
     rep.check(
-        "PINNED D3: negative interior Density aborts (currently silent)",
+        "D3: negative interior Density aborts naming column+index",
+        "RESULT_OK" not in p.stdout
+        and "Density" in p.stdout
+        and str(NX // 2 + 1) in p.stdout,
+        f"rc={p.returncode}",
+    )
+
+    # Negative Kappa and non-positive R: same screen.
+    d = WORKDIR / "snhyd_negkap"
+    kap_n = kap.copy()
+    kap_n[NX // 2] = -0.1
+    write_snhyd(d, r, v, sig, dens, kap_n)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    rep.check(
+        "D3b: negative Kappa aborts",
+        "RESULT_OK" not in p.stdout and "Kappa" in p.stdout,
+        f"rc={p.returncode}",
+    )
+
+    d = WORKDIR / "snhyd_negr"
+    r_n = r.copy()
+    r_n[NX // 2] = -abs(r_n[NX // 2])
+    write_snhyd(d, r_n, v, sig, dens, kap)
+    p = run_case(exe, d, OLD_AGE)
+    rep.check(
+        "D3c: non-positive Radius aborts",
         "RESULT_OK" not in p.stdout,
         f"rc={p.returncode}",
     )
 
-    # D4: a file with no Sigma section runs TAU_OPT=1 with every
-    # feature-detection input zeroed - no reversal entries, no sigma
-    # minima - and silently assumes homology in the expansion factor.
-    # The recipe should at least warn that its stated inputs are
-    # missing.
+    # D4: a file with no Sigma section previously ran TAU_OPT=1 with
+    # every feature-detection input zeroed and silently assumed
+    # homology in the expansion factor.  The code now warns.
     d = WORKDIR / "snhyd_nosigma"
     write_snhyd(d, r, v, sig, dens, kap, sigma=False)
     p = run_case(exe, d, OLD_AGE, tau_opt=1)
     rep.check(
-        "PINNED D4: missing Sigma warns/aborts under TAU_OPT=1",
-        "RESULT_OK" not in p.stdout or "sigma" in p.stdout.lower(),
+        "D4: missing Sigma warns under TAU_OPT=1",
+        "sigma" in p.stdout.lower(),
+        f"rc={p.returncode}",
+    )
+
+    # All-zero Sigma column: same silent-homology failure mode as a
+    # missing section.
+    d = WORKDIR / "snhyd_zerosigma"
+    write_snhyd(d, r, v, np.zeros(NX), dens, kap)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    rep.check(
+        "D4b: all-zero Sigma column warns",
+        "sigma" in p.stdout.lower(),
+        f"rc={p.returncode}",
+    )
+
+    # Short-row input: a truncated Density block is consumed by the
+    # list-directed read into the next header -> parse error abort.
+    d = WORKDIR / "snhyd_shortrow"
+    write_snhyd(d, r, v, sig, dens, kap)
+    txt = (d / "SN_HYDRO_DATA").read_text()
+    txt = txt.replace(
+        " ".join(f"{x:20.12e}" for x in dens[-4:]), "", 1
+    )
+    with open(d / "SN_HYDRO_DATA", "w") as f:
+        f.write(txt)
+    p = run_case(exe, d, OLD_AGE)
+    rep.check(
+        "D5: truncated column block aborts",
+        "RESULT_OK" not in p.stdout,
+        f"rc={p.returncode}",
+    )
+
+    # Boundary-just-inside-the-guard: a zero Kappa cell takes the
+    # floor and must NOT abort (the floor exists for zero-opacity
+    # zones); a tiny positive Density is legal.
+    d = WORKDIR / "snhyd_edgeok"
+    kap_z = kap.copy()
+    kap_z[NX // 2] = 0.0
+    dens_t = dens.copy()
+    dens_t[NX // 3] = 1.0e-30
+    write_snhyd(d, r, v, sig, dens_t, kap_z)
+    p = run_case(exe, d, OLD_AGE, tau_opt=1)
+    rep.check(
+        "edge: zero Kappa cell + tiny Density complete",
+        "RESULT_OK" in p.stdout,
         f"rc={p.returncode}",
     )
 
