@@ -631,19 +631,34 @@ Working the six work packages in `checklists/SOB_check.md` (review of
       `configs/dessart_m15_2p82d_VAL_sob_fgknop.yaml` = VAL_sob clone
       + `DO_SOB_FG_KNOP=T`, cold LTE start, SN_HYDRO_DATA staged
       byte-identical (md5 `ea6c5d5b...`). Submitted via
-      run_model_grid.py: FINAL job 13744001, OBS 13744002. Pending
-      convergence; comparison deliverables owed.
+      run_model_grid.py: FINAL job 13744001, OBS 13744002. Leg 1 hit
+      the NUM_ITS budget at it448 / 90% converged (worst margin
+      0.78 dex, pops demand ~3% and falling); leg-2 warm restart
+      FINAL 13774145 -> OBS 13774146 queued on QOSGrpCpuLimit.
+      Resolved-control diff and the per-depth J/DC/9-probe tables
+      at the 90% state are in
+      `docs/audits/SOB_CHECK_WP1_FGKNOP_AB_2026-11-27.md`
+      (extraction: `cmfgen_validation/wp1_jdepth_bfac.py` ->
+      `wp1_jdepth_bfac_90pct.txt`; figure `plots/validation/
+      fgknop_ab_wp1.png`). Verdict owed after leg 2 converges.
 - [x] WP2 tau-floor coefficient: clean arXiv e-print
       (`arxiv.org/e-print/1503.05463`, ms.tex) confirms
       `max(|1+sigma*mu^2|, -0.2(1+sigma))`; verbatim quote and the
       tau-cap quantification recorded in
       `docs/audits/SOBOLEV_DAH2015_EQUATION_MAP.md`. The 1e-4 arm
       remains a code-only extension.
-- [~] WP3 EXPONX bound: `X < -700` guarded return + activation
+- [x] WP3 EXPONX bound: `X < -700` guarded return + activation
       counters added to `cmfgen/subs/exponx.f` (module
       `EXPONX_GUARD_MOD`); unit test `test_exponx_guard.py` +
-      `drv_exponx.f90` + `stub_exponx_guard.f90` added. m15 render
-      bit-identity check owed after rebuild.
+      `drv_exponx.f90` + `stub_exponx_guard.f90` added.
+      Bit-identity render check PASSED (27-Nov): worktree exe
+      @ `f69772a7` (cmf_flux md5 `a9228c50`) on the converged
+      VAL_sob state reproduces `obs_fin_10`/`OBSFLUX` md5-for-md5;
+      OUT_FLUX differs only by `[WARN]`/`[INFO]` tag prefixes from
+      the print-tagging commits; EDDFACTOR/IP_DATA differ at
+      ~4e-16 rel = OpenMP order noise, confirmed by a same-exe
+      rerun control (job 13775543). Full table:
+      `docs/audits/SOB_CHECK_WP3_WP6_RENDER_AUDIT_2026-11-27.md`.
 - [~] WP4 wording: site comments corrected to
       `sigma >= -1 + 1e-4` at all FIVE floor sites (sobjbar_sim,
       sobew, sobew_grad, sobew_grad_v2, sobew_grad_v3) plus
@@ -659,6 +674,15 @@ Working the six work packages in `checklists/SOB_check.md` (review of
       landed in sobew_grad_v2.f + report hook in cmf_flux_sub_v5.f
       (`CMF_SOB_T1_CENSUS=1`); regression artifact owed after a
       rebuild + armed render on the converged m15 state.
+      Status 27-Nov: env arming verified by standalone driver;
+      first armed render (13774852) emitted zero census lines -
+      root cause: the production OBS deck has DO_SOB_LINES=F, so
+      CMF_FLUX_SUB_V5 returns before the EW section. Resubmitted
+      (13775749) with DO_SOB_LINES=T + DO_NONMONO_SOB=T +
+      GLOBAL_LINE=SOB on the staged copy. EXPONX guard counters
+      folded into the report in sobew_grad_v2.f (uncommitted;
+      awaits ./build.sh verification + a worktree rebuild so the
+      armed render prints them).
 
 ## Coupled wavelength-depth block solve scoping (24-Nov-2026, user-directed)
 
