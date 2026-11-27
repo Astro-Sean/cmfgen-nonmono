@@ -716,6 +716,59 @@ def main():
         "CKPT_TAG_OK= F" in rc.stdout,
     )
 
+    # --- WP-M1: compressing-branch march stall (use_lam_es_eq_f.md) --
+    # The 'rfj' fixture puts the production depth structure on a
+    # single-cell velocity jump (sigt=-60): a thin, scattering
+    # compressing band (arg10 scales CHI inside the band, arg13 sets
+    # its albedo) inside an absorption-anchored column (arg9 ~ 0).
+    # At tight log-frequency spacing (arg14=1E-4) and high outer
+    # velocity (arg15=1E5) the compressing rows reach the production
+    # marginal-map regime: nu-census amax ~0.96 vs the m15 diagnosis
+    # value 9.947E-01. One plain ALT refresh -- the production
+    # failing-arm schedule -- must stall the compressing branch while
+    # the expanding branch converges and carries the refresh.
+    #
+    # Fixture deviations from production defaults, both schedule
+    # knobs, no physics changes:
+    # - MOM_RF_BULK_EXIT off (arg16=0): the fixture's compressing
+    #   drifts sit below the >50% count, so the bulk gate would exit
+    #   at pass 4 and mask the stall (production's >50% counts kept
+    #   the gate closed past the stall floor).
+    # - NCF_IN=32 build: the jump's matched spans (NM_J~7) must stay
+    #   on-grid at most frequencies; NCF=8 leaves only L=1 in-grid.
+    exe32 = compile_and_link_prod(
+        "mom_solve_ncf32",
+        [SRC / h for h in HELPERS]
+        + [F90DIR / "stub_vadat.f", F90DIR / "drv_mom_solve.f"],
+        extra_flags=["-DNCF_IN=32"],
+    )
+    rs = run(exe32, "rfj", "nonj", "3", "1", "diff", "none", "1",
+             "t_rfj_stall", "0.0", "10", "0.0", "0.0",
+             "0.99", "1e-4", "1e5", "0", cwd=WORKDIR, timeout=600)
+    rep.check("rfj: driver completed", "RESULT_OK" in rs.stdout,
+              rs.stdout[-300:] if "RESULT_OK" not in rs.stdout else "")
+    rep.check(
+        "rfj: compressing branch stalls on the ALT march",
+        "Compressing direction stalled - dropping it" in rs.stdout,
+        rs.stdout[-400:],
+    )
+    rep.check(
+        "rfj: expanding branch survives (production signature)",
+        "Expanding direction stalled" not in rs.stdout
+        and "Both directions stalled" not in rs.stdout,
+    )
+    rep.check(
+        "rfj: refresh exits converged behind the expanding branch",
+        kv(rs.stdout, "RFST_CONV") > 0.5,
+        f"RFST_CONV={kv(rs.stdout, 'RFST_CONV')}",
+    )
+    rep.check(
+        "rfj: nu-census amax in the production marginal regime",
+        kv(rs.stdout, "RFST_AMAX") > 0.9,
+        f"RFST_AMAX={kv(rs.stdout, 'RFST_AMAX')} "
+        f"NA9={kv(rs.stdout, 'RFST_NA9')}",
+    )
+
     rep.summary()
 
 
