@@ -2618,6 +2618,15 @@
 	1     'JFNK_LS_MAX_EVALS_FRAC',L_FALSE,
 	2     'Fraction of remaining eval budget the LS may spend')
 !
+! WP-5.1: tau-drift preconditioner refresh threshold under PTC --
+! when the folded diagonal's tau has drifted this far from live
+! tau (ratio) or the iterate has drifted (rel inf-norm), the next
+! commit refolds the live tau. 0 disables the trigger.
+!
+	  JFNK_PC_TAU_FAC=4.0D0
+	  CALL RD_STORE_DBLE(JFNK_PC_TAU_FAC,'JFNK_PC_TAU_FAC',L_FALSE,
+	1     'PTC tau/x drift factor triggering precond refresh (0=off)')
+!
 	  JFNK_CAUCHY=.TRUE.
 	  CALL RD_STORE_LOG(JFNK_CAUCHY,'JFNK_CAUCHY',L_FALSE,
 	1     'Use Cauchy (M^-1 F) fallback direction?')
