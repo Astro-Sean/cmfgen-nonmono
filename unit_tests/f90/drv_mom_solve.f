@@ -50,7 +50,7 @@
       REAL(KIND=LDP) JNU(ND),RSQH(ND)
       REAL(KIND=LDP) FREQ,DLN,DLNC,V0,RC,BETA,T1,T2,S0,DLNR
       REAL(KIND=LDP) ALB,CHISCL,CHIWAV,PERT,PFAC,BALB
-      REAL(KIND=LDP) DLNA,V0A,RFBLK,RFMAXP,RFRLX,RFAA
+      REAL(KIND=LDP) DLNA,V0A,RFBLK,RFMAXP,RFRLX,RFAA,RFDIR
       REAL(KIND=LDP) VDOP_FRAC,DBB,IC,IBSTAB,FJ,HF,GF
       REAL(KIND=LDP) FRQ(NCF),NU_NXT
       CHARACTER(LEN=32) MODE,NTYPE,INBM,HCHK,OUTTAG,CARG
@@ -175,6 +175,16 @@
       RFAA=-1.0_LDP
       CALL GETARG(19,CARG)
       IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)RFAA
+!
+! Optional arg 20: rfst/rfj pass-order selector. 0 keeps the
+! production failing-arm schedule 'ALT'; 1 forces all-descending
+! (the live-GS compressing read under MOM_DOM_CMP) and 2 forces
+! all-ascending. Used to separate the Jacobi snapshot lag from the
+! compressing map's own contractivity.
+!
+      RFDIR=0.0_LDP
+      CALL GETARG(20,CARG)
+      IF(LEN_TRIM(CARG) .GT. 0)READ(CARG,*)RFDIR
 !
       NTYP6='N_ON_J'
       IF(NTYPE .EQ. 'gonly')NTYP6='G_ONLY'
@@ -692,7 +702,22 @@
 ! diagnosis reported (nu-census amax 9.947E-01).
 !
         CALL SET_MOM_AUG_RES(.TRUE.)
-        CALL SET_MOM_RF_DIR_OPT('ALT ',.TRUE.,.TRUE.,.TRUE.)
+        IF(RFDIR .EQ. 1.0_LDP)THEN
+          CALL SET_MOM_RF_DIR_OPT('DESC',.TRUE.,.TRUE.,.TRUE.)
+        ELSE IF(RFDIR .EQ. 2.0_LDP)THEN
+          CALL SET_MOM_RF_DIR_OPT('ASC ',.TRUE.,.TRUE.,.TRUE.)
+        ELSE
+          CALL SET_MOM_RF_DIR_OPT('ALT ',.TRUE.,.TRUE.,.TRUE.)
+        END IF
+!
+! Pre-refresh J snapshot: on exit, the retained field's per-cell
+! distance back to this store localizes which rows the march could
+! not settle -- the compressing stall should live on the marginal
+! (census a -> 1) band cells.
+!
+        ALLOCATE(JRF0(ND_NM,NCF),STAT=IOS)
+        IF(IOS .NE. 0)GOTO 999
+        JRF0(1:ND_NM,1:NCF)=J_NEXT_FRQ(1:ND_NM,1:NCF)
         CALL MOM_KNOP_REFRESH_V1()
         WRITE(*,'(A,F4.1)')'RFST_CONV=',
      1    MERGE(1.0_LDP,0.0_LDP,MOM_RF_CONV)
@@ -706,6 +731,31 @@
         WRITE(*,'(A,I10)')'RFST_NA99=',NUC_NA99
         WRITE(*,'(A,I10)')'RFST_XSNEG=',NUC_XSNEG
         WRITE(*,'(A,I10)')'RFST_NROW=',NUC_NROW
+!
+! Net drift cells (I,L): distance from the pre-refresh store to the
+! retained field, ranked by the relative metric |D|/max(|J_prev|,
+! 1E-4*column peak). Converged expanding rows legitimately moved
+! far; a stalled compressing cell sits mid-range. The depth index
+! tells whether the moving cells live on the compressing band.
+!
+        DO NCASE=1,5
+          DMAX=0.0_LDP; IB1=0; IB2=0
+          DO L=1,NCF
+            T1=MAXVAL(ABS(JRF0(1:ND_NM,L)))
+            DO I=1,ND_NM
+              T2=ABS(J_NEXT_FRQ(I,L)-JRF0(I,L))/
+     1          MAX(ABS(JRF0(I,L)),1.0E-4_LDP*T1)
+              IF(T2 .GT. DMAX)THEN
+                DMAX=T2; IB1=I; IB2=L
+              END IF
+            END DO
+          END DO
+          IF(IB1 .EQ. 0)EXIT
+          WRITE(*,'(A,I2,A,2I8,A,ES12.4)')'RFST_TOP',NCASE,
+     1      '_CELL=',IB1,IB2,' DRIFT=',DMAX
+          JRF0(IB1,IB2)=J_NEXT_FRQ(IB1,IB2)
+        END DO
+        DEALLOCATE(JRF0)
         CALL SET_MOM_AUG_RES(.FALSE.)
       END IF
 !
