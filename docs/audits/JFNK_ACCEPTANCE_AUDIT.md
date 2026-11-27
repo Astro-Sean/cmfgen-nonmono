@@ -132,13 +132,78 @@ increases, not total fraction; a model that alternates
 increase/decrease could still ride the cap indefinitely, by GLL
 design.
 
-## WP-2 .. WP-7
+## WP-2: graded Krylov-stagnation response (28-Nov-2026)
 
-Not yet worked this session. Owed in checklist order after the
-WP-0 production harvest: WP-1 non-monotone accept (`JFNK_NM_ACCEPT`,
-`nm_credit`, `n_reject` for discarded LS accepts),
-WP-2 graded stagnation (`JFNK_STAG_POLICY`, GMRES budget
-decoupling), WP-3 budget-exhaustion signal (`JFNK_EVAL_BUDGET_HIT`),
+**Claim.** A `ginfo == 1` GMRES exit aborts Newton unless BOTH
+pred_res and the measured true_res beat 0.9*ref_norm
+(solver:1349-1371). Band [0.9,1.0)*ref directions - still a
+residual decrease - are discarded; a stale-preconditioner stall
+(true_res >= ref or unverifiable) aborts with no re-solve; and
+the preconditioner-refresh flag is only consumed inside sub() on
+accepted steps, so refresh requests raised during rejected passes
+starve.
+
+**Actions.**
+
+- WP-2.1 (new key `JFNK_STAG_POLICY`, 'ABORT'|'GRADED', default
+  'ABORT'): two flag-gated arms between the 0.9-tier accept and
+  the abort. (a) measured true_res < ref_norm -> keep the inexact
+  direction (ginfo=0); the dir_deriv > 0 half of the checklist
+  gate is enforced by the existing descent gate (:1603-1638),
+  which retries/hooksteps a non-descent direction before any
+  trial eval. (b) true_res >= ref_norm or unverifiable -> consume
+  `jfnk_need_precond_refresh` on the rejection path: call
+  JFNK_FACTOR_PRECOND_V1(.TRUE.) directly, tighten gres 10x,
+  re-arm the iteration budget, clear the stale jvp/pc flags
+  (they would otherwise kill the retry's first matvec), and
+  `cycle descent_retry`. After stag_retries = 2 the abort stands.
+- WP-2.2 (budget decoupling): `JFNK_GMRES_RST` absent-key default
+  is now ceil(JFNK_MAXGMRES/JFNK_M)-1, so the effective cap
+  min(MAXGMRES,(RST+1)*M) equals the advertised budget (was a
+  flat 1 -> 20 matvecs under 50/10, silently below the advertised
+  50). Explicit key values win unchanged. This is a deliberate
+  default change the checklist explicitly sanctions
+  ("either default RST ... or print a warning"); documented in
+  NONMONO_KEYS and the RCV comment.
+- WP-2.3: `JFNK_GMRES_STAG` already exposed jfnk_gmres_stag_tol
+  as a VADAT key (RCV:2019, sync solve_corr:408) - no new key
+  needed. The "stall persists over a full restart cycle"
+  refinement is documented as a follow-up consideration, not
+  implemented.
+- WP-2.4: covered by arm (b) - the refresh flag now has a
+  consumption point on the rejection path via the direct
+  JFNK_FACTOR_PRECOND_V1 call, not only inside sub().
+
+**Tests.** tests/jfnk_core/test_stag_graded.f90: linear problem
+F = (I+20S)(x-1), S the cyclic permutation - spectrum is a
+circle, so a starved solve (m=3, rst=0, budget 2m) exits on the
+restart cap at ~0.99*ref, squarely in the [0.9,1) band. Run A
+(ABORT): aborts on the first in-band stall, nits=1, NFACTOR=0.
+Run B (GRADED): arm (a) keeps the direction - 8 accepted iterates
+vs 1, no refresh spent. Run C (GRADED, matvec fails on every
+exit-measure call): arm (b) fires - NFACTOR=2 exactly, then the
+abort stands (info=3). A stale jfnk_jvp_failed flag poisoned the
+retry's first matvec before the flags were reset - arm (b) now
+clears them.
+
+**Regression note.** tests/jfnk_core/test_guards.f90 G14 fails
+under -O3 builds ('trust_region_too_small' vs expected
+'too_many_rejected_steps') on BOTH the HEAD and the WP-2 solver -
+a pre-existing optimization-sensitivity boundary between the
+pred_negligible and ared<=0 branches, not a WP-2 regression.
+-O2 builds of either pass. Owed: pin the G14 surrogate to a
+numerically robust arrangement.
+
+**Residual risk / owed.** GRADED is default-off pending the
+production A/B. Arm (b) spends one BA refactorization per retry -
+expensive on a real model, which is why retries cap at 2. The
+true_res < ref band relies on the exit measurement being
+trustworthy under the FD matvec (WP-4 territory).
+
+## WP-3 .. WP-7
+
+Not yet worked this session. Owed in checklist order:
+WP-3 budget-exhaustion signal (`JFNK_EVAL_BUDGET_HIT`),
 WP-4 FD-operator fixed linear map (`JFNK_H_FREEZE`/`JFNK_H_FORM`,
 lintest A/B), WP-5 tau-drift preconditioner refresh
 (`JFNK_PC_TAU_FAC`), WP-6 merit/operator consistency
@@ -151,4 +216,11 @@ WP-0 ledger columns), WP-7 admission-gate report (histogram +
 - WP-0: PARTIAL->VERIFIED pending production harvest (unit-verified;
   the checklist's harvest-before-logic-changes rule applies to
   WP-1+, not to this instrumentation WP).
-- WP-1..WP-7: OWED.
+- WP-1: PARTIAL->VERIFIED pending production harvest (unit-verified
+  both arms; flag default F).
+- WP-2: PARTIAL->VERIFIED pending production harvest (unit-verified
+  all three arms incl. rejection-path refresh consumption;
+  JFNK_STAG_POLICY default ABORT). JFNK_GMRES_RST default is now
+  derived - a sanctioned default change; the advertised budget is
+  now reachable.
+- WP-3..WP-7: OWED.
