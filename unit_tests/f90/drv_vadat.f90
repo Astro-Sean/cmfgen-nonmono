@@ -142,6 +142,8 @@
       WRITE(*,'(A,ES12.5)')'JFNK_PC_RCOND_MIN=',JFNK_PC_RCOND_MIN
       WRITE(*,'(A,I5)')'JFNK_PC_ITRY_CAP=',JFNK_PC_ITRY_CAP
       WRITE(*,'(A,L2)')'JFNK_PC_PAR_FACTOR=',JFNK_PC_PAR_FACTOR
+      WRITE(*,'(A,L2)')'JFNK_NM_ACCEPT=',JFNK_NM_ACCEPT
+      WRITE(*,'(A,I5)')'JFNK_NM_CREDIT=',JFNK_NM_CREDIT
       WRITE(*,'(A,L2)')'jfnk_pc_signed=',jfnk_pc_signed
       WRITE(*,'(A,L2)')'jfnk_pc_reg_zerocol=',jfnk_pc_reg_zerocol
       WRITE(*,'(A,L2)')'jfnk_pc_tiny_equil=',jfnk_pc_tiny_equil
