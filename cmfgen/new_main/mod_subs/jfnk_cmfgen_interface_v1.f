@@ -23,10 +23,11 @@
 	USE JFNK_CMFGEN_INT_MOD
 	USE JFNK_SOLVER_V1_MOD, ONLY: jfnk_ridge_floor, jfnk_ridge_floor_set,
 	1                            jfnk_n_reg_proj, jfnk_ptc_scale_ready,
-	2                            jfnk_ptc_anchor_ready, jfnk_ptc_dtau
+	2                            jfnk_ptc_anchor_ready, jfnk_ptc_dtau,
+	3                            JFNK_EVAL_CAP_V1
 	USE CONTROL_VARIABLE_MOD, ONLY: FIXED_NE, JFNK_USE_BANDED,
 	1                                JFNK_SELECTIVE_JVAR,
-	2                                JFNK_EVAL_BROKEN
+	2                                JFNK_EVAL_BROKEN, JFNK_MAX_EVALS
 	USE STEQ_DATA_MOD, ONLY: SE
 	IMPLICIT NONE
 !
@@ -418,6 +419,8 @@
 	JFNK_EVAL_BROKEN = .FALSE.
 	JFNK_T_START = OMP_GET_WTIME()
 	JFNK_SEC_HIT = .FALSE.
+	JFNK_EVAL_BUDGET_HIT = .FALSE.
+	JFNK_EVAL_CAP = JFNK_EVAL_CAP_V1(JFNK_EVAL_LIM,JFNK_MAX_EVALS)
 ! A stale .TRUE. here would let the next activation's residual calls
 ! skip the budget sentinels it exists to enforce.
 	JFNK_EVAL_BYPASS=.FALSE.
@@ -1769,6 +1772,7 @@
 ! go unenforced for ordinary residual calls.
 !
 	NEV_CAP=JFNK_EVAL_CAP_V1(JFNK_EVAL_LIM, JFNK_MAX_EVALS)
+	JFNK_EVAL_CAP=NEV_CAP
 	IF(NEV_CAP .GT. 0 .AND. .NOT. JFNK_EVAL_BYPASS .AND.
 	1     JFNK_N_RESIDUAL_EVALS .GE. NEV_CAP)THEN
 	  IF(JFNK_N_RESIDUAL_EVALS .EQ. NEV_CAP)THEN
@@ -1777,6 +1781,7 @@
 	2     ') exhausted -- forcing rejection path'
 	    FLUSH(LUER)
 	  END IF
+	  JFNK_EVAL_BUDGET_HIT=.TRUE.
 	  Y=1.0D20
 	  jfnk_resid_nbad=N
 	  JFNK_N_RESIDUAL_EVALS = JFNK_N_RESIDUAL_EVALS + 1
@@ -1798,6 +1803,7 @@
 	2     ' s) exhausted -- forcing rejection path'
 	    FLUSH(LUER)
 	  END IF
+	  JFNK_EVAL_BUDGET_HIT=.TRUE.
 	  Y=1.0D20
 	  jfnk_resid_nbad=N
 	  JFNK_N_RESIDUAL_EVALS = JFNK_N_RESIDUAL_EVALS + 1
