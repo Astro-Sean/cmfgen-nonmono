@@ -204,6 +204,10 @@ def main():
             v.get("JFNK_LS_MAX_EVALS_FRAC") == "2.500E-01",
         )
         rep.check(
+            "baseline: JFNK_PC_TAU_FAC defaults 4.0",
+            v.get("JFNK_PC_TAU_FAC") == "4.000E+00",
+        )
+        rep.check(
             "baseline: JFNK_GMRES_RST derives to ceil(90/30)-1 = 2",
             v.get("JFNK_GMRES_RST") == "2",
         )
