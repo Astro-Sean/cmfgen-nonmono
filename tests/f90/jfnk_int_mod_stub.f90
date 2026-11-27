@@ -21,6 +21,10 @@ module jfnk_cmfgen_int_mod
    ! WP-0: ledger/accounting routines report the interface-side eval
    ! total; the stub counter stays 0 unless a driver's f() bumps it.
    integer, save :: JFNK_N_RESIDUAL_EVALS = 0
+   ! WP-3: mirrors production -- solver checks the flag after each
+   ! eval; tests set it directly to exercise the graceful stop.
+   logical, save :: JFNK_EVAL_BUDGET_HIT = .false.
+   integer, save :: JFNK_EVAL_CAP = 0
    ! WP-2: counts graded-stagnation refresh calls so tests can see
    ! the consumption on the rejection path.
    integer, save :: JFNK_STUB_NFACTOR = 0
