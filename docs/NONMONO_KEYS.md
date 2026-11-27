@@ -144,12 +144,23 @@ Dispatch in `cmfgen/new_main/cmfgen_sub.f` (VELTYPE):
   tau-Rosseland + log-R coordinate with structure-aware insertion
   at `sigma < -1` entries/minima and density spikes
   (`U_GAP_FAC` cell-gap floor). Same V/sigma evaluation as 13.
+  The exact coordinate (rv_sn_model_snhyd.f:372-379):
+  `U_i = sum_j [ max(ltau_j,TAU_LO) - max(ltau_{j-1},TAU_LO)
+  + ALPHA_R*|dlogR_j| ]` with `TAU_LO = max(ltau_2,
+  ltau_max - 4.0)` in natural-log units, `ALPHA_R=1.5`; tau is
+  trapezoid of file-Kappa*rho (floored at 1e-6*kappa_max). SIGMA =
+  analytic derivative of the Steffen cubic used for V
+  (`dlnV/dlnR - 1`, :517); no |dV/dR| floor is applied - the
+  Sobolev-side Dessart tau floor handles sigma ~ -1 downstream.
+  Correctness evidence: docs/audits/VEL_LAW14_REVIEW_2026-11-27.md.
 
 Grid-side comparison on the real m15 structure (ND=70, production
-drivers, `unit_tests/work/grid_ab`): the tau_es grids put ~80% of
-depths below V=100 km/s; VEL_LAW=14 trades most of that for 5-8x
-the resolution in the 300-2000 km/s shell and the ejecta, and
-captures the CDS sigma spike deeper (-82 vs -63/-36, source -157).
+drivers, `unit_tests/work/grid_ab` + 27-Nov audit JSON): the
+tau_es grids put ~80% of depths below V=100 km/s; VEL_LAW=14
+trades most of that for a measured ~4.3x node concentration in
+the CDS+ejecta zone (43 vs 10 nodes below R=36460; 13 vs 3 below
+R=16805 - supersedes the earlier "5-8x" estimate), and captures
+the CDS sigma spike deeper (-82 vs -63/-36, source -157).
 
 `VEL_LAW` in `vadat_overrides` always wins: the forced non-mono
 table stamps 11 only when the key is absent. `RD_IN_R_GRID=F`
