@@ -2897,13 +2897,29 @@ floor. Per-WP detail: `docs/audits/JFNK_ACCEPTANCE_AUDIT.md`.
       JFNK_LS_MAX_EVALS_FRAC=0.25 caps LS spend. Unit-verified
       (test_budget_stop 6/6); flag default unchanged semantics
       (sentinel path), owed production A/B.
-- [ ] WP-4 FD-operator fixed linear map: lintest probes,
-      JFNK_H_FREEZE, JFNK_H_FORM variants, BA JVP A/B.
-- [ ] WP-5 preconditioner lag under PTC: tau-drift refresh
-      (JFNK_PC_TAU_FAC), folded/unfolded sign test.
-- [ ] WP-6 merit/operator consistency: dir_deriv_F vs
-      dir_deriv_G telemetry (WP-0 ledger columns already land),
-      JFNK_DESCENT_BASIS, alpha-sweep diagnostic.
-- [ ] WP-7 admission-gate policy report (report-only): demand
-      histogram, condition-loss fractions, BA_LAST_RAW age,
-      recommendation in docs/audits/.
+- [x] WP-4 FD-operator fixed linear map: JFNK_H_FREEZE (default
+      F) freezes the clip cap from the first Arnoldi direction of
+      each solve so the matvec is a fixed linear map; frozen-cap
+      violations counted/logged. JFNK_H_FORM ('INFNORM' default)
+      adds TWO_NORM (Knoll & Keyes 2004 eqs 12-16) and
+      COMPONENTWISE (scalar min) base steps. Owed: lintest A/B
+      and BA-JVP comparison on the validation run (production
+      harvest), promotion decision after.
+- [x] WP-5 preconditioner lag under PTC: JFNK_PC_TAU_FAC
+      (default 4, 0=off); tau/x snapshots at factorization,
+      drift > factor raises jfnk_need_precond_refresh consumed
+      by the commit-path refold. Unit-verified T1/T2 drift arms
+      in test_ptc_sign (GMRES-its trigger disabled in-test to
+      isolate). Owed: production A/B.
+- [x] WP-6 merit/operator consistency: JFNK_DESCENT_BASIS
+      (F|G|BOTH, default F) picks the descent-gate inner product
+      under PTC; Armijo slope/Cauchy merit follow. dir_deriv_F
+      vs dir_deriv_G telemetry live since WP-0. True-residual
+      alpha-sweep diagnostic added on the first two Newton
+      passes. Owed: production A/B.
+- [x] WP-7 admission-gate policy instrumentation: JFNK_GATE_REC
+      line per call (it, dem_in, gates, hit counters, nreq_eff,
+      contraction, BA_LAST_RAW age via new BA_LAST_RAW_IT,
+      LAM_STABLE_PROVEN, tier, defer class). Owed: histogram +
+      relative-vs-absolute recommendation from the validation
+      run (report-only; no defaults changed).
