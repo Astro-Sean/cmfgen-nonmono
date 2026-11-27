@@ -79,7 +79,27 @@ predates the `sobew_grad_v2.f` fold; from the zero overflow
 counts the bound did not engage.  A worktree rebuild + rerun
 will add the printed counters for completeness.
 
+## WP6: guard-counter verification (job 13783512, VERIFIED)
+
+Worktree rebuilt at `118f6779` (`cmf_flux.exe` md5
+`9c403faa5fb7412fda09ae2e9d574764`) and the same staged render
+rerun.  All census lines reproduce the 13775749 numbers exactly;
+the new line reports
+
+```
+SOB_T1_CENSUS: EXPONX guard =        0  d_EXPONX guard =        0
+```
+
+The X < -700 bound never engaged on m15, matching the WP3
+analysis (the dangerous sigma_true window (-1.0005, -1) is never
+entered).  OUT_FLUX vs the 13775749 copy differs only in two
+last-ulp T1 warning digits (OpenMP order noise, ~1e-14 rel) plus
+the added counter line.  The `obs_fin_10` in this deck is the
+DO_SOB_LINES=T reduced EW product (815 frequencies), not the
+production spectrum - expected for this staged INIT.
+
 Regression artifact: the staged render dir
-`scratch/render_valsob_census/` (OUT_FLUX lines 240-247) is the
-armed-census reference; reproduce with
+`scratch/render_valsob_census/` (OUT_FLUX lines 240-248; pre-fold
+copy saved as `OUT_FLUX_13775749`) is the armed-census
+reference; reproduce with
 `scratch/render_valsob_census/run_render.sh`.

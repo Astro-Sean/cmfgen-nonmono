@@ -779,6 +779,21 @@ Working the six work packages in `checklists/SOB_check.md` (review of
       (extraction: `cmfgen_validation/wp1_jdepth_bfac.py` ->
       `wp1_jdepth_bfac_90pct.txt`; figure `plots/validation/
       fgknop_ab_wp1.png`). Verdict owed after leg 2 converges.
+      Resolved route flags actually run (OUTGEN banners): fgknop
+      arm = DO_SOB_FG_KNOP=T + auto GS_REL_STABLE=2 +
+      DO_NONMONO_FREQ_MATCH=T, with DO_FG13_ALO/DO_ES_ALI
+      absent-key auto-sets suppressed (0 ES_ALI lines vs 402 in
+      ref); all other resolved controls identical to the ref arm
+      (VEL_LAW=14, DO_NONMONO_SOB=T, USE_LAM_ES=T, DIAG,
+      GLOBAL_LINE=SOB, DO_NG=F, DO_JFNK=F, FIX_T=T).
+      Companion render-side arm (no re-convergence needed):
+      OBS_FG_KNOP=T on the converged VAL_sob state, staged at
+      scratch/render_valsob_obsknop (deck = production obs INIT
+      + one line `T [OBS_FG_KNOP]`); control render
+      scratch/render_valsob_refctl (13783932) reproduced
+      obs_fin_10/OBSFLUX bit-identical to the 24-Nov baseline on
+      worktree exe 9c403faa @ 118f6779; knop render 13783933
+      running.
 - [x] WP2 tau-floor coefficient: clean arXiv e-print
       (`arxiv.org/e-print/1503.05463`, ms.tex) confirms
       `max(|1+sigma*mu^2|, -0.2(1+sigma))`; verbatim quote and the
@@ -797,7 +812,7 @@ Working the six work packages in `checklists/SOB_check.md` (review of
       ~4e-16 rel = OpenMP order noise, confirmed by a same-exe
       rerun control (job 13775543). Full table:
       `docs/audits/SOB_CHECK_WP3_WP6_RENDER_AUDIT_2026-11-27.md`.
-- [~] WP4 wording: site comments corrected to
+- [x] WP4 wording: site comments corrected to
       `sigma >= -1 + 1e-4` at all FIVE floor sites (sobjbar_sim,
       sobew, sobew_grad, sobew_grad_v2, sobew_grad_v3) plus
       NONMONO_KEYS.md and the equation-map doc; crossover test T10
@@ -814,7 +829,7 @@ Working the six work packages in `checklists/SOB_check.md` (review of
       (snhyd:517); measured power-law sigma error 5.7E-4 at the
       production ND=70 and O(h^2) convergence; the four WP5 cases
       pass in the 69/69 battery.
-- [~] WP6 T1 census: env-armed `SOB_T1_CENSUS_MOD` instrumentation
+- [x] WP6 T1 census: env-armed `SOB_T1_CENSUS_MOD` instrumentation
       landed in sobew_grad_v2.f + report hook in cmf_flux_sub_v5.f
       (`CMF_SOB_T1_CENSUS=1`); regression artifact owed after a
       rebuild + armed render on the converged m15 state.
@@ -824,9 +839,15 @@ Working the six work packages in `checklists/SOB_check.md` (review of
       CMF_FLUX_SUB_V5 returns before the EW section. Resubmitted
       (13775749) with DO_SOB_LINES=T + DO_NONMONO_SOB=T +
       GLOBAL_LINE=SOB on the staged copy. EXPONX guard counters
-      folded into the report in sobew_grad_v2.f (uncommitted;
-      awaits ./build.sh verification + a worktree rebuild so the
-      armed render prints them).
+      folded into the report in sobew_grad_v2.f (committed
+      e9ed4fea); worktree rebuilt at 118f6779 (cmf_flux md5
+      9c403faa) and the armed render rerun (13783512): all
+      census numbers reproduced exactly and the report now
+      prints `EXPONX guard = 0  d_EXPONX guard = 0` - the bound
+      never engages on m15, matching the WP3 window analysis.
+      Artifact + diff notes in
+      docs/audits/SOB_CHECK_WP3_WP6_RENDER_AUDIT_2026-11-27.md.
+      WP6 closed.
 
 ## Coupled wavelength-depth block solve scoping (24-Nov-2026, user-directed)
 
