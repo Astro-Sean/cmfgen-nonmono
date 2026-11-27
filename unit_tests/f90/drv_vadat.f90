@@ -145,6 +145,8 @@
       WRITE(*,'(A,L2)')'JFNK_NM_ACCEPT=',JFNK_NM_ACCEPT
       WRITE(*,'(A,I5)')'JFNK_NM_CREDIT=',JFNK_NM_CREDIT
       WRITE(*,'(A,A)')'JFNK_STAG_POLICY=',TRIM(JFNK_STAG_POLICY)
+      WRITE(*,'(A,ES10.3)')'JFNK_LS_MAX_EVALS_FRAC=', &
+     &     JFNK_LS_MAX_EVALS_FRAC
       WRITE(*,'(A,I5)')'JFNK_GMRES_RST=',JFNK_GMRES_RST
       WRITE(*,'(A,L2)')'jfnk_pc_signed=',jfnk_pc_signed
       WRITE(*,'(A,L2)')'jfnk_pc_reg_zerocol=',jfnk_pc_reg_zerocol
