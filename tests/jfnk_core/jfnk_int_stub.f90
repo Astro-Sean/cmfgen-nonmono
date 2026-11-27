@@ -33,6 +33,11 @@ module jfnk_cmfgen_int_mod
    ! Activation-local budget the driver trims per rung; the residual
    ! sentinel enforces the tighter of it and JFNK_MAX_EVALS.
    integer :: JFNK_EVAL_LIM = 0
+   ! WP-3: mirrors production -- set by the residual when the
+   ! budget sentinel fires; tests set it directly to exercise the
+   ! graceful stop.
+   logical :: JFNK_EVAL_BUDGET_HIT = .false.
+   integer :: JFNK_EVAL_CAP = 0
    ! WP-2: counts graded-stagnation refresh calls so tests can see
    ! the consumption on the rejection path.
    integer :: JFNK_STUB_NFACTOR = 0
