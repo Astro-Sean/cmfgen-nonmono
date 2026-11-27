@@ -472,6 +472,7 @@
 	  jfnk_ls_nmwin_s=MIN(MAX(JFNK_LS_NMWIN,1),8)
 	  jfnk_do_nm_accept=JFNK_NM_ACCEPT
 	  jfnk_nm_credit_cap=MIN(MAX(JFNK_NM_CREDIT,0),16)
+	  jfnk_do_stag_graded=(JFNK_STAG_POLICY .EQ. 'GRADED')
 	  jfnk_do_cauchy=JFNK_CAUCHY
 	  jfnk_diagnostic_flag=JFNK_DIAGNOSTIC
 !
