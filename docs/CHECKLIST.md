@@ -1,5 +1,54 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [~] VEL_LAW=14 adversarial correctness review (27-Nov-2026,
+      user-directed via checklists/velaw14.md).
+      Question: is the RV_SN_MODEL_SNHYD TAU_OPT=1 grid/derivative
+      construction physically and numerically correct, and are the
+      four pinned input-validation defects (D1-D4 of
+      docs/audits/VEL_LAW14_SNHYD_GRID_AUDIT.md) fixable without
+      disturbing the V12/V13/V14 baselines?
+      Baseline: branch jfnk-acceptance-audit @ 0bf6a89d (HEAD;
+      authoritative tree - the checklist's clone-from-GitHub rule
+      maps to this SHA since origin/main is 621 commits behind).
+      Evidence plan: source-level verification of the call chain,
+      orientation, sigma definitions and the Steffen limiter vs the
+      paper; new unit/driver tests for the quantifiable items
+      (power-law sigma error, quadrature error, U inversion error,
+      ltau-shift and homology rescaling invariance, regrid
+      idempotence, VADAT round-trip); a finiteness/positivity input
+      screen for D1-D4; machine-readable grid diagnostics on the
+      real m15 SN_HYDRO_DATA; bounded Slurm arms only where a live
+      model is the required evidence (G items).
+      Exit criterion: every checklist item labelled CONFIRMED /
+      REFUTED / UNVERIFIED with file:line + excerpt or a committed
+      test; D1-D4 fixed test-first; verdict + deliverable doc
+      docs/audits/VEL_LAW14_REVIEW_2026-11-27.md.
+      Status 27-Nov: static audit complete; fixes committed on
+      jfnk-acceptance-audit (unpushed): 4ac2edbc IEEE finiteness
+      screen, 4ce95eed positivity screen, 1f025ea1 missing-Sigma
+      warning, 0d7d02c0 regression battery (69/69 pass). Sections
+      A-F verdict: construction CONFIRMED correct - Steffen limiter
+      matches the 1990 paper (interior D = secant-weighted mean,
+      endpoints extrapolative, sign-sum kills D at extrema,
+      mon_int_funs_v2.f:80-94); U blend and feature insertion
+      verified against an independent Python replica on the real
+      m15 file (docs/audits/vel14_grid_diagnostics.json:
+      ltau-shift invariant to 1E-14, homology rescale exact,
+      interior extremum preserved to 6E-14 in V, tau quadrature
+      err 1.25% max, U-inversion interp err 1.7E-3, zero
+      |1+sigma|<1E-3 nodes). -check all -fpe0 build clean on m15
+      + synthetic cases; bitwise deterministic. VEL_SPACE regrid
+      already aborts under nonmono flags (adjust_r_grid_v4.f:160),
+      and REV_RGRID=F makes the path unreachable on production
+      decks. Measured V14-vs-V13 CDS node ratio ~4.3x (43 vs 10
+      nodes R<36460) - corrects the "5-8x" claim in
+      docs/NONMONO_KEYS.md (~L150). New finding (documented
+      limitation, not a defect): the expansion factor aborts when
+      T1*V/R*|sigma+1| > 1 - on m15 (sigma~-82 at the CDS) that is
+      dt >~0.06 d past file age, so SN_AGE must track the file
+      age; the abort is correct vs silent corruption. G items
+      (live-model arms) remain open pending owner coordination.
+
 - [x] FIX 4 stage 2 phase 1: matrix-free augmented matvec
       MOM_AUG_MATVEC landed and verified (26-Nov-2026). Serves the
       FIX 4 augmented implicit (J,H) solve on the USE_LAM_ES=F
@@ -664,12 +713,18 @@ Working the six work packages in `checklists/SOB_check.md` (review of
       sobew, sobew_grad, sobew_grad_v2, sobew_grad_v3) plus
       NONMONO_KEYS.md and the equation-map doc; crossover test T10
       added to test_sob_tau_floor.py.
-- [~] WP5 VEL_LAW=14 tests: power-law sigma_true exactness
+- [x] WP5 VEL_LAW=14 tests: power-law sigma_true exactness
       (direct + chained), reversal sigma_true<-1 survival,
       monotonic-baseline identity, and a pre-expansion-SIGMA_HYDRO
       discrimination case added to test_rv_snhyd.py; production
       comment documenting pre-expansion detection added at
       rv_sn_model_snhyd.f insertion block.
+      Closed 27-Nov-2026 by the VEL_LAW=14 correctness review
+      (docs/audits/VEL_LAW14_REVIEW_2026-11-27.md A4/B7): SIGMA is
+      the analytic derivative of the same Steffen cubic used for V
+      (snhyd:517); measured power-law sigma error 5.7E-4 at the
+      production ND=70 and O(h^2) convergence; the four WP5 cases
+      pass in the 69/69 battery.
 - [~] WP6 T1 census: env-armed `SOB_T1_CENSUS_MOD` instrumentation
       landed in sobew_grad_v2.f + report hook in cmf_flux_sub_v5.f
       (`CMF_SOB_T1_CENSUS=1`); regression artifact owed after a
