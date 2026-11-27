@@ -193,14 +193,22 @@
 ! comparison against NaN is .FALSE. - and then either crashes
 ! opaquely inside LIN_INTERP's bracket walk or produces a quietly
 ! shifted grid (the MAX(Kappa,floor) absorbs a NaN first argument).
-! Sigma only needs finiteness - a negative sigma is the feature this
-! reader exists to keep.  Abort with the column, index and offending
+! Positivity is checked for the columns the recipe cannot repair:
+! R feeds LOG, and a negative Density or Kappa silently corrupts the
+! tau integral (only DENSITY(1) was screened before).  Sigma needs
+! only finiteness - a negative sigma is the feature this reader
+! exists to keep.  Abort with the column, index and offending
 ! value rather than a bare STOP.
 !
 	DO I=1,NX
 	  IF(.NOT. IEEE_IS_FINITE(R_HYDRO(I)))THEN
 	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
 	    WRITE(LUER,*)'Non-finite input Radius at I=',I,' value=',R_HYDRO(I)
+	    STOP
+	  END IF
+	  IF(R_HYDRO(I) .LE. 0.0_LDP)THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Non-positive input Radius at I=',I,' value=',R_HYDRO(I)
 	    STOP
 	  END IF
 	  IF(.NOT. IEEE_IS_FINITE(V_HYDRO(I)))THEN
@@ -214,9 +222,20 @@
 	1               ' value=',DENSITY_HYDRO(I)
 	    STOP
 	  END IF
+	  IF(DENSITY_HYDRO(I) .LE. 0.0_LDP)THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Non-positive input Density at I=',I,
+	1               ' value=',DENSITY_HYDRO(I)
+	    STOP
+	  END IF
 	  IF(.NOT. IEEE_IS_FINITE(KAPPA_HYDRO(I)))THEN
 	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
 	    WRITE(LUER,*)'Non-finite input Kappa at I=',I,' value=',KAPPA_HYDRO(I)
+	    STOP
+	  END IF
+	  IF(KAPPA_HYDRO(I) .LT. 0.0_LDP)THEN
+	    WRITE(LUER,*)'Error in RV_SN_MODEL_SNHYD'
+	    WRITE(LUER,*)'Negative input Kappa at I=',I,' value=',KAPPA_HYDRO(I)
 	    STOP
 	  END IF
 	  IF(.NOT. IEEE_IS_FINITE(SIGMA_HYDRO(I)))THEN
