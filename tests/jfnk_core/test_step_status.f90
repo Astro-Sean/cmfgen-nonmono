@@ -137,7 +137,8 @@ program test_step_status
       nits_prev = nits_row
       ! T2/T3: label classes
       select case(trim(tok(24)))
-      case('nm_armijo_decrease','ls_accept_noTR','full_newton_noTR', &
+      case('nm_armijo_decrease','nm_armijo_increase','ls_accept_noTR', &
+           'full_newton_noTR', &
            'accept_previous','accept_full_newton','accept_at_maxdel')
          nacc_rows = nacc_rows + 1
          if(nits_row /= nacc_rows - 1) then
