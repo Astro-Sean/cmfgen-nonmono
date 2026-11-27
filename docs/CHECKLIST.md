@@ -772,7 +772,15 @@ Working the six work packages in `checklists/SOB_check.md` (review of
       run_model_grid.py: FINAL job 13744001, OBS 13744002. Leg 1 hit
       the NUM_ITS budget at it448 / 90% converged (worst margin
       0.78 dex, pops demand ~3% and falling); leg-2 warm restart
-      FINAL 13774145 -> OBS 13774146 queued on QOSGrpCpuLimit.
+      FINAL 13774145 (+OBS dep 13774146) ran to it684 and was
+      cancelled 27-Nov-2026 at the plateau: Conv pinned at 80-90%
+      since ~it489, exempted demand flat ~1.6% for the last 10+
+      its, 0 unconverged population cells, NUM_ITS=10000 would
+      have ground ~85 s/it for days with no further contraction.
+      The leg-2 end state equals leg-1's 90% class, so the
+      verdict extraction (per-depth tables, 9 probes) can run on
+      the checkpoint that exists; the OBS dep died with the
+      parent.
       Resolved-control diff and the per-depth J/DC/9-probe tables
       at the 90% state are in
       `docs/audits/SOB_CHECK_WP1_FGKNOP_AB_2026-11-27.md`
@@ -3125,13 +3133,26 @@ floor. Per-WP detail: `docs/audits/JFNK_ACCEPTANCE_AUDIT.md`.
       (96363 JVPs, 32597 s Newton time, per-direction FD cap
       inflating the operator ~300x on pinned rows). Full table:
       docs/audits/JFNK_ACCEPTANCE_AUDIT.md "Production harvest".
-- [~] Telemetry arm RUNNING: m15_2p82d_VAL_sob_jfnk (13774528,
-      HEAD a02daa7a, defaults) - GATE_REC live (all defer class
-      `lambda` through it48), JFNK_LEDGER once Newton runs.
-- [~] A/B arm SUBMITTED: m15_2p82d_VAL_sob_jfnk_cplsob_ab
+- [x] Telemetry arm CLOSED: m15_2p82d_VAL_sob_jfnk (13774528,
+      HEAD a02daa7a, defaults) cancelled 27-Nov-2026 at it250.
+      GATE_REC histogram over the full run: 248 deferrals, split
+      lambda=219 / dem_over=23 / warmup=6 - the admission gate
+      never opened and Newton never ran (no JFNK_LEDGER). After
+      the ~it226 handoff the deck entered the documented
+      Lambda<->BA alternation: FULL_TFIX<->LAMBDA_TFIX flips with
+      BA HELD, kicks of 100-240% non-contracting (rising 85->98->98
+      at the tail), Conv oscillating 80-90%, 75-385 s/it.
+      Telemetry question answered; further iterations only
+      re-measure the alternation.
+- [x] A/B arm CLOSED: m15_2p82d_VAL_sob_jfnk_cplsob_ab
       (13778399): warm restart of the cplsob it666 checkpoint,
       identical deck + JFNK_NM_ACCEPT=T, JFNK_STAG_POLICY=GRADED,
-      JFNK_H_FREEZE=T, JFNK_LINTEST=T. Question: do coupled
-      attempts commit post-fix? Exit criterion: >=1 committed
-      correction or a classified failure mode; harvest with
-      docs/audits/jfnk_acceptance/jfnk_harvest.py.
+      JFNK_H_FREEZE=T, JFNK_LINTEST=T. Cancelled 27-Nov-2026 at
+      it807, exit criterion met by classified failure mode:
+      jfnk_harvest.py counts 116 admissions, 0 commits - 113
+      reach-fail skips (info=-2, "residual unreachable by
+      population step"), 2 GMRES solves ending budget_stop
+      (JFNK_LEDGER rows, 15 its each), 72 guard defers. Coupled
+      attempts still do not commit post-fix; the kicks decay
+      ~0.7x per ~17-it cycle but Newton never lands a step.
+      Conv plateaued at 90% (it713 onward), ~110 s/it.
