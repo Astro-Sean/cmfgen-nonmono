@@ -395,6 +395,24 @@ module jfnk_solver_v1_mod
    ! WP-6.2). Telemetry for the choice is the WP-0 ledger's
    ! dir_deriv_F / dir_deriv_G pair.
    integer          :: jfnk_desc_basis = 0
+   ! [JFNK_H_FREEZE] (default F) / [JFNK_H_FORM] ('INFNORM' default
+   ! | 'TWO_NORM' | 'COMPONENTWISE'): the per-component clip caps in
+   ! JFNK_JVP_V1 make the effective FD step direction-dependent, so
+   ! the matvec is not a fixed linear map and the Krylov basis is
+   ! built on a different operator every iteration (measured
+   ! hess_res 150-450x below true_res). With freeze on, the cap is
+   ! computed once from the FIRST Arnoldi direction of each GMRES
+   ! solve and reused for the rest -- h is then a fixed scalar and
+   ! the FD map is exactly homogeneous. jfnk_h_freeze_nv counts how
+   ! many later matvecs would have shrunk the step. jfnk_h_form_sel
+   ! picks the base-step formula: 0 = inf-norm (stock), 1 = Knoll &
+   ! Keyes 2004 two-norm, 2 = componentwise reduced to the scalar
+   ! min over active components.
+   logical          :: jfnk_do_h_freeze = .false.
+   double precision :: jfnk_h_frozen = 0d0
+   logical          :: jfnk_h_frozen_active = .false.
+   integer          :: jfnk_h_freeze_nv = 0
+   integer          :: jfnk_h_form_sel = 0
    !
    ! Cauchy (preconditioned-residual) fallback direction (review §3):
    ! When the Newton line search fails, try d_C = M^{-1}*F as a
@@ -2832,7 +2850,8 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
                                   jfnk_lgmres_q, jfnk_gdefl_on, &
                                   jfnk_gdefl_kmax, jfnk_aug_kmax, &
                                   jfnk_recyc_on, jfnk_cycstall_on, &
-                                  jfnk_cycstall_frac, jfnk_cycstall_nmax
+                                  jfnk_cycstall_frac, jfnk_cycstall_nmax, &
+                                  jfnk_h_frozen_active, jfnk_h_freeze_nv
    ! Fix #7 (review 2026-09-11): jfnk_precond_calls removed from GMRES.
    ! JFNK_PRECOND_V1 owns the sole preconditioner application counter
    ! (JFNK_N_PRECOND_APPLIES). Incrementing here double-counted every
@@ -2925,6 +2944,11 @@ subroutine gmres_m_v1(m, n, x, b, matvec, psolve, dotprd, h, v, &
    ! the caller's true-residual stagnation gate.
    jfnk_gmres_true_res_ok = .false.
    jfnk_gmres_true_res = 0d0
+   ! WP-4.2 [JFNK_H_FREEZE]: a new solve re-arms the FD-step freeze --
+   ! the next JVP computes the cap from the first Arnoldi direction
+   ! and every later matvec in this solve reuses it.
+   jfnk_h_frozen_active = .false.
+   jfnk_h_freeze_nv = 0
    if(allocated(w)) then
       if(size(w) .ne. n) deallocate(w, z)
    end if
