@@ -238,15 +238,67 @@ activation - matches the sentinel semantics. `JFNK_SEC_HIT` now
 also feeds the flag, so wall-clock exhaustion gets the same
 graceful exit instead of sentinel-trials. Production A/B owed.
 
-## WP-4 .. WP-7
+## WP-4: FD operator fixed linear map (28-Nov-2026)
 
-Not yet worked. Owed in checklist order:
-WP-4 FD-operator fixed linear map (`JFNK_H_FREEZE`/`JFNK_H_FORM`,
-lintest A/B), WP-5 tau-drift preconditioner refresh
-(`JFNK_PC_TAU_FAC`), WP-6 merit/operator consistency
-(`dir_deriv_F` vs `dir_deriv_G` telemetry now lands via the
-WP-0 ledger columns), WP-7 admission-gate report (histogram +
-`BA_LAST_RAW` age, report-only).
+The measured hess_res/true_res 150-450x split is the per-direction
+FD step cap making the matvec a different operator every Arnoldi
+step. Two flags, both default-off (stock h formula and cap path
+unchanged):
+
+- `JFNK_H_FREEZE` (F): the clip cap is computed from the first
+  Arnoldi direction of each GMRES solve and frozen for the rest;
+  gmres_m_v1 re-arms at solve entry (`jfnk_h_frozen_active`,
+  `jfnk_h_freeze_nv`). Later matvecs whose fresh cap would have
+  shrunk h are counted and logged once per solve. Frozen h makes
+  the FD map exactly homogeneous within the solve -- the WP-4.2
+  "fixed linear map" arm.
+- `JFNK_H_FORM` ('INFNORM'): 'TWO_NORM' is the Knoll & Keyes 2004
+  (Sec 3.2) h = eps*(1+|x|_2)/|v|_2; 'COMPONENTWISE' takes the
+  scalar min over active components of eps*max(|x_i|,1)/|v_i|
+  (a true vector h cannot act in a single directional
+  difference, so the min is the conservative scalar bound).
+
+WP-4.1 lintest probes (existing JFNK_LINTEST/JFNK_HSCAN machinery)
+and the WP-4.4 BA-JVP A/B are production-harvest items: the A/B
+verdict is hess_res vs true_res convergence at restart, read off
+the ledger columns on the validation run.
+
+## WP-5: preconditioner lag under PTC (28-Nov-2026)
+
+`JFNK_PC_TAU_FAC` (real, default 4, 0=off). JFNK_FACTOR_PRECOND_V1
+snapshots tau and x at factorization; per Newton pass, when
+max(tau/tau_f, tau_f/tau) or the relative inf-norm x drift exceeds
+the factor, `jfnk_need_precond_refresh` is raised and consumed by
+the commit-path refold (diagnostic v1). Unit-verified both arms in
+test_ptc_sign T1/T2 (white-box: set tau_at_factor / ptc_dtau past
+the factor with the GMRES-its trigger disabled to isolate the
+drift path).
+
+## WP-6: merit/operator consistency under PTC (28-Nov-2026)
+
+`JFNK_DESCENT_BASIS` (F|G|BOTH, default F). The gate tests the
+folded <F,J_G s> (measured pre-strip at the SER anchor) when 'G',
+either positive when 'BOTH'; the Armijo slope and Cauchy merit
+follow the selected derivative. Telemetry (WP-6.1) is the
+ledger's dir_deriv_F vs dir_deriv_G columns, live since WP-0.
+WP-6.3 alpha-sweep diagnostic: on the first two Newton passes the
+true ||F(x - a s)|| is evaluated along an alpha ladder and logged
+against the model-space sweep in jfnk_newton_diagnostic_v1.
+
+## WP-7: admission-gate policy instrumentation (28-Nov-2026)
+
+Report-only per the checklist; the data harvest rides the
+validation run. New `JFNK_GATE_REC` line emitted once per
+solve_for_pops call whenever USE_JFNK_SOLVER: great-iteration,
+gated demand (BA_LAST_RAW basis), both gates, FRZ/CPL hit
+counters, effective NREQ, contraction flag, BA_LAST_RAW age
+(new CVM var BA_LAST_RAW_IT, stamped where BA_LAST_RAW refreshes
+at the non-LAMBDA SOLVEBA exit), LAM_STABLE_PROVEN, resolved
+tier (frz/cpl/-) and a one-word defer class (warmup, lam_es,
+lambda, gs_freeze, rdlam_probe, dem_over, dem_rise, hits_lt_nreq,
+frz_hold, trace_phase). The histogram and the 7.4 relative-vs-
+absolute recommendation are owed in the validation report; no
+defaults changed.
 
 ## Verdict
 
@@ -259,9 +311,19 @@ WP-0 ledger columns), WP-7 admission-gate report (histogram +
   all three arms incl. rejection-path refresh consumption;
   JFNK_STAG_POLICY default ABORT). JFNK_GMRES_RST default is now
   derived - a sanctioned default change; the advertised budget is
-  now reachable.
+  now reachable. Known marginal: test_stag_graded B2 (and the
+  earlier G14) flip under -O3 rebuilds of the same semantics -
+  HEAD sources fail identically, i.e. pre-existing flag
+  sensitivity, not a WP regression.
 - WP-3: PARTIAL->VERIFIED pending production harvest (unit-verified:
   sentinel sites flag JFNK_EVAL_BUDGET_HIT, all five eval sites
   exit info=2 budget_stop, admission affordability gate, LS frac
   cap at default 0.25).
-- WP-4..WP-7: OWED.
+- WP-4: PARTIAL->VERIFIED pending production harvest (machinery
+  committed; the hess_res/true_res A/B needs the live admission).
+- WP-5: PARTIAL->VERIFIED pending production harvest (unit-verified
+  both drift arms).
+- WP-6: PARTIAL->VERIFIED pending production harvest (telemetry
+  columns live since WP-0; basis gate + alpha sweep committed).
+- WP-7: PARTIAL (instrumentation committed; histogram +
+  recommendation owed to the validation-run report).
