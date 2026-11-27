@@ -42,7 +42,7 @@ checkfc:
 	@if [ "$(FC_BASE)" != ifort ] && [ "$(FC_BASE)" != gfortran ]; then \
 	  echo "unsupported FC '$(FC)' - use ifort or gfortran"; exit 1; fi
 
-test: test_newton_core test_guards test_precond_blocks test_ptc_sign test_ptc_coords test_trace_state test_nm_window test_pc_quality test_schur test_gmres_edge
+test: test_newton_core test_guards test_precond_blocks test_ptc_sign test_ptc_coords test_trace_state test_nm_window test_pc_quality test_schur test_gmres_edge test_step_status
 	./test_newton_core
 	./test_guards
 	./test_precond_blocks
@@ -53,6 +53,7 @@ test: test_newton_core test_guards test_precond_blocks test_ptc_sign test_ptc_co
 	./test_pc_quality
 	./test_schur
 	./test_gmres_edge
+	./test_step_status
 
 test_ptc_coords: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_ptc_coords.o
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
@@ -103,6 +104,12 @@ test_gmres_edge: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_gmres_
 	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
 
 test_gmres_edge.o: test_gmres_edge.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
+	$(FC) $(FFLAGS) -I$(PMOD) -c $<
+
+test_step_status: jfnk_int_stub.o jfnk_solver_v1.o iter_log_fmt_mod.o test_step_status.o
+	$(FC) $(FFLAGS) -o $@ $^ $(LDLIBS)
+
+test_step_status.o: test_step_status.f90 checkfc jfnk_int_stub.o jfnk_solver_v1.o $(PMOD)/jfnk_solver_v1_mod.mod
 	$(FC) $(FFLAGS) -I$(PMOD) -c $<
 
 # Stage-B state machine: links the production control_variable_mod.o
