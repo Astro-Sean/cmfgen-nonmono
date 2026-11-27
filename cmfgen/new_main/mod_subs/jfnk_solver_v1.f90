@@ -371,6 +371,12 @@ module jfnk_solver_v1_mod
    ! consume a precond refresh on the rejection path and re-solve
    ! once at 10x-tighter eta before aborting.
    logical          :: jfnk_do_stag_graded = .false.
+   ! [JFNK_LS_MAX_EVALS_FRAC] (default 0.25): fraction of the
+   ! remaining activation eval budget the line search may spend per
+   ! Newton pass. The LS ladder is a formal-sweep cost, not free
+   ! residual samples -- letting it run to JFNK_LS_MAX unconditionally
+   ! can burn the whole activation budget on one step's trials.
+   double precision :: jfnk_ls_eval_frac = 0.25d0
    !
    ! Cauchy (preconditioned-residual) fallback direction (review §3):
    ! When the Newton line search fails, try d_C = M^{-1}*F as a
@@ -830,7 +836,8 @@ end subroutine jfnk_alloc_workspace
 subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
                             tol, del, mndl, mxdl, nits, info, luer)
    use jfnk_solver_v1_mod
-   use jfnk_cmfgen_int_mod, only: JFNK_NT, JFNK_COUPLED_LOC
+   use jfnk_cmfgen_int_mod, only: JFNK_NT, JFNK_COUPLED_LOC, &
+        JFNK_EVAL_BUDGET_HIT, JFNK_EVAL_CAP, JFNK_N_RESIDUAL_EVALS
    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
    use iter_log_fmt_mod, only: ilf_kvb, ilf_vi, ilf_vr
    implicit none
@@ -868,6 +875,7 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
    double precision :: phi_0, dphi_0, phi_alpha, alpha_ls, dtau_was
    double precision :: phi_ref   ! non-monotone LS reference (Oct-2026)
    integer          :: ls_step, nm_k
+   integer          :: ls_eval_cap, jfnk_ev_ls_thispass
    !
    ! Cauchy direction safeguards (audit 17-Sep-2026): the
    ! preconditioned-residual direction d_C = M^{-1}F now gets the same
@@ -1019,6 +1027,17 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! residual (anchor = 0 from JFNK_SET_PTC_SCALE_V1); strip it so
       ! jfnk_fx/jfnk_tol are F and |F|. No-op when PTC is off.
       call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
+   end if
+   ! WP-3.2: the entry eval may already be the budget sentinel
+   ! (a prior activation drained the rung budget); the entry state
+   ! is the best iterate by definition, so stop gracefully.
+   if(JFNK_EVAL_BUDGET_HIT) then
+      info = 2
+      jfnk_exit_reason = 'budget_stop'
+      jfnk_led_branch = 'budget_stop'
+      call jfnk_step_ledger_v1(n_reject)
+      if(info == 1) call jfnk_eval_account_v1(luer)
+      return
    end if
    jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
    tol_initial = jfnk_tol
@@ -1273,6 +1292,25 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       call gmres_m_v1(m, n, s, fx_, df, dfp, dp, h, v, gres, gdel, &
                        pred_res, jfnk_gits, ginfo, luer)
       jfnk_led_ginfo = ginfo
+      !
+      ! WP-3.1 [JFNK_EVAL_BUDGET_HIT]: the residual evals inside the
+      ! solve hit the activation budget and returned the sentinel --
+      ! the direction (and any GMRES exit code) is untrusted, but the
+      ! last accepted iterate is still good. Stop gracefully: info=2
+      ! sends the driver down the best-iterate commit path instead of
+      ! the unrecoverable EXIT it takes on info=3.
+      !
+      if(JFNK_EVAL_BUDGET_HIT) then
+         jfnk_x = x_
+         jfnk_fx = fx_
+         jfnk_tol = tol_
+         info = 2
+         jfnk_exit_reason = 'budget_stop'
+         jfnk_led_branch = 'budget_stop'
+         call jfnk_step_ledger_v1(n_reject)
+         if(info == 1) call jfnk_eval_account_v1(luer)
+         return
+      end if
       !
       ! Issue 3: request LU refresh when GMRES used most of its budget.
       !
@@ -1733,6 +1771,19 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
       ! pseudo-time term so jfnk_fx/jfnk_tol are F and |F|.
       call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
       !
+      ! WP-3.2: sentinel trial - budget is gone; the last accepted
+      ! iterate is the best available, so stop gracefully.
+      if(JFNK_EVAL_BUDGET_HIT) then
+         jfnk_x = x_
+         jfnk_fx = fx_
+         jfnk_tol = tol_
+         info = 2
+         jfnk_exit_reason = 'budget_stop'
+         jfnk_led_branch = 'budget_stop'
+         call jfnk_step_ledger_v1(n_reject)
+         if(info == 1) call jfnk_eval_account_v1(luer)
+         return
+      end if
       jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
       ared = tol_ - jfnk_tol
       pred = tol_ - pred_res_physical
@@ -1921,19 +1972,34 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
          end if
          jfnk_led_phiref = phi_ref
          !
+         ! WP-3.4 [JFNK_LS_MAX_EVALS_FRAC]: cap the LS spend per
+         ! pass at a fraction of the remaining activation budget so
+         ! a runaway ladder cannot drain the rung; on reaching the
+         ! cap the loop keeps whatever trial already passed Armijo.
+         jfnk_ev_ls_thispass = 0
+         ls_eval_cap = jfnk_ls_max_steps
+         if(JFNK_EVAL_CAP .gt. 0 .and. jfnk_ls_eval_frac .lt. 1.0d0) &
+            ls_eval_cap = min(jfnk_ls_max_steps, max(1, &
+               int(jfnk_ls_eval_frac * &
+               dble(max(0, JFNK_EVAL_CAP - JFNK_N_RESIDUAL_EVALS)))))
          ls_loop: do ls_step = 1, jfnk_ls_max_steps
+            if(jfnk_ev_ls_thispass .ge. ls_eval_cap) exit ls_loop
             alpha_ls = jfnk_ls_beta_fac ** dble(ls_step)
             jfnk_x = x_ - alpha_ls * s
             tw_ev = jfnk_wtime_v1()
             call f(n, jfnk_x, jfnk_fx)
             jfnk_tm_ls = jfnk_tm_ls + (jfnk_wtime_v1() - tw_ev)
             jfnk_ev_ls = jfnk_ev_ls + 1
+            jfnk_ev_ls_thispass = jfnk_ev_ls_thispass + 1
             jfnk_led_lssteps = ls_step
             if(minval(jfnk_fx) >= 1d19) &
                jfnk_ev_sentinel = jfnk_ev_sentinel + 1
             jfnk_total_f_evals = jfnk_total_f_evals + 1
             ! SER anchor fix (06-Oct-2026): strip to F before |F|.
             call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
+            ! WP-3.2: sentinel trial -- leave the loop keeping the
+            ! best accepted trial (ls_accepted); handled post-loop.
+            if(JFNK_EVAL_BUDGET_HIT) exit ls_loop
             jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
             phi_alpha = 0.5d0 * jfnk_tol * jfnk_tol
             if(phi_alpha <= phi_ref + jfnk_ls_armijo_c * alpha_ls * dphi_0) then
@@ -2131,6 +2197,9 @@ subroutine newton_hook_v1(f, df, dfp, sub, dp, m, n, gtol, &
             jfnk_total_f_evals = jfnk_total_f_evals + 1
             ! SER anchor fix (06-Oct-2026): strip to F before |F|.
             call jfnk_ptc_strip_v1(n, jfnk_x, jfnk_fx)
+            ! WP-3.2: sentinel trial -- leave the Cauchy sweep
+            ! keeping whatever trial already accepted.
+            if(JFNK_EVAL_BUDGET_HIT) exit cauchy_loop
             jfnk_tol = dsqrt(dp(n, jfnk_fx, jfnk_fx))
             if(jfnk_tol < tol_) then
                ! Simple sufficient decrease
