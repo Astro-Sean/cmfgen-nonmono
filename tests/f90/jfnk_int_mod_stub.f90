@@ -18,4 +18,7 @@ module jfnk_cmfgen_int_mod
    double precision, allocatable, save :: JFNK_BA_A(:,:,:)
    logical, save :: JFNK_LU_READY = .false.
    double precision, allocatable, save :: JFNK_BA_RIDGE_ADD(:,:)
+   ! WP-0: ledger/accounting routines report the interface-side eval
+   ! total; the stub counter stays 0 unless a driver's f() bumps it.
+   integer, save :: JFNK_N_RESIDUAL_EVALS = 0
 end module jfnk_cmfgen_int_mod
