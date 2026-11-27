@@ -668,6 +668,21 @@ which stamps the same value in the initial VADAT.
   OBSFLUX/OBSFRAME writes; non-converged KNOP models stop under T
   or render a marked diagnostic under the F opt-out
   (`test_knop_spec_gate.py`, 9 cases).
+- `OBS_FG_KNOP` (OBS CMF_FLUX_PARAM key, default F): diagnostic
+  formal-solver selector for the observer frame. When T,
+  `COMP_JCONT_V4.INC:925` dispatches the per-frequency solve to
+  `FG_J_CMF_NONMONO_V1` on the OBS-built `SIGMA_TRUE`, and the
+  three solver-machinery hooks arm (OBS grid registration
+  `SET_FG_GS_OBS_GRID`, refresh, maturity census). Every other
+  gate keeps its production `DO_NONMONO_SOB` behaviour, so an
+  OBS_FG_KNOP render compares formal solvers on an otherwise
+  identical state. `INC_GRID=T` + OBS_FG_KNOP aborts loudly
+  (same guard as DO_NONMONO_KNOP). Opt-in via
+  `cmfgen.cmf_flux_param_overrides`; not production-ready -
+  audit `CMF_FLUX_V12_VS_KNOP_FORMAL_SOLVER.md` rates its
+  GS-coupled field an immature iterate (direction of the
+  boundary-value correction robust, magnitude pending a
+  convergence program).
 - `DAMP_FJ`/`J_RESCUE`/`RESC_JMAX` - continuum-J rescue controls
   (`COMP_JCONT_V4.INC` etc.); `J_RESCUE=T` restores the previous
   frequency's field when stored J exceeds
