@@ -1,5 +1,37 @@
 # CHECKLIST - cmfgen_jfnk development ledger
 
+- [x] escatter.md checklist diagnosis (27-Nov-2026, user-directed
+      via checklists/escatter.md).
+      Question: do the four electron-scattering prescriptions in the
+      checklist (missing n_e stages, un-floored thermalization
+      epsilon, negative CMF integration weights under dv/dr<0,
+      analytic Eddington-factor smoothing) map onto real defects in
+      this fork?
+      Evidence: static audit, file:line per item. The checklist
+      cites a src/*.f90 layout that does not exist here; real
+      modules located first.
+      Verdict: all four prescriptions REJECTED or N-A -
+      (1) n_e summation is correct by construction
+      (eval_ed.f J-loop over all stages plus Z(NSPEC); driver loops
+      all SPECIES_PRES elements at set_new_model_estimates.f:687-695
+      and grey_t_iterate.f:366);
+      (2) no kappa_a/(kappa_a+kappa_e) epsilon exists to floor -
+      the continuum source is ETA/CHI directly
+      (fg_j_cmf_v13.f:1247) and EPS_NM is the comoving-frame
+      epsilon, a different object;
+      (3) the dv/dr<0 fold is what the Knop sign-split
+      characteristics solve (KN_GEO_REPS in
+      fg_j_cmf_nonmono_v1.f; upwind selected by EPS_NM sign at
+      mom_j_cmf_nonmono_v1.f:2531) - the |ds| absolute-path hack
+      would break the sign bookkeeping;
+      (4) Eddington factors are computed from formal-solution ray
+      moments (EDDFACTOR records, mom_j_cmf_nonmono_v1.f:631,1991),
+      not an analytic f(tau) - the prescribed fit would be worse.
+      No source changes. Full doc:
+      docs/audits/ESCATTER_CHECKLIST_DIAGNOSIS_2026-11-27.md.
+      The live ES defect remains the ES_ALI OAB noise arm
+      (USE_LAM_ES=F route, job 13749064), tracked below.
+
 - [~] VEL_LAW=14 adversarial correctness review (27-Nov-2026,
       user-directed via checklists/velaw14.md).
       Question: is the RV_SN_MODEL_SNHYD TAU_OPT=1 grid/derivative
