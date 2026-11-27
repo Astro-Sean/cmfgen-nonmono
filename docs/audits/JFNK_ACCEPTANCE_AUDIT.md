@@ -285,6 +285,57 @@ WP-6.3 alpha-sweep diagnostic: on the first two Newton passes the
 true ||F(x - a s)|| is evaluated along an alpha ladder and logged
 against the model-space sweep in jfnk_newton_diagnostic_v1.
 
+## Production harvest: the before picture (28-Nov-2026)
+
+The D5 before/after table needs a baseline measured on production
+admissions. Four finished m15 2.82d runs carry pre-WP binaries and
+print per-admission `JFNK final diagnostics` blocks plus (in the
+coupled arm) per-attempt solver exits; the pre-WP ITER_LEDGER also
+carries per-iteration jfnk counters. Harvest script:
+`docs/audits/jfnk_acceptance/jfnk_harvest.py`.
+
+| run | admissions | Newton ran | skip (info=-2) | FD-guard defer | gmres_stagnation_abort | commits |
+|---|---|---|---|---|---|---|
+| `VAL_sob_jfnk_eps1em3` | 237 | 0 | 237 | 153 | 0 | 0 |
+| `VAL_sob_jfnk_cplsob_eps1em3` | 237 | 133 | 104 | 130 | 133 | 0 |
+| `VAL_sob_jfnk_ngoff` | 297 | 0 | 297 | 180 | 0 | 0 |
+| `VAL_sob_jfnk_ngshadow` | 259 | 0 | 259 | 163 | 0 | 0 |
+| total | 1030 | 133 | 897 | 626 | 133 | 0 |
+
+The symptom is worse than "rarely accepted": in 1030 production
+admissions not a single Newton correction committed. Two failure
+classes split the population:
+
+- **Frozen-tier reach/guard skip (897 admissions, info=-2).** The
+  FD-image descent guard (`JFNK_FD_COS_MIN=0.05` + `JFNK_FD_AUTODEF`)
+  vetoes the admission after the probe JVPs; the trial direction is
+  certified a non-descent step before GMRES runs. Across the four
+  runs cos(F,A_FDz) is < 0.05 on 43-54% of probed admissions and
+  < 0 on 35-47%. Note cos(BAz,A_FDz) = 1.000 on every probe in every
+  run: the FD image is exactly parallel to the stored-BA image, so
+  the guard is not catching an FD-vs-BA disagreement - both
+  operators agree the preconditioned direction does not descend F.
+  This is the WP-6 regime (residual orthogonal to the reachable
+  subspace), not a bug in the guard.
+- **Coupled-attempt stagnation (133 admissions, all in cplsob).**
+  The coupled tier runs real Newton: 96363 JVPs, 649 PC calls,
+  32597 s of Newton time. Every attempt exits
+  `gmres_stagnation_abort` - the restart-cap ginfo=1 path of WP-2,
+  with the per-direction FD step cap inflating the FD operator
+  ~300x over stored BA on the pinned rows
+  (|diff|/|anal| = 303 on JVP dir 1; the h-sweep plateaus at
+  ~18x only for h_eff > 1e-17, i.e. production h is deep in the
+  cancellation regime). This is the WP-4 territory.
+
+**A/B arms in flight.** `m15_2p82d_VAL_sob_jfnk` (job 13774528,
+git_head a02daa7a, all flags at default): the WP-0/WP-7 telemetry
+arm - JFNK_LEDGER + eval accounting + GATE_REC once it passes
+LAMBDA. `m15_2p82d_VAL_sob_jfnk_cplsob_ab` (job 13778399, same
+build): warm restart of the cplsob arm's own it666 checkpoint,
+identical deck plus `JFNK_NM_ACCEPT=T`, `JFNK_STAG_POLICY=GRADED`,
+`JFNK_H_FREEZE=T`, `JFNK_LINTEST=T` - the WP-1/2/4 after-arm on the
+only configuration that reaches real Newton attempts.
+
 ## WP-7: admission-gate policy instrumentation (28-Nov-2026)
 
 Report-only per the checklist; the data harvest rides the
@@ -327,3 +378,26 @@ defaults changed.
   columns live since WP-0; basis gate + alpha sweep committed).
 - WP-7: PARTIAL (instrumentation committed; histogram +
   recommendation owed to the validation-run report).
+
+## Could not verify (D6, 28-Nov-2026)
+
+- Per-Newton-step "before" detail: the pre-WP builds have no
+  per-pass ledger (that is what WP-0 added). The before column of
+  the D5 table is therefore admission-level (attempts, evals, JVPs,
+  exit reason, commits, wall time), not LS-eval/Cauchy-eval level.
+- `JFNK_H_FORM` additivity comparison: WP-4.3 asks for the defect
+  under all three forms on one production admission. The cplsob_ab
+  arm measures the frozen INFNORM map via JFNK_LINTEST;
+  TWO_NORM/COMPONENTWISE need dedicated arms (one flag per run) or
+  offline replay. Owed.
+- Whether the FD-guard defers (897 of 1030 admissions) were the
+  right call physically: cos(BAz,A_FDz)=1.000 on every probe means
+  the guard never observed an FD-vs-BA disagreement - it vetoed on
+  the residual itself being orthogonal to the reachable subspace.
+  Whether a different (non-preconditioned) Newton direction could
+  descend there is a WP-6 question the dir_deriv_F/dir_deriv_G
+  ledger columns will answer on the telemetry arm.
+- test_stag_graded B2 / test_guards G14 -O3 fragility: pre-existing
+  flag sensitivity on HEAD sources, not a WP regression, but the
+  surrogate needs a numerically robust arrangement before the
+  suite is -O3-clean. Owed.
